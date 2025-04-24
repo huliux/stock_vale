@@ -710,12 +710,6 @@ class StockValuation:
         report.append(f"总股本: {self.total_shares/100000000:.2f} 亿股")
         report.append(f"市值: {self.market_cap:.2f} 亿元")
         
-        # 每股收益和每1元收益
-        eps = float(self.financials.iloc[0]['eps'])
-        earnings_per_yuan = (eps / self.latest_price) * 100  # 每1元投资获得的收益(%)
-        report.append(f"每股收益(EPS): {eps:.2f} 元")
-        report.append(f"每1元投资收益: {earnings_per_yuan:.2f}%")
-        
         # PE估值
         current_pe, pe_history = self.calculate_pe_ratio()
         report.append("\nPE估值:")
@@ -754,7 +748,7 @@ class StockValuation:
             for val in fcfe_full_vals:
                 report.append(f"增长率={val['growth_rate']:.1%}, 折现率={val['discount_rate']:.1%}: {val['value']:.2f} 元/股 ({val['premium']:+.2f}%)")
         
-        # DCF估值 (FCFE基本资本性支出)
+        # DCF估值 (FCFE调整后)
         fcfe_vals, fcfe_err = self.perform_fcfe_valuation_adjusted(growth_rates, discount_rates)
         report.append("\nDCF估值(FCFE基本资本性支出):")
         if fcfe_err:
@@ -809,743 +803,92 @@ class StockValuation:
         all_valuations = []
         
         # PE估值
-        pe_valuations = []
         for pe in pe_range:
             value = float(pe) * (self.financials.iloc[0]['n_income'] / 100000000) / (self.total_shares / 100000000)
             all_valuations.append(('PE', value))
-            pe_valuations.append(value)
         
         # PB估值
-        pb_valuations = []
         for pb in pb_range:
             value = float(pb) * self.financials.iloc[0]['bps']
             all_valuations.append(('PB', value))
-            pb_valuations.append(value)
         
-        # DCF估值 (FCFF基本版)
-        fcff_basic_valuations = []
+        # DCF估值
         if fcff_vals:
             for val in fcff_vals:
-                all_valuations.append(('DCF(FCFF基本)', val['value']))
-                fcff_basic_valuations.append(val['value'])
-        
-        # DCF估值 (FCFF完整版)
-        fcff_full_valuations = []
-        if fcff_full_vals and not fcff_full_err:
-            for val in fcff_full_vals:
-                all_valuations.append(('DCF(FCFF完整)', val['value']))
-                fcff_full_valuations.append(val['value'])
-        
-        # DCF估值 (FCFE基本版)
-        fcfe_basic_valuations = []
+                all_valuations.append(('DCF(FCFF)', val['value']))
         if fcfe_vals:
             for val in fcfe_vals:
-                all_valuations.append(('DCF(FCFE基本)', val['value']))
-                fcfe_basic_valuations.append(val['value'])
-        
-        # DCF估值 (FCFE完整版)
-        fcfe_full_valuations = []
-        if fcfe_full_vals and not fcfe_full_err:
-            for val in fcfe_full_vals:
-                all_valuations.append(('DCF(FCFE完整)', val['value']))
-                fcfe_full_valuations.append(val['value'])
+                all_valuations.append(('DCF(FCFE)', val['value']))
         
         # DDM估值
-        ddm_valuations = []
         if ddm_vals:
             for val in ddm_vals:
                 all_valuations.append(('DDM', val['value']))
-                ddm_valuations.append(val['value'])
         
         # EV/EBITDA估值
-        ev_ebitda_valuations = []
         for multiple in ev_ebitda_range:
             value = (float(multiple) * ebitda - (enterprise_value - self.market_cap * 100000000)) / self.total_shares
             all_valuations.append(('EV/EBITDA', value))
-            ev_ebitda_valuations.append(value)
         
-        # 计算各方法的中位数
-        method_medians = {}
-        if pe_valuations:
-            method_medians['PE'] = np.median(pe_valuations)
-        if pb_valuations:
-            method_medians['PB'] = np.median(pb_valuations)
-        if fcff_basic_valuations:
-            method_medians['DCF(FCFF基本)'] = np.median(fcff_basic_valuations)
-        if fcff_full_valuations:
-            method_medians['DCF(FCFF完整)'] = np.median(fcff_full_valuations)
-        if fcfe_basic_valuations:
-            method_medians['DCF(FCFE基本)'] = np.median(fcfe_basic_valuations)
-        if fcfe_full_valuations:
-            method_medians['DCF(FCFE完整)'] = np.median(fcfe_full_valuations)
-        if ddm_valuations:
-            method_medians['DDM'] = np.median(ddm_valuations)
-        if ev_ebitda_valuations:
-            method_medians['EV/EBITDA'] = np.median(ev_ebitda_valuations)
-        
-        # 计算6种组合估值
-        report.append("\n六种估值组合:")
-        
-        # 1. 全部方法
-        report.append("\n组合1 (综合):")
-        weights_all = {
-            'DCF(FCFF基本)': 0.1, 'DCF(FCFE基本)': 0.1,
-            'DCF(FCFF完整)': 0.1, 'DCF(FCFE完整)': 0.1,
-            'DDM': 0.2, 'PE': 0.15, 'PB': 0.1, 'EV/EBITDA': 0.15
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_all:
-                weighted_sum += median * weights_all[method]
-                total_weight += weights_all[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            report.append(f"综合估值: {weighted_avg:.2f} 元/股")
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            report.append(f"相对当前价格: {premium:+.2f}%")
+        # 计算综合估值
+        if all_valuations:
+            # 按方法分类
+            method_values = {}
+            for method, value in all_valuations:
+                if method not in method_values:
+                    method_values[method] = []
+                method_values[method].append(value)
             
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            report.append(f"投资建议: {recommendation}")
-        
-        # 2. 完整版DCF + 传统方法
-        report.append("\n组合2 (绝对（完整） + 相对):")
-        weights_full_dcf = {
-            'DCF(FCFF完整)': 0.2, 'DCF(FCFE完整)': 0.2,
-            'DDM': 0.2, 'PE': 0.15, 'PB': 0.1, 'EV/EBITDA': 0.15
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_full_dcf:
-                weighted_sum += median * weights_full_dcf[method]
-                total_weight += weights_full_dcf[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            report.append(f"综合估值: {weighted_avg:.2f} 元/股")
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            report.append(f"相对当前价格: {premium:+.2f}%")
+            # 计算各方法中位数
+            method_medians = {}
+            for method, values in method_values.items():
+                method_medians[method] = np.median(values)
             
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            report.append(f"投资建议: {recommendation}")
-        
-        # 3. 基本版DCF + 传统方法
-        report.append("\n组合3 (绝对（基本） + 相对):")
-        weights_basic_dcf = {
-            'DCF(FCFF基本)': 0.2, 'DCF(FCFE基本)': 0.2,
-            'DDM': 0.2, 'PE': 0.15, 'PB': 0.1, 'EV/EBITDA': 0.15
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_basic_dcf:
-                weighted_sum += median * weights_basic_dcf[method]
-                total_weight += weights_basic_dcf[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            report.append(f"综合估值: {weighted_avg:.2f} 元/股")
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            report.append(f"相对当前价格: {premium:+.2f}%")
+            # 设置权重
+            weights = {
+                'DCF(FCFF)': 0.2,
+                'DCF(FCFE)': 0.2,
+                'DDM': 0.2,
+                'PE': 0.15,
+                'PB': 0.1,
+                'EV/EBITDA': 0.1,
+            }
             
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            report.append(f"投资建议: {recommendation}")
-        
-        # 4. 仅完整版DCF + DDM
-        report.append("\n组合4 (绝对（完整） + 股息):")
-        weights_full_dcf_ddm = {
-            'DCF(FCFF完整)': 0.4, 'DCF(FCFE完整)': 0.4, 'DDM': 0.2
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_full_dcf_ddm:
-                weighted_sum += median * weights_full_dcf_ddm[method]
-                total_weight += weights_full_dcf_ddm[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            report.append(f"综合估值: {weighted_avg:.2f} 元/股")
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            report.append(f"相对当前价格: {premium:+.2f}%")
+            # 计算加权平均估值
+            weighted_sum = 0
+            total_weight = 0
+            for method, median in method_medians.items():
+                if method in weights:
+                    weighted_sum += median * weights[method]
+                    total_weight += weights[method]
             
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            report.append(f"投资建议: {recommendation}")
-        
-        # 5. 仅基本版DCF + DDM
-        report.append("\n组合5 (绝对（基本） + 股息):")
-        weights_basic_dcf_ddm = {
-            'DCF(FCFF基本)': 0.4, 'DCF(FCFE基本)': 0.4, 'DDM': 0.2
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_basic_dcf_ddm:
-                weighted_sum += median * weights_basic_dcf_ddm[method]
-                total_weight += weights_basic_dcf_ddm[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            report.append(f"综合估值: {weighted_avg:.2f} 元/股")
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            report.append(f"相对当前价格: {premium:+.2f}%")
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            report.append(f"投资建议: {recommendation}")
-        
-        # 6. 仅传统估值方法
-        report.append("\n组合6 (相对):")
-        weights_traditional = {
-            'PE': 0.4, 'PB': 0.3, 'EV/EBITDA': 0.3
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_traditional:
-                weighted_sum += median * weights_traditional[method]
-                total_weight += weights_traditional[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            report.append(f"综合估值: {weighted_avg:.2f} 元/股")
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            report.append(f"相对当前价格: {premium:+.2f}%")
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            report.append(f"投资建议: {recommendation}")
-        
-        # 计算估值区间
-        all_values = [v for _, v in all_valuations]
-        min_val = min(all_values)
-        max_val = max(all_values)
-        report.append(f"\n估值区间: {min_val:.2f} - {max_val:.2f} 元/股")
-        report.append(f"当前价格: {self.latest_price:.2f} 元/股")
+            if total_weight > 0:
+                weighted_avg = weighted_sum / total_weight
+                report.append(f"\n综合估值(加权平均): {weighted_avg:.2f} 元/股")
+                
+                # 计算估值区间
+                all_values = [v for _, v in all_valuations]
+                min_val = min(all_values)
+                max_val = max(all_values)
+                report.append(f"估值区间: {min_val:.2f} - {max_val:.2f} 元/股")
+                
+                # 投资建议
+                premium = (weighted_avg - self.latest_price) / self.latest_price * 100
+                if premium > 30:
+                    recommendation = "强烈买入"
+                elif premium > 15:
+                    recommendation = "买入"
+                elif premium > -10:
+                    recommendation = "持有"
+                elif premium > -30:
+                    recommendation = "减持"
+                else:
+                    recommendation = "强烈卖出"
+                
+                report.append(f"当前价格: {self.latest_price:.2f} 元/股 (相对综合估值: {premium:+.2f}%)")
+                report.append(f"投资建议: {recommendation}")
         
         return "\n".join(report)
-
-    def generate_markdown_report(self, pe_range, pb_range, growth_rates, discount_rates, ev_ebitda_range):
-        """生成Markdown格式的估值报告"""
-        # 获取所有估值数据
-        current_pe, pe_history = self.calculate_pe_ratio()
-        current_pb, pb_history = self.calculate_pb_ratio()
-        fcff_full_vals, fcff_full_err = self.perform_fcff_valuation_full_capex(growth_rates, discount_rates)
-        fcfe_full_vals, fcfe_full_err = self.perform_fcfe_valuation_full_capex(growth_rates, discount_rates)
-        fcfe_vals, fcfe_err = self.perform_fcfe_valuation_adjusted(growth_rates, discount_rates)
-        fcff_vals, fcff_err = self.perform_fcff_valuation_adjusted(growth_rates, discount_rates)
-        enterprise_value, ebitda, ev_to_ebitda = self.calculate_ev()
-        current_yield, div_history, avg_div, payout_ratio = self.calculate_dividend_yield()
-        income_growth, revenue_growth, cagr = self.calculate_growth_rate()
-        ddm_vals, ddm_err = self.calculate_ddm_valuation(growth_rates, discount_rates)
-        eps = float(self.financials.iloc[0]['eps'])
-        earnings_per_yuan = (eps / self.latest_price) * 100
-
-        
-        # 开始构建Markdown
-        md = f"""# 股票估值报告 - {self.ts_code} {self.stock_info['name']}
-
-*生成日期: {pd.Timestamp.now().strftime('%Y年%m月%d日')}*
-
-## 基本信息
-
-| 项目 | 数值 |
-|------|------|
-| 股票代码 | {self.ts_code} |
-| 股票名称 | {self.stock_info['name']} |
-| 当前价格 | {self.latest_price:.2f} 元 |
-| 总股本 | {self.total_shares/100000000:.2f} 亿股 |
-| 市值 | {self.market_cap:.2f} 亿元 |
-| 每股收益(EPS) | {eps:.2f} 元 |
-| 每1元投资收益 | {earnings_per_yuan:.2f}% |
-
-## 相对估值
-
-### PE估值
-
-| 指标 | 估值 | 相对当前价格 |
-|------|------|------------|
-| 当前PE | {current_pe:.2f} | - |
-"""
-        
-        # PE估值
-        for pe in pe_range:
-            value = float(pe) * (self.financials.iloc[0]['n_income'] / 100000000) / (self.total_shares / 100000000)
-            premium = (value - self.latest_price) / self.latest_price * 100
-            md += f"| PE={pe} | {value:.2f} 元/股 | {premium:+.2f}% |\n"
-        
-        md += f"""
-### PB估值
-
-| 指标 | 估值 | 相对当前价格 |
-|------|------|------------|
-| 当前PB | {current_pb:.2f} | - |
-"""
-        
-        # PB估值
-        for pb in pb_range:
-            value = float(pb) * self.financials.iloc[0]['bps']
-            premium = (value - self.latest_price) / self.latest_price * 100
-            md += f"| PB={pb} | {value:.2f} 元/股 | {premium:+.2f}% |\n"
-        
-        md += f"""
-### EV/EBITDA估值
-
-| 指标 | 估值 | 相对当前价格 |
-|------|------|------------|
-| 当前EV/EBITDA | {ev_to_ebitda:.2f} | - |
-"""
-        
-        # EV/EBITDA估值
-        for multiple in ev_ebitda_range:
-            value = (float(multiple) * ebitda - (enterprise_value - self.market_cap * 100000000)) / self.total_shares
-            premium = (value - self.latest_price) / self.latest_price * 100
-            md += f"| EV/EBITDA={multiple} | {value:.2f} 元/股 | {premium:+.2f}% |\n"
-        
-        md += """
-## 绝对估值
-
-### DCF估值(FCFF基本资本性支出)
-
-| 增长率 | 折现率 | 估值 | 相对当前价格 |
-|-------|-------|------|------------|
-"""
-        
-        # DCF估值 (FCFF基本)
-        if fcff_err:
-            md += f"| - | - | {fcff_err} | - |\n"
-        else:
-            for val in fcff_vals:
-                md += f"| {val['growth_rate']:.1%} | {val['discount_rate']:.1%} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
-        
-        md += """
-### DCF估值(FCFF完整资本性支出)
-
-| 增长率 | 折现率 | 估值 | 相对当前价格 |
-|-------|-------|------|------------|
-"""
-        
-        # DCF估值 (FCFF完整)
-        if fcff_full_err:
-            md += f"| - | - | {fcff_full_err} | - |\n"
-        else:
-            for val in fcff_full_vals:
-                md += f"| {val['growth_rate']:.1%} | {val['discount_rate']:.1%} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
-        
-        md += """
-### DCF估值(FCFE基本资本性支出)
-
-| 增长率 | 折现率 | 估值 | 相对当前价格 |
-|-------|-------|------|------------|
-"""
-        
-        # DCF估值 (FCFE基本)
-        if fcfe_err:
-            md += f"| - | - | {fcfe_err} | - |\n"
-        else:
-            for val in fcfe_vals:
-                md += f"| {val['growth_rate']:.1%} | {val['discount_rate']:.1%} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
-        
-        md += """
-### DCF估值(FCFE完整资本性支出)
-
-| 增长率 | 折现率 | 估值 | 相对当前价格 |
-|-------|-------|------|------------|
-"""
-        
-        # DCF估值 (FCFE完整)
-        if fcfe_full_err:
-            md += f"| - | - | {fcfe_full_err} | - |\n"
-        else:
-            for val in fcfe_full_vals:
-                md += f"| {val['growth_rate']:.1%} | {val['discount_rate']:.1%} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
-        
-        md += """
-### DDM估值(股利贴现模型)
-
-| 增长率 | 折现率 | 估值 | 相对当前价格 |
-|-------|-------|------|------------|
-"""
-        
-        # DDM估值
-        if ddm_err:
-            md += f"| - | - | {ddm_err} | - |\n"
-        else:
-            for val in ddm_vals:
-                md += f"| {val['growth_rate']:.1%} | {val['discount_rate']:.1%} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
-        
-        md += f"""
-## 其他分析
-
-### 股息分析
-
-| 指标 | 数值 |
-|------|------|
-| 当前股息率 | {current_yield:.2f}% |
-| 3年平均分红 | {avg_div:.2f} 元/股 |
-| 分红支付率 | {payout_ratio:.2f}% |
-
-### 增长分析
-
-| 指标 | 数值 |
-|------|------|
-| 3年净利润CAGR | {cagr.get('income_3y', 0):.2f}% |
-| 3年营收CAGR | {cagr.get('revenue_3y', 0):.2f}% |
-"""
-        
-        # 综合分析
-        # 收集所有估值结果
-        all_valuations = []
-        
-        # PE估值
-        pe_valuations = []
-        for pe in pe_range:
-            value = float(pe) * (self.financials.iloc[0]['n_income'] / 100000000) / (self.total_shares / 100000000)
-            all_valuations.append(('PE', value))
-            pe_valuations.append(value)
-        
-        # PB估值
-        pb_valuations = []
-        for pb in pb_range:
-            value = float(pb) * self.financials.iloc[0]['bps']
-            all_valuations.append(('PB', value))
-            pb_valuations.append(value)
-        
-        # DCF估值 (FCFF基本版)
-        fcff_basic_valuations = []
-        if fcff_vals:
-            for val in fcff_vals:
-                all_valuations.append(('DCF(FCFF基本)', val['value']))
-                fcff_basic_valuations.append(val['value'])
-        
-        # DCF估值 (FCFF完整版)
-        fcff_full_valuations = []
-        if fcff_full_vals and not fcff_full_err:
-            for val in fcff_full_vals:
-                all_valuations.append(('DCF(FCFF完整)', val['value']))
-                fcff_full_valuations.append(val['value'])
-        
-        # DCF估值 (FCFE基本版)
-        fcfe_basic_valuations = []
-        if fcfe_vals:
-            for val in fcfe_vals:
-                all_valuations.append(('DCF(FCFE基本)', val['value']))
-                fcfe_basic_valuations.append(val['value'])
-        
-        # DCF估值 (FCFE完整版)
-        fcfe_full_valuations = []
-        if fcfe_full_vals and not fcfe_full_err:
-            for val in fcfe_full_vals:
-                all_valuations.append(('DCF(FCFE完整)', val['value']))
-                fcfe_full_valuations.append(val['value'])
-        
-        # DDM估值
-        ddm_valuations = []
-        if ddm_vals:
-            for val in ddm_vals:
-                all_valuations.append(('DDM', val['value']))
-                ddm_valuations.append(val['value'])
-        
-        # EV/EBITDA估值
-        ev_ebitda_valuations = []
-        for multiple in ev_ebitda_range:
-            value = (float(multiple) * ebitda - (enterprise_value - self.market_cap * 100000000)) / self.total_shares
-            all_valuations.append(('EV/EBITDA', value))
-            ev_ebitda_valuations.append(value)
-        
-        # 计算各方法的中位数
-        method_medians = {}
-        if pe_valuations:
-            method_medians['PE'] = np.median(pe_valuations)
-        if pb_valuations:
-            method_medians['PB'] = np.median(pb_valuations)
-        if fcff_basic_valuations:
-            method_medians['DCF(FCFF基本)'] = np.median(fcff_basic_valuations)
-        if fcff_full_valuations:
-            method_medians['DCF(FCFF完整)'] = np.median(fcff_full_valuations)
-        if fcfe_basic_valuations:
-            method_medians['DCF(FCFE基本)'] = np.median(fcfe_basic_valuations)
-        if fcfe_full_valuations:
-            method_medians['DCF(FCFE完整)'] = np.median(fcfe_full_valuations)
-        if ddm_valuations:
-            method_medians['DDM'] = np.median(ddm_valuations)
-        if ev_ebitda_valuations:
-            method_medians['EV/EBITDA'] = np.median(ev_ebitda_valuations)
-        
-        # 计算估值区间
-        all_values = [v for _, v in all_valuations]
-        min_val = min(all_values)
-        max_val = max(all_values)
-        
-        md += f"""
-## 综合分析
-
-**估值区间: {min_val:.2f} - {max_val:.2f} 元/股**
-
-**当前价格: {self.latest_price:.2f} 元/股**
-
-### 六种估值组合
-
-| 组合 | 综合估值 | 相对当前价格 | 投资建议 |
-|------|---------|------------|---------|
-"""
-        
-        # 1. 全部方法
-        weights_all = {
-            'DCF(FCFF基本)': 0.1, 'DCF(FCFE基本)': 0.1,
-            'DCF(FCFF完整)': 0.1, 'DCF(FCFE完整)': 0.1,
-            'DDM': 0.2, 'PE': 0.15, 'PB': 0.1, 'EV/EBITDA': 0.15
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_all:
-                weighted_sum += median * weights_all[method]
-                total_weight += weights_all[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            
-            md += f"| 组合1 (综合) | {weighted_avg:.2f} 元/股 | {premium:+.2f}% | {recommendation} |\n"
-        
-        # 2. 完整版DCF + 传统方法
-        weights_full_dcf = {
-            'DCF(FCFF完整)': 0.2, 'DCF(FCFE完整)': 0.2,
-            'DDM': 0.2, 'PE': 0.15, 'PB': 0.1, 'EV/EBITDA': 0.15
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_full_dcf:
-                weighted_sum += median * weights_full_dcf[method]
-                total_weight += weights_full_dcf[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            
-            md += f"| 组合2 (绝对（完整） + 相对) | {weighted_avg:.2f} 元/股 | {premium:+.2f}% | {recommendation} |\n"
-        
-        # 3. 基本版DCF + 传统方法
-        weights_basic_dcf = {
-            'DCF(FCFF基本)': 0.2, 'DCF(FCFE基本)': 0.2,
-            'DDM': 0.2, 'PE': 0.15, 'PB': 0.1, 'EV/EBITDA': 0.15
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_basic_dcf:
-                weighted_sum += median * weights_basic_dcf[method]
-                total_weight += weights_basic_dcf[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            
-            md += f"| 组合3 (绝对（基本） + 相对) | {weighted_avg:.2f} 元/股 | {premium:+.2f}% | {recommendation} |\n"
-        
-        # 4. 仅完整版DCF + DDM
-        weights_full_dcf_ddm = {
-            'DCF(FCFF完整)': 0.4, 'DCF(FCFE完整)': 0.4, 'DDM': 0.2
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_full_dcf_ddm:
-                weighted_sum += median * weights_full_dcf_ddm[method]
-                total_weight += weights_full_dcf_ddm[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            
-            md += f"| 组合4 (绝对（完整） + 股息) | {weighted_avg:.2f} 元/股 | {premium:+.2f}% | {recommendation} |\n"
-        
-        # 5. 仅基本版DCF + DDM
-        weights_basic_dcf_ddm = {
-            'DCF(FCFF基本)': 0.4, 'DCF(FCFE基本)': 0.4, 'DDM': 0.2
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_basic_dcf_ddm:
-                weighted_sum += median * weights_basic_dcf_ddm[method]
-                total_weight += weights_basic_dcf_ddm[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            
-            md += f"| 组合5 (绝对（基本） + 股息) | {weighted_avg:.2f} 元/股 | {premium:+.2f}% | {recommendation} |\n"
-        
-        # 6. 仅传统估值方法
-        weights_traditional = {
-            'PE': 0.4, 'PB': 0.3, 'EV/EBITDA': 0.3
-        }
-        weighted_sum = 0
-        total_weight = 0
-        for method, median in method_medians.items():
-            if method in weights_traditional:
-                weighted_sum += median * weights_traditional[method]
-                total_weight += weights_traditional[method]
-        
-        if total_weight > 0:
-            weighted_avg = weighted_sum / total_weight
-            premium = (weighted_avg - self.latest_price) / self.latest_price * 100
-            
-            if premium > 30:
-                recommendation = "强烈买入"
-            elif premium > 15:
-                recommendation = "买入"
-            elif premium > -10:
-                recommendation = "持有"
-            elif premium > -30:
-                recommendation = "减持"
-            else:
-                recommendation = "强烈卖出"
-            
-            md += f"| 组合6 (相对) | {weighted_avg:.2f} 元/股 | {premium:+.2f}% | {recommendation} |\n"
-        
-        md += """
-## 估值方法说明
-
-| 估值方法 | 说明 |
-|---------|------|
-| PE估值 | 市盈率估值，基于公司每股收益与市场给予的估值倍数 |
-| PB估值 | 市净率估值，基于公司每股净资产与市场给予的估值倍数 |
-| EV/EBITDA估值 | 企业价值倍数估值，考虑公司债务情况的综合估值方法 |
-| DCF(FCFF基本) | 基本资本性支出的企业自由现金流贴现模型 |
-| DCF(FCFF完整) | 完整资本性支出(含投资支出)的企业自由现金流贴现模型 |
-| DCF(FCFE基本) | 基本资本性支出的股权自由现金流贴现模型 |
-| DCF(FCFE完整) | 完整资本性支出(含投资支出)的股权自由现金流贴现模型 |
-| DDM | 股利贴现模型，基于公司历史分红情况的估值方法 |
-
-## 投资建议标准
-
-| 建议 | 标准 |
-|------|------|
-| 强烈买入 | 估值溢价 > 30% |
-| 买入 | 估值溢价 15% ~ 30% |
-| 持有 | 估值溢价 -10% ~ 15% |
-| 减持 | 估值溢价 -30% ~ -10% |
-| 强烈卖出 | 估值溢价 < -30% |
-
----
-
-*本报告仅供参考，不构成任何投资建议*
-"""
-        
-        return md
 
 def main():
     """主程序入口"""
@@ -1573,22 +916,6 @@ def main():
     print("\n" + "="*50 + " 股票估值报告 " + "="*50)
     print(report)
     print("="*112)
-    
-    
-    # 生成Markdown报告
-    md_report_path = f"{args.stock}_valuation_report.md"
-    md_report = valuation.generate_markdown_report(
-        pe_range=pe_range,
-        pb_range=pb_range,
-        growth_rates=growth_rates,
-        discount_rates=discount_rates,
-        ev_ebitda_range=ev_ebitda_range
-    )
-    
-    with open(md_report_path, "w", encoding="utf-8") as f:
-        f.write(md_report)
-    
-    print(f"Markdown报告已生成: {md_report_path}")
 
 if __name__ == "__main__":
     main()
