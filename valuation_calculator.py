@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import configparser
 
 class ValuationCalculator:
     def __init__(self, stock_info, latest_price, total_shares, financials, dividends, market_cap):
@@ -9,6 +10,17 @@ class ValuationCalculator:
         self.financials = financials
         self.dividends = dividends
         self.market_cap = market_cap
+        
+        # 读取配置文件
+        config = configparser.ConfigParser()
+        config.read('config.ini')
+        
+        # 配置项
+        self.tax_rate = float(config['VALUATION']['tax_rate'])
+        self.default_growth_rates = [float(r) for r in config['VALUATION']['default_growth_rates'].split(',')]
+        self.default_discount_rates = [float(r) for r in config['VALUATION']['default_discount_rates'].split(',')]
+        self.cash_equivalents_percentage = float(config['VALUATION']['cash_equivalents_percentage'])
+        self.depreciation_amortization_percentage = float(config['VALUATION']['depreciation_amortization_percentage'])
 
     def calculate_pe_ratio(self):
         """计算当前PE和历史PE"""
@@ -74,7 +86,7 @@ class ValuationCalculator:
             # 计算EBIAT(税后息前利润) = (营业利润 + 财务费用) * (1 - 税率)
             operating_profit = float(row.get('operate_profit', 0))
             interest_expense = float(row.get('finan_exp', 0))
-            tax_rate = 0.25  # 假设税率25%
+            tax_rate = self.tax_rate
             ebit = operating_profit + interest_expense
             ebiate = ebit * (1 - tax_rate)
             
@@ -123,18 +135,18 @@ class ValuationCalculator:
         total_liabilities = float(latest_finance['total_liab'])
         total_equity = float(latest_finance['total_hldr_eqy_exc_min_int'])
         
-        # 假设现金及现金等价物为总资产的5%
+        # 假设现金及现金等价物为总资产的指定百分比
         total_assets = float(latest_finance['total_assets'])
-        cash_equivalents = total_assets * 0.05
+        cash_equivalents = total_assets * self.cash_equivalents_percentage
         
         enterprise_value = (self.market_cap * 100000000) + total_liabilities - cash_equivalents  # 转回为元
         
         # 计算EBITDA: 营业利润 + 折旧摊销
         operating_profit = float(latest_finance['operate_profit'])
         
-        # 假设折旧摊销为营业收入的5%
+        # 假设折旧摊销为营业收入的指定百分比
         total_revenue = float(latest_finance['total_revenue'])
-        depreciation_amortization = total_revenue * 0.05
+        depreciation_amortization = total_revenue * self.depreciation_amortization_percentage
         
         ebitda = operating_profit + depreciation_amortization
         
@@ -213,7 +225,7 @@ class ValuationCalculator:
             if avg_growth > 0:
                 growth_rates = [avg_growth * 0.8, avg_growth, avg_growth * 1.2]
             else:
-                growth_rates = [0.03, 0.05, 0.08]  # 默认增长率
+                growth_rates = self.default_growth_rates  # 默认增长率
         
         valuations = []
         for g in growth_rates:
@@ -269,7 +281,7 @@ class ValuationCalculator:
             if avg_growth > 0:
                 growth_rates = [avg_growth * 0.8, avg_growth, avg_growth * 1.2]
             else:
-                growth_rates = [0.05, 0.08, 0.1]  # 默认增长率
+                growth_rates = self.default_growth_rates  # 默认增长率
         
         valuations = []
         for g in growth_rates:
@@ -325,7 +337,7 @@ class ValuationCalculator:
             if avg_growth > 0:
                 growth_rates = [avg_growth * 0.8, avg_growth, avg_growth * 1.2]
             else:
-                growth_rates = [0.05, 0.08, 0.1]  # 默认增长率
+                growth_rates = self.default_growth_rates  # 默认增长率
         
         valuations = []
         for g in growth_rates:
@@ -381,7 +393,7 @@ class ValuationCalculator:
             if avg_growth > 0:
                 growth_rates = [avg_growth * 0.8, avg_growth, avg_growth * 1.2]
             else:
-                growth_rates = [0.05, 0.08, 0.1]  # 默认增长率
+                growth_rates = self.default_growth_rates  # 默认增长率
         
         valuations = []
         for g in growth_rates:
@@ -437,7 +449,7 @@ class ValuationCalculator:
             if avg_growth > 0:
                 growth_rates = [avg_growth * 0.8, avg_growth, avg_growth * 1.2]
             else:
-                growth_rates = [0.05, 0.08, 0.1]  # 默认增长率
+                growth_rates = self.default_growth_rates  # 默认增长率
         
         valuations = []
         for g in growth_rates:
