@@ -13,7 +13,8 @@ class ValuationCalculator:
         
         # 读取配置文件
         config = configparser.ConfigParser()
-        config.read('config.ini')
+        with open('config.ini', encoding='utf-8') as config_file:
+            config.read_file(config_file)
         
         # 配置项
         self.tax_rate = float(config['VALUATION']['tax_rate'])

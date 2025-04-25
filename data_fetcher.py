@@ -9,7 +9,8 @@ class DataFetcher:
         
         # 读取配置文件
         config = configparser.ConfigParser()
-        config.read('config.ini')
+        with open('config.ini', encoding='utf-8') as config_file:
+            config.read_file(config_file)
         
         # 数据库连接
         user = config['DATABASE']['user']
