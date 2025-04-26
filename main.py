@@ -18,6 +18,7 @@ def parse_arguments(config):
     parser.add_argument('--growth', type=str, help='增长率，用逗号分隔，例如：0.05,0.08,0.1', default=config['DEFAULT']['growth'])
     parser.add_argument('--discount', type=str, help='折现率，用逗号分隔，例如：0.1,0.12,0.15', default=config['DEFAULT']['discount'])
     parser.add_argument('--ev-ebitda', type=str, help='EV/EBITDA倍数，用逗号分隔，例如：6,8,10', default=config['DEFAULT']['ev_ebitda'])
+    parser.add_argument('--html', action='store_true', help='生成HTML格式报告')
     
     return parser.parse_args()
 
@@ -59,18 +60,18 @@ def main():
         market_cap=market_cap
     )
     
-    # 计算各项指标
-    pe_history = calculator.calculate_pe_ratio()
-    pb_history = calculator.calculate_pb_ratio()
+    # 确保所有计算结果不为 None
+    pe_history = calculator.calculate_pe_ratio() or 0
+    pb_history = calculator.calculate_pb_ratio() or 0
     income_growth, revenue_growth, cagr = calculator.calculate_growth_rate()
     latest_fcff, latest_fcfe, fcff_history, fcfe_history = calculator.calculate_fcff_fcfe()
-    enterprise_value, ebitda, ev_to_ebitda = calculator.calculate_ev()
-    current_yield, dividend_history, avg_div, payout_ratio = calculator.calculate_dividend_yield()
-    ddm_vals, _ = calculator.calculate_ddm_valuation(growth_rates, discount_rates)
-    fcff_full_vals, _ = calculator.perform_fcff_valuation_full_capex(growth_rates, discount_rates)
-    fcfe_full_vals, _ = calculator.perform_fcfe_valuation_full_capex(growth_rates, discount_rates)
-    fcfe_vals, _ = calculator.perform_fcfe_valuation_adjusted(growth_rates, discount_rates)
-    fcff_vals, _ = calculator.perform_fcff_valuation_adjusted(growth_rates, discount_rates)
+    enterprise_value, ebitda, ev_to_ebitda = calculator.calculate_ev() or (0, 0, 0)
+    current_yield, dividend_history, avg_div, payout_ratio = calculator.calculate_dividend_yield() or (0, [], 0, 0)
+    ddm_vals, _ = calculator.calculate_ddm_valuation(growth_rates, discount_rates) or ([], "")
+    fcff_full_vals, _ = calculator.perform_fcff_valuation_full_capex(growth_rates, discount_rates) or ([], "")
+    fcfe_full_vals, _ = calculator.perform_fcfe_valuation_full_capex(growth_rates, discount_rates) or ([], "")
+    fcfe_vals, _ = calculator.perform_fcfe_valuation_adjusted(growth_rates, discount_rates) or ([], "")
+    fcff_vals, _ = calculator.perform_fcff_valuation_adjusted(growth_rates, discount_rates) or ([], "")
     
     # 创建 StockData 对象
     stock_data = StockData(
@@ -87,18 +88,18 @@ def main():
         latest_fcfe=latest_fcfe,
         fcff_history=fcff_history,
         fcfe_history=fcfe_history,
-        enterprise_value=enterprise_value,
-        ebitda=ebitda,
-        ev_to_ebitda=ev_to_ebitda,
-        current_yield=current_yield,
-        dividend_history=dividend_history,
-        avg_div=avg_div,
-        payout_ratio=payout_ratio,
-        ddm_vals=ddm_vals,
-        fcff_full_vals=fcff_full_vals,
-        fcfe_full_vals=fcfe_full_vals,
-        fcfe_vals=fcfe_vals,
-        fcff_vals=fcff_vals
+        enterprise_value=enterprise_value or 0,
+        ebitda=ebitda or 0,
+        ev_to_ebitda=ev_to_ebitda or 0,
+        current_yield=current_yield or 0,
+        dividend_history=dividend_history or [],
+        avg_div=avg_div or 0,
+        payout_ratio=payout_ratio or 0,
+        ddm_vals=ddm_vals or [],
+        fcff_full_vals=fcff_full_vals or [],
+        fcfe_full_vals=fcfe_full_vals or [],
+        fcfe_vals=fcfe_vals or [],
+        fcff_vals=fcff_vals or []
     )
     
     # 生成报告
@@ -122,18 +123,20 @@ def main():
     
     # 生成Markdown报告
     md_report_path = f"{reports_folder}/{args.stock}_valuation_report.md"
-    md_report = report_generator.generate_markdown_report(
-        pe_range=pe_range,
-        pb_range=pb_range,
-        growth_rates=growth_rates,
-        discount_rates=discount_rates,
-        ev_ebitda_range=ev_ebitda_range
-    )
+    md_report = report_generator.generate_markdown_report()
     
     with open(md_report_path, "w", encoding="utf-8") as f:
         f.write(md_report)
     
     print(f"\nMarkdown报告已生成: {md_report_path}")
+    
+    # 生成HTML报告
+    html_report_path = f"{reports_folder}/{args.stock}_valuation_report.html"
+    html_report = report_generator.generate_html_report()
+    
+    with open(html_report_path, "w", encoding="utf-8") as f:
+        f.write(html_report)
+    print(f"HTML报告已生成: {html_report_path}")
 
 if __name__ == "__main__":
     main()

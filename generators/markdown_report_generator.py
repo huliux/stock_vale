@@ -1,43 +1,25 @@
 import pandas as pd
 import numpy as np
 from utils.report_utils import get_recommendation
+from .base_report_generator import BaseReportGenerator
 
-class MarkdownReportGenerator:
-    def __init__(self, stock_info, latest_price, total_shares, market_cap, pe_history, pb_history,
-                 income_growth, revenue_growth, cagr, latest_fcff, latest_fcfe, fcff_history, fcfe_history,
-                 enterprise_value, ebitda, ev_to_ebitda, current_yield, dividend_history, avg_div, payout_ratio,
-                 ddm_vals, fcff_full_vals, fcfe_full_vals, fcfe_vals, fcff_vals):
-        self.stock_info = stock_info
-        self.latest_price = latest_price
-        self.total_shares = total_shares
-        self.market_cap = market_cap
-        self.pe_history = pe_history
-        self.pb_history = pb_history
-        self.income_growth = income_growth
-        self.revenue_growth = revenue_growth
-        self.cagr = cagr
-        self.latest_fcff = latest_fcff
-        self.latest_fcfe = latest_fcfe
-        self.fcff_history = fcff_history
-        self.fcfe_history = fcfe_history
-        self.enterprise_value = enterprise_value
-        self.ebitda = ebitda
-        self.ev_to_ebitda = ev_to_ebitda
-        self.current_yield = current_yield
-        self.dividend_history = dividend_history
-        self.avg_div = avg_div
-        self.payout_ratio = payout_ratio
-        self.ddm_vals = ddm_vals
-        self.fcff_full_vals = fcff_full_vals
-        self.fcfe_full_vals = fcfe_full_vals
-        self.fcfe_vals = fcfe_vals
-        self.fcff_vals = fcff_vals
-        self.min_val = 0
-        self.max_val = 0
+class MarkdownReportGenerator(BaseReportGenerator):
+    def __init__(self, stock_data):
+        super().__init__(stock_data)
+        # Ensure all required attributes are correctly inherited from BaseReportGenerator
+        self.min_val = 0 # Specific calculation result holder
+        self.max_val = 0 # Specific calculation result holder
+        self.latest_price = getattr(stock_data, 'latest_price', None)
+        self.pb_history = getattr(stock_data, 'pb_history', None)
+        
+        # Initialize default ranges if not set by BaseReportGenerator
+        self.pe_range = getattr(self, 'pe_range', [5, 8, 12])
+        self.pb_range = getattr(self, 'pb_range', [0.8, 1.2, 1.5])
+        self.ev_ebitda_range = getattr(self, 'ev_ebitda_range', [6, 8, 10])
 
-    def generate_markdown_report(self, pe_range, pb_range, growth_rates, discount_rates, ev_ebitda_range):
+    def generate_markdown_report(self):
         """生成Markdown格式的估值报告"""
-        md = f"""# 股票估值报告 - {self.stock_info['ts_code']} {self.stock_info['name']}
+        md = f"""# 股票估值报告 - {self.stock_data.stock_info['ts_code']} {self.stock_data.stock_info['name']}
 
 *生成日期: {pd.Timestamp.now().strftime('%Y年%m月%d日')}*
 
@@ -45,11 +27,11 @@ class MarkdownReportGenerator:
 
 | 项目 | 数值 |
 |------|------|
-| 股票代码 | {self.stock_info['ts_code']} |
-| 股票名称 | {self.stock_info['name']} |
-| 当前价格 | {self.latest_price:.2f} 元 |
-| 总股本 | {self.total_shares/100000000:.2f} 亿股 |
-| 市值 | {self.market_cap:.2f} 亿元 |
+| 股票代码 | {self.stock_data.stock_info['ts_code']} |
+| 股票名称 | {self.stock_data.stock_info['name']} |
+| 当前价格 | {self.stock_data.latest_price:.2f} 元 |
+| 总股本 | {self.stock_data.total_shares/100000000:.2f} 亿股 |
+| 市值 | {self.stock_data.market_cap:.2f} 亿元 |
 
 ## 相对估值
 
@@ -57,42 +39,39 @@ class MarkdownReportGenerator:
 
 | 指标 | 估值 | 相对当前价格 |
 |------|------|------------|
-| 当前PE | {self.pe_history:.2f} | - |
+| 当前PE | {self.stock_data.pe_history:.2f} | - |
 """
         
         # PE估值
-        for pe in pe_range:
-            value = float(pe) * (self.latest_fcff / 100000000) / (self.total_shares / 100000000)
-            premium = (value - self.latest_price) / self.latest_price * 100
-            md += f"| PE={pe} | {value:.2f} 元/股 | {premium:+.2f}% |\n"
+        pe_vals = self._calculate_pe_valuations()
+        for val in pe_vals:
+            md += f"| PE={val['pe']} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
         
         md += f"""
 ### PB估值
 
 | 指标 | 估值 | 相对当前价格 |
 |------|------|------------|
-| 当前PB | {self.pb_history:.2f} | - |
+| 当前PB | {self.stock_data.pb_history:.2f} | - |
 """
         
         # PB估值
-        for pb in pb_range:
-            value = float(pb) * self.latest_price / self.pb_history
-            premium = (value - self.latest_price) / self.latest_price * 100
-            md += f"| PB={pb} | {value:.2f} 元/股 | {premium:+.2f}% |\n"
+        pb_vals = self._calculate_pb_valuations()
+        for val in pb_vals:
+            md += f"| PB={val['pb']} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
         
         md += f"""
 ### EV/EBITDA估值
 
 | 指标 | 估值 | 相对当前价格 |
 |------|------|------------|
-| 当前EV/EBITDA | {self.ev_to_ebitda:.2f} | - |
+| 当前EV/EBITDA | {self.stock_data.ev_to_ebitda:.2f} | - |
 """
         
         # EV/EBITDA估值
-        for multiple in ev_ebitda_range:
-            value = (float(multiple) * self.ebitda - (self.enterprise_value - self.market_cap * 100000000)) / self.total_shares
-            premium = (value - self.latest_price) / self.latest_price * 100
-            md += f"| EV/EBITDA={multiple} | {value:.2f} 元/股 | {premium:+.2f}% |\n"
+        ev_vals = self._calculate_ev_valuations()
+        for val in ev_vals:
+            md += f"| EV/EBITDA={val['ev_ebitda']} | {val['value']:.2f} 元/股 | {val['premium']:+.2f}% |\n"
         
         md += """
 ## 绝对估值
@@ -102,7 +81,7 @@ class MarkdownReportGenerator:
 | 增长率 | 折现率 | 估值 | 相对当前价格 |
 |-------|-------|------|------------|
 """
-        
+
         # DCF估值 (FCFF基本)
         if self.fcff_vals is None:
             md += "| - | - | FCFF为负或零，无法进行DCF估值 | - |\n"
@@ -116,7 +95,7 @@ class MarkdownReportGenerator:
 | 增长率 | 折现率 | 估值 | 相对当前价格 |
 |-------|-------|------|------------|
 """
-        
+
         # DCF估值 (FCFF完整)
         if self.fcff_full_vals is None:
             md += "| - | - | FCFF为负或零，无法进行DCF估值 | - |\n"
@@ -130,7 +109,7 @@ class MarkdownReportGenerator:
 | 增长率 | 折现率 | 估值 | 相对当前价格 |
 |-------|-------|------|------------|
 """
-        
+
         # DCF估值 (FCFE基本)
         if self.fcfe_vals is None:
             md += "| - | - | FCFE为负或零，无法进行DCF估值 | - |\n"
@@ -144,7 +123,7 @@ class MarkdownReportGenerator:
 | 增长率 | 折现率 | 估值 | 相对当前价格 |
 |-------|-------|------|------------|
 """
-        
+
         # DCF估值 (FCFE完整)
         if self.fcfe_full_vals is None:
             md += "| - | - | FCFE为负或零，无法进行DCF估值 | - |\n"
@@ -158,7 +137,7 @@ class MarkdownReportGenerator:
 | 增长率 | 折现率 | 估值 | 相对当前价格 |
 |-------|-------|------|------------|
 """
-        
+
         # DDM估值
         if self.ddm_vals is None:
             md += "| - | - | 无有效分红数据，无法进行DDM估值 | - |\n"
@@ -173,45 +152,47 @@ class MarkdownReportGenerator:
 
 | 指标 | 数值 |
 |------|------|
-| 当前股息率 | {self.current_yield:.2f}% |
-| 3年平均分红 | {self.avg_div:.2f} 元/股 |
-| 分红支付率 | {self.payout_ratio:.2f}% |
+| 当前股息率 | {self.stock_data.current_yield:.2f}% |
+| 3年平均分红 | {self.stock_data.avg_div:.2f} 元/股 |
+| 分红支付率 | {self.stock_data.payout_ratio:.2f}% |
 
 ### 增长分析
 
 | 指标 | 数值 |
 |------|------|
-| 3年净利润CAGR | {self.cagr.get('income_3y', 0):.2f}% |
-| 3年营收CAGR | {self.cagr.get('revenue_3y', 0):.2f}% |
+| 3年净利润CAGR | {self.stock_data.cagr.get('income_3y', 0):.2f}% |
+| 3年营收CAGR | {self.stock_data.cagr.get('revenue_3y', 0):.2f}% |
 
 ## 综合分析
 
 **估值区间: {self.min_val:.2f} - {self.max_val:.2f} 元/股**
 
-**当前价格: {self.latest_price:.2f} 元/股**
+**当前价格: {self.stock_data.latest_price:.2f} 元/股**
 
 ### 六种估值组合
 
 | 组合 | 综合估值 | 相对当前价格 | 投资建议 |
 |------|---------|------------|---------|
 """
-        
+
         # 收集所有估值结果
         all_valuations = []
         
         # PE估值
         pe_valuations = []
-        for pe in pe_range:
-            value = float(pe) * (self.latest_fcff / 100000000) / (self.total_shares / 100000000)
-            all_valuations.append(('PE', value))
-            pe_valuations.append(value)
+        if self.latest_fcff != 0 and self.total_shares != 0:
+            for pe in self.pe_range:
+                value = float(pe) * (self.latest_fcff / 100000000) / (self.total_shares / 100000000)
+                all_valuations.append(('PE', value))
+                pe_valuations.append(value)
         
         # PB估值
         pb_valuations = []
-        for pb in pb_range:
-            value = float(pb) * self.latest_price / self.pb_history
-            all_valuations.append(('PB', value))
-            pb_valuations.append(value)
+        if self.pb_history != 0:
+            for pb in self.pb_range:
+                value = float(pb) * self.latest_price / self.pb_history
+                all_valuations.append(('PB', value))
+                pb_valuations.append(value)
         
         # DCF估值 (FCFF基本版)
         fcff_basic_valuations = []
@@ -250,7 +231,7 @@ class MarkdownReportGenerator:
         
         # EV/EBITDA估值
         ev_ebitda_valuations = []
-        for multiple in ev_ebitda_range:
+        for multiple in self.ev_ebitda_range:
             value = (float(multiple) * self.ebitda - (self.enterprise_value - self.market_cap * 100000000)) / self.total_shares
             all_valuations.append(('EV/EBITDA', value))
             ev_ebitda_valuations.append(value)
@@ -329,7 +310,7 @@ class MarkdownReportGenerator:
                 recommendation = "强烈买入"
             elif premium > 15:
                 recommendation = "买入"
-            elif premium > -10:
+            elif premium > -30:
                 recommendation = "持有"
             elif premium > -30:
                 recommendation = "减持"
@@ -358,7 +339,7 @@ class MarkdownReportGenerator:
                 recommendation = "强烈买入"
             elif premium > 15:
                 recommendation = "买入"
-            elif premium > -10:
+            elif premium > -30:
                 recommendation = "持有"
             elif premium > -30:
                 recommendation = "减持"
@@ -386,7 +367,7 @@ class MarkdownReportGenerator:
                 recommendation = "强烈买入"
             elif premium > 15:
                 recommendation = "买入"
-            elif premium > -10:
+            elif premium > -30:
                 recommendation = "持有"
             elif premium > -30:
                 recommendation = "减持"
@@ -414,7 +395,7 @@ class MarkdownReportGenerator:
                 recommendation = "强烈买入"
             elif premium > 15:
                 recommendation = "买入"
-            elif premium > -10:
+            elif premium > -30:
                 recommendation = "持有"
             elif premium > -30:
                 recommendation = "减持"
@@ -442,7 +423,7 @@ class MarkdownReportGenerator:
                 recommendation = "强烈买入"
             elif premium > 15:
                 recommendation = "买入"
-            elif premium > -10:
+            elif premium > -30:
                 recommendation = "持有"
             elif premium > -30:
                 recommendation = "减持"

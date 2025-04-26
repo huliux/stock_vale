@@ -45,14 +45,26 @@ class DataFetcher:
     def get_stock_info(self):
         """获取股票基本信息"""
         with self.engine.connect() as conn:
-            fields_str = ', '.join(self.stock_basic_fields)
+            # 确保查询包含所有必要字段
+            required_fields = ['ts_code', 'name', 'industry']
+            fields_str = ', '.join(set(self.stock_basic_fields + required_fields))
             query = text(f"SELECT {fields_str} FROM {self.stock_basic_table} WHERE ts_code = :ts_code")
             result = conn.execute(query, {'ts_code': self.ts_code})
             row = result.fetchone()
             if row is not None:
-                return row._asdict()
+                info = row._asdict()
+                # 确保所有必要字段都有值
+                for field in required_fields:
+                    if field not in info or info[field] is None:
+                        info[field] = '未知' if field == 'industry' else self.ts_code if field == 'ts_code' else '未知名称'
+                return info
             else:
-                raise ValueError(f"No stock info found for ts_code: {self.ts_code}")
+                # 返回包含必要字段的默认值
+                return {
+                    'ts_code': self.ts_code,
+                    'name': '未知名称',
+                    'industry': '未知'
+                }
     
     def get_latest_price(self):
         """获取最新收盘价"""
@@ -76,7 +88,8 @@ class DataFetcher:
             if row is not None:
                 return float(row._asdict()['total_share'])
             else:
-                raise ValueError(f"No total shares found for ts_code: {self.ts_code}")
+                print(f"No total shares found for ts_code: {self.ts_code}, returning default value 1")
+                return 1
     
     def get_financial_data(self):
         """获取历年财务数据"""

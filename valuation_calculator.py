@@ -27,17 +27,23 @@ class ValuationCalculator:
         """计算当前PE和历史PE"""
         # 计算当前PE
         latest_income = float(self.financials.iloc[0]['n_income'])
+        if latest_income <= 0:
+            return None  # 净利润为零或负时返回None
+            
         current_pe = self.market_cap / (latest_income / 100000000)  # 将净利润也转为亿元
         
-        return current_pe
+        return current_pe if not np.isnan(current_pe) and not np.isinf(current_pe) else None
     
     def calculate_pb_ratio(self):
         """计算当前PB"""
         # 计算当前PB
         latest_bps = float(self.financials.iloc[0]['bps'])
+        if latest_bps <= 0:
+            return None  # 每股净资产为零或负时返回None
+            
         current_pb = self.latest_price / latest_bps
         
-        return current_pb
+        return current_pb if not np.isnan(current_pb) and not np.isinf(current_pb) else None
     
     def calculate_growth_rate(self):
         """计算历史增长率"""
@@ -56,8 +62,10 @@ class ValuationCalculator:
             if prev_income > 0 and prev_revenue > 0:  # 避免除以零或负数
                 income_growth_rate = (current_income / prev_income - 1) * 100
                 revenue_growth_rate = (current_revenue / prev_revenue - 1) * 100
-                income_growth.append((current_year, income_growth_rate))
-                revenue_growth.append((current_year, revenue_growth_rate))
+                if not np.isnan(income_growth_rate) and not np.isinf(income_growth_rate):
+                    income_growth.append((current_year, income_growth_rate))
+                if not np.isnan(revenue_growth_rate) and not np.isinf(revenue_growth_rate):
+                    revenue_growth.append((current_year, revenue_growth_rate))
         
         # 计算3年CAGR (如果有足够数据)
         cagr = {}
@@ -152,7 +160,13 @@ class ValuationCalculator:
         ebitda = operating_profit + depreciation_amortization
         
         # 计算EV/EBITDA
-        ev_to_ebitda = enterprise_value / ebitda if ebitda > 0 else 0
+        if ebitda <= 0:
+            return None, None, None  # EBITDA为零或负时返回None
+            
+        ev_to_ebitda = enterprise_value / ebitda
+        if np.isnan(ev_to_ebitda) or np.isinf(ev_to_ebitda):
+            return None, None, None
+            
         
         return enterprise_value, ebitda, ev_to_ebitda
 
@@ -231,6 +245,10 @@ class ValuationCalculator:
         valuations = []
         for g in growth_rates:
             for r in discount_rates:
+                # 验证增长率必须小于折现率
+                if g >= r:
+                    continue  # 跳过无效参数组合
+                
                 # 两阶段DDM模型
                 # 第一阶段: 5年高增长期
                 terminal_value = 0
@@ -241,6 +259,9 @@ class ValuationCalculator:
                 
                 # 第二阶段: 永续增长率为g/2
                 terminal_growth = g / 2
+                if terminal_growth >= r:
+                    continue  # 跳过无效参数组合
+                    
                 terminal_dividend = avg_div * (1 + g) ** 5 * (1 + terminal_growth)
                 terminal_value = terminal_dividend / (r - terminal_growth) / (1 + r) ** 5
                 
@@ -259,6 +280,7 @@ class ValuationCalculator:
         latest_fcff, _, fcff_history, _ = self.calculate_fcff_fcfe()
         
         if latest_fcff <= 0:
+            print("FCFF为负或零，无法进行DCF估值")
             return None, "FCFF为负或零，无法进行DCF估值"
         
         # 计算历史FCFF增长率
@@ -315,6 +337,7 @@ class ValuationCalculator:
         _, latest_fcfe, _, fcfe_history = self.calculate_fcff_fcfe()
         
         if latest_fcfe <= 0:
+            print("FCFE为负或零，无法进行DCF估值")
             return None, "FCFE为负或零，无法进行DCF估值"
         
         # 计算历史FCFE增长率
