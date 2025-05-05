@@ -10,3 +10,8 @@ pytest==8.3.2       # Or latest stable version
 black==24.4.2       # Or latest stable version
 flake8==7.1.0       # Or latest stable version
 pre-commit==3.7.1   # Or latest stable version
+
+# Web Framework
+fastapi==0.111.1    # Or latest stable version
+uvicorn[standard]==0.30.3 # Or latest stable version
+httpx==0.27.0       # Required by TestClient for testing FastAPI
