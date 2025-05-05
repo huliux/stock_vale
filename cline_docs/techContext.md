@@ -1,29 +1,28 @@
-# 技术上下文
+# 技术上下文 (Web 服务化)
 
-## 核心技术栈
-- Python 3.9+
-- NumPy/Pandas 数值计算
-- Jinja2 模板引擎
-- Matplotlib 数据可视化
+## 后端技术栈
+- **核心语言:** Python 3.x
+- **Web 框架:** FastAPI
+- **ASGI 服务器:** Uvicorn
+- **数据验证/序列化:** Pydantic
+- **数据库交互:** SQLAlchemy, psycopg2-binary (PostgreSQL)
+- **数据处理:** Pandas, NumPy
+- **环境管理:** venv, pip
+- **配置管理:** python-dotenv (.env 文件)
+- **测试:** pytest
+- **代码质量:** black, flake8, pre-commit (推荐)
+
+## 前端技术栈
+- **核心语言:** TypeScript
+- **UI 库/框架:** React, Next.js (App Router)
+- **样式:** Tailwind CSS
+- **包管理器:** npm / yarn (根据项目初始化确定)
+- **API 请求:** axios / fetch
 
 ## 开发环境
-- VS Code 开发工具
-- Git 版本控制
-- **venv** Python 虚拟环境管理
-- **pip** 包管理
-- **pytest** 测试框架
-- **black** 代码格式化
-- **flake8** 代码风格检查
-- **pre-commit** (推荐) Git 钩子管理
-- **python-dotenv** 环境变量管理
+- **IDE:** VS Code
+- **版本控制:** Git
 
-## 关键依赖 (根据 requirements.txt)
-- **matplotlib**: 数据可视化
-- **numpy**: 数值计算
-- **pandas**: 数据处理
-- **SQLAlchemy**: 数据库交互
-- **python-dotenv**: 开发依赖，用于加载 .env
-- **pytest**: 开发依赖，用于测试
-- **black**: 开发依赖，用于格式化
-- **flake8**: 开发依赖，用于风格检查
-- **pre-commit**: 开发依赖，用于 Git 钩子
+## 关键依赖 (示例)
+- **后端:** fastapi, uvicorn, sqlalchemy, psycopg2-binary, pandas, pydantic, python-dotenv
+- **前端:** react, react-dom, next, typescript, tailwindcss

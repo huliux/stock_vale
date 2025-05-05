@@ -1,35 +1,44 @@
 # 当前工作重点
 
-## 最新更改
-- **环境与配置优化:**
-    - 创建了 `.gitignore` 文件以规范版本控制。
-    - 更新了 `requirements.txt` 添加了开发工具依赖 (`pytest`, `black`, `flake8`, `pre-commit`, `python-dotenv`)。
-    - 创建了 `.env.example` 文件作为环境变量模板。
-    - 修改了 `data_fetcher.py` 以优先从 `.env` 文件加载数据库凭证，并硬编码了表/字段名。
-    - 修改了 `main.py` 移除了对 `config.ini` 的依赖，硬编码了命令行默认参数。
-    - 删除了不再需要的 `config.ini.example` 文件。
-    - 创建了 `.venv` 虚拟环境，并指导用户激活和安装依赖。
-- **规则文件更新:**
-    - 更新了 `.clinerules` 目录下的多个规则文件 (`01`, `03`, `04`, `05`, `07`) 以反映新的最佳实践和项目状态。
-- **代码修复 (之前):**
-    - 解决了 `MarkdownReportGenerator` 中的 `AttributeError` 问题。
-    - 修改了 `main.py` 以处理 `StockData` 初始化时的 None 值。
+## 项目状态
+- **当前阶段:** Web 服务化改造 - 计划完成，准备开始实施。
+- **目标:** 将现有 Python 命令行估值工具改造为前后端分离的 Web 应用。
+- **技术选型:**
+    - 后端: FastAPI
+    - 前端: Next.js (App Router, TypeScript, Tailwind CSS)
+- **核心架构决策:**
+    - 后端 API 提供估值服务。
+    - 前端负责用户交互和结果展示。
+    - 后端 `DataFetcher` 采用策略模式以支持多市场（A 股、港股等）。
 
-## 下一步计划
-- **(已完成)** 设置和配置 Python 虚拟环境 (`.venv`)。
-- **(待办)** 配置 `pre-commit` 钩子 (`.pre-commit-config.yaml`) 以自动化代码检查。
-- **(待办)** 分离开发依赖到 `requirements-dev.txt`。
-- **(待办)** 开始编写单元测试 (使用 `pytest`)，特别是针对 `valuation_calculator.py` 和 `data_fetcher.py` (mock)。
-- **(待办)** 验证程序在不同股票代码下的表现。
-- **(待办)** 进一步优化报告生成逻辑和数据处理，解决 `nan` 值问题。
+## 最新完成的工作 (环境与规则更新)
+- 更新了 `.clinerules` 目录下的所有规则文件，以匹配 Web 服务开发的技术栈、架构和规范。
+- 更新了 `cline_docs` 记忆库中的 `projectbrief.md` 和 `productContext.md` 以反映新的项目目标和价值。
+- (之前的环境优化工作保持记录)
+
+## 下一步计划 (Phase 1: 后端 API 开发)
+1.  **环境设置:**
+    *   将 `fastapi` 和 `uvicorn[standard]` 添加到 `requirements.txt` (或 `requirements-dev.txt`)。
+    *   创建 API 入口文件 `api/main.py` (暂定)。
+2.  **重构 `DataFetcher`:**
+    *   定义 `BaseDataFetcher` 抽象基类。
+    *   将现有逻辑重构为 `AshareDataFetcher(BaseDataFetcher)`。
+    *   定义标准化的内部数据结构 (如 Pydantic 模型)。
+    *   实现数据标准化逻辑。
+3.  **定义 API 模型 (Pydantic):**
+    *   创建 `api/models.py`。
+    *   定义 `StockValuationRequest` 和 `StockValuationResponse`。
+4.  **创建 API 端点:**
+    *   在 `api/main.py` 中创建 `/api/v1/valuation` POST 端点。
+    *   实现端点逻辑：接收请求 -> 识别市场 -> 实例化对应 Fetcher -> 获取并标准化数据 -> 实例化 Calculator -> 计算 -> 返回 Response。
+5.  **CORS 配置:** 添加 CORS 中间件。
+6.  **测试:** 编写基本的 API 端点测试。
 
 ## 当前决策和考虑事项
-- **优先使用 `.env` 管理敏感配置。**
-- **使用 `venv` 进行环境隔离。**
-- **逐步引入自动化测试和代码质量工具。**
-- 确保所有计算方法返回合理的默认值或处理异常。
+- **项目结构:** 决定在根目录创建 `frontend/` 目录，后端代码暂留根目录，API 相关代码放入 `api/`。
+- **多市场支持:** 确认通过策略模式重构 `DataFetcher` 是实现可扩展性的关键。
+- **数据流:** 前端发送股票代码 -> 后端 API 处理计算 -> 后端返回 JSON -> 前端展示。
 
 ## 学习和项目洞察
-- 采用标准化的环境管理 (`venv`, `.env`) 和代码质量工具 (`black`, `flake8`, `pre-commit`) 对项目长期维护至关重要。
-- 明确区分运行时依赖和开发依赖有助于优化部署。
-- 硬编码非敏感、与代码逻辑紧密相关的配置（如表名/字段名）是可接受的简化方式。
+- 从 CLI 到 Web 服务的转变需要考虑 API 设计、数据序列化、前后端通信和异步处理（FastAPI 天然支持）。
+- 提前考虑多市场支持的架构设计能避免未来的大规模重构。

@@ -3,7 +3,9 @@
 ## 简要概述
 本文档定义了 `stock_vale` 项目推荐的代码编写风格，旨在提高代码的可读性和可维护性。
 
-## 核心规范
+## 后端 (Python)
+
+### 核心规范
 - **PEP 8**: 严格遵循 [PEP 8 -- Style Guide for Python Code](https://peps.python.org/pep-0008/)。
 - **代码格式化与检查**:
     - 使用 `black` 统一代码格式。
@@ -35,8 +37,25 @@
     - 避免使用 `from module import *`。
 - **注释**: 使用 `#` 进行行内注释，解释复杂或不直观的代码段。避免冗余注释。
 - **代码行长度**: 建议每行不超过 88-100 个字符，以提高可读性。
-- **数据类**: 优先使用 `dataclasses` (Python 3.7+) 或 Pydantic 来定义数据结构，而不是简单的字典或元组。
+- **数据类**: 优先使用 Pydantic 模型定义 API 请求/响应和内部数据结构。对于非 API 数据结构，可考虑 `dataclasses`。
 - **金融计算**: 涉及精确金融计算时，使用 `decimal` 模块代替浮点数 (`float`) 以避免精度问题。
 - **配置管理**:
     - 优先使用 `python-dotenv` 加载 `.env` 文件中的环境变量来管理配置（特别是敏感信息）。
-    - 如果使用 INI 文件，请使用 Python 内建的 `configparser` 模块进行读取。
+
+### FastAPI & Pydantic 特定规范
+- **路由函数**: 使用清晰、描述性的名称，参数和响应体必须使用 Pydantic 模型和类型提示。
+- **Pydantic 模型**: 字段名使用 `snake_case`，并提供明确的类型注解。考虑添加 `Field` 进行验证或提供示例。
+
+## 前端 (TypeScript/React)
+
+### 核心规范
+- **命名约定**:
+    - **组件**: 使用 **PascalCase** (例如，`ValuationForm`, `ResultsCard`)。
+    - **函数/变量**: 使用 **camelCase** (例如，`fetchValuation`, `isLoading`)。
+    - **常量**: 使用 **UPPER_SNAKE_CASE** (例如，`API_ENDPOINT`)。
+    - **类型/接口**: 使用 **PascalCase** (例如，`ValuationResponse`, `StockInfo`)。
+- **组件类型**: 优先使用**函数式组件**和**箭头函数**语法。
+- **状态管理**: 优先使用 React Hooks (`useState`, `useEffect`, `useContext`)。
+- **TypeScript**: 充分利用 TypeScript 的类型系统，为 props、状态、函数参数和返回值添加明确的类型。避免使用 `any` 类型。
+- **代码格式化**: (推荐) 使用 Prettier 或类似的工具统一代码格式。
+- **错误处理**: 在 API 调用和用户交互中实现健壮的错误处理逻辑。
