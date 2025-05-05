@@ -1,46 +1,60 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 import pandas as pd
 from decimal import Decimal
-import configparser
+# import configparser # 不再需要
+
+load_dotenv() # 加载 .env 文件中的环境变量
 
 class DataFetcher:
     def __init__(self, ts_code):
         self.ts_code = ts_code
         
-        # 读取配置文件
-        config = configparser.ConfigParser()
-        with open('config.ini', encoding='utf-8') as config_file:
-            config.read_file(config_file)
+        # 不再需要读取 config.ini
+        # config = configparser.ConfigParser()
+        # try: # 添加 try-except 以防 config.ini 不存在
+        #     with open('config.ini', encoding='utf-8') as config_file:
+        #         config.read_file(config_file)
+        # except FileNotFoundError:
+        #     print("信息：config.ini 文件未找到，将使用环境变量和硬编码值。")
+        #     config = None # 确保 config 为 None 或空对象
+
+        # 从环境变量获取数据库连接信息
+        db_user = os.getenv('DB_USER', 'default_user') # 移除 config.get 回退
+        db_password = os.getenv('DB_PASSWORD', 'default_password') # 移除 config.get 回退
+        db_host = os.getenv('DB_HOST', 'localhost') # 移除 config.get 回退
+        db_port = os.getenv('DB_PORT', '5432') # 移除 config.get 回退
+        db_name = os.getenv('DB_NAME', 'postgres') # 移除 config.get 回退
+
+        # 检查是否成功获取环境变量，如果仍然是默认值或来自config的回退值，可能需要提示用户设置.env文件
+        if db_user == 'default_user' or db_password == 'default_password':
+             print("警告：未能从环境变量加载数据库用户名或密码。请确保已创建并正确配置 .env 文件。")
+
+        self.engine = create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+
+        # 表和字段配置项 (硬编码) - 从 config.ini.example 获取
+        self.stock_basic_table = 'stock_basic'
+        # 注意: get_stock_info 需要 'industry' 字段，确保它包含在内或在查询中单独处理
+        self.stock_basic_fields = ['ts_code', 'name', 'industry'] 
         
-        # 数据库连接
-        user = config['DATABASE']['user']
-        password = config['DATABASE']['password']
-        host = config['DATABASE']['host']
-        port = config['DATABASE']['port']
-        database = config['DATABASE']['database']
-        self.engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{database}')
+        self.daily_quotes_table = 'daily_quotes'
+        self.daily_quotes_fields = ['ts_code', 'close', 'trade_date']
         
-        # 表和字段配置项
-        self.stock_basic_table = config['TABLES_AND_FIELDS']['stock_basic_table']
-        self.stock_basic_fields = config['TABLES_AND_FIELDS']['stock_basic_fields'].split(',')
+        self.income_statement_table = 'income_statement'
+        self.income_statement_fields = ['ts_code', 'end_date', 'n_income', 'revenue', 'total_revenue', 'oper_cost', 'operate_profit', 'non_oper_income', 'non_oper_exp']
         
-        self.daily_quotes_table = config['TABLES_AND_FIELDS']['daily_quotes_table']
-        self.daily_quotes_fields = config['TABLES_AND_FIELDS']['daily_quotes_fields'].split(',')
+        self.financial_indicators_table = 'financial_indicators'
+        self.financial_indicators_fields = ['ts_code', 'end_date', 'eps', 'bps', 'roe', 'netprofit_margin', 'debt_to_assets']
         
-        self.income_statement_table = config['TABLES_AND_FIELDS']['income_statement_table']
-        self.income_statement_fields = config['TABLES_AND_FIELDS']['income_statement_fields'].split(',')
+        self.cash_flow_table = 'cash_flow'
+        self.cash_flow_fields = ['ts_code', 'end_date', 'n_cashflow_act', 'stot_out_inv_act', 'stot_cash_in_fnc_act', 'stot_cashout_fnc_act', 'c_pay_acq_const_fiolta', 'c_paid_invest', 'decr_inventories', 'incr_oper_payable', 'decr_oper_payable', 'c_recp_borrow', 'c_prepay_amt_borr', 'depr_fa_coga_dpba', 'amort_intang_assets']
         
-        self.financial_indicators_table = config['TABLES_AND_FIELDS']['financial_indicators_table']
-        self.financial_indicators_fields = config['TABLES_AND_FIELDS']['financial_indicators_fields'].split(',')
+        self.balance_sheet_table = 'balance_sheet'
+        self.balance_sheet_fields = ['ts_code', 'end_date', 'total_share', 'total_assets', 'total_liab', 'total_hldr_eqy_exc_min_int', 'total_cur_assets', 'total_cur_liab']
         
-        self.cash_flow_table = config['TABLES_AND_FIELDS']['cash_flow_table']
-        self.cash_flow_fields = config['TABLES_AND_FIELDS']['cash_flow_fields'].split(',')
-        
-        self.balance_sheet_table = config['TABLES_AND_FIELDS']['balance_sheet_table']
-        self.balance_sheet_fields = config['TABLES_AND_FIELDS']['balance_sheet_fields'].split(',')
-        
-        self.dividend_table = config['TABLES_AND_FIELDS']['dividend_table']
-        self.dividend_fields = config['TABLES_AND_FIELDS']['dividend_fields'].split(',')
+        self.dividend_table = 'dividend'
+        self.dividend_fields = ['ts_code', 'end_date', 'cash_div_tax', 'ann_date', 'div_proc']
     
     def get_stock_info(self):
         """获取股票基本信息"""

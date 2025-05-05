@@ -1,5 +1,5 @@
 import argparse
-import configparser
+import argparse
 import matplotlib
 from data_fetcher import DataFetcher
 from valuation_calculator import ValuationCalculator
@@ -9,30 +9,25 @@ from models.stock_data import StockData  # 导入 StockData 类
 matplotlib.rcParams['font.sans-serif'] = ['SimHei']  # 用来正常显示中文标签
 matplotlib.rcParams['axes.unicode_minus'] = False  # 用来正常显示负号
 
-def parse_arguments(config):
+def parse_arguments():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(description='股票绝对估值计算工具')
-    parser.add_argument('--stock', type=str, help='股票代码，例如：000001.SH', default=config['DEFAULT']['stock'])
-    parser.add_argument('--pe', type=str, help='PE估值倍数，用逗号分隔，例如：5,8,12', default=config['DEFAULT']['pe'])
-    parser.add_argument('--pb', type=str, help='PB估值倍数，用逗号分隔，例如：0.8,1.2,1.5', default=config['DEFAULT']['pb'])
-    parser.add_argument('--growth', type=str, help='增长率，用逗号分隔，例如：0.05,0.08,0.1', default=config['DEFAULT']['growth'])
-    parser.add_argument('--discount', type=str, help='折现率，用逗号分隔，例如：0.1,0.12,0.15', default=config['DEFAULT']['discount'])
-    parser.add_argument('--ev-ebitda', type=str, help='EV/EBITDA倍数，用逗号分隔，例如：6,8,10', default=config['DEFAULT']['ev_ebitda'])
+    # 使用从 config.ini.example 获取的默认值
+    parser.add_argument('--stock', type=str, help='股票代码，例如：600519.SH', default='600519.SH')
+    parser.add_argument('--pe', type=str, help='PE估值倍数，用逗号分隔，例如：5,8,12', default='5,8,12')
+    parser.add_argument('--pb', type=str, help='PB估值倍数，用逗号分隔，例如：0.8,1.2,1.5', default='0.8,1.2,1.5')
+    parser.add_argument('--growth', type=str, help='增长率，用逗号分隔，例如：0.05,0.08,0.1', default='0.05,0.08,0.1')
+    parser.add_argument('--discount', type=str, help='折现率，用逗号分隔，例如：0.1,0.12,0.15', default='0.1,0.12,0.15')
+    parser.add_argument('--ev-ebitda', type=str, help='EV/EBITDA倍数，用逗号分隔，例如：6,8,10', default='6,8,10')
     parser.add_argument('--html', action='store_true', help='生成HTML格式报告')
-    
+
     return parser.parse_args()
 
-def read_config():
-    """读取配置文件"""
-    config = configparser.ConfigParser()
-    with open('config.ini', encoding='utf-8') as config_file:
-        config.read_file(config_file)
-    return config
+# 不再需要 read_config 函数
 
 def main():
     """主程序入口"""
-    config = read_config()
-    args = parse_arguments(config)
+    args = parse_arguments() # 不再需要 config
     
     # 解析参数
     pe_range = args.pe.split(',')

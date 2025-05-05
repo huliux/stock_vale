@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import configparser
+# import configparser # 不再需要
 
 class ValuationCalculator:
     def __init__(self, stock_info, latest_price, total_shares, financials, dividends, market_cap):
@@ -11,17 +11,12 @@ class ValuationCalculator:
         self.dividends = dividends
         self.market_cap = market_cap
         
-        # 读取配置文件
-        config = configparser.ConfigParser()
-        with open('config.ini', encoding='utf-8') as config_file:
-            config.read_file(config_file)
-        
-        # 配置项
-        self.tax_rate = float(config['VALUATION']['tax_rate'])
-        self.default_growth_rates = [float(r) for r in config['VALUATION']['default_growth_rates'].split(',')]
-        self.default_discount_rates = [float(r) for r in config['VALUATION']['default_discount_rates'].split(',')]
-        self.cash_equivalents_percentage = float(config['VALUATION']['cash_equivalents_percentage'])
-        self.depreciation_amortization_percentage = float(config['VALUATION']['depreciation_amortization_percentage'])
+        # 配置项 (硬编码 - 从 config.ini.example 获取)
+        self.tax_rate = 0.25
+        self.default_growth_rates = [0.03, 0.05, 0.08]
+        self.default_discount_rates = [0.05, 0.08, 0.1]
+        self.cash_equivalents_percentage = 0.05
+        self.depreciation_amortization_percentage = 0.05
 
     def calculate_pe_ratio(self):
         """计算当前PE和历史PE"""

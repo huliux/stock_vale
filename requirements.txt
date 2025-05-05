@@ -2,3 +2,11 @@ matplotlib==3.10.1
 numpy==1.23.5
 pandas==2.2.3
 SQLAlchemy==2.0.40
+psycopg2-binary==2.9.9 # Or latest stable version - PostgreSQL driver
+
+# Development Tools
+python-dotenv==0.21.1 # Or latest stable version
+pytest==8.3.2       # Or latest stable version
+black==24.4.2       # Or latest stable version
+flake8==7.1.0       # Or latest stable version
+pre-commit==3.7.1   # Or latest stable version
