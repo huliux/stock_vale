@@ -218,17 +218,26 @@ class ValuationCalculator:
                     # This might not be perfectly accurate depending on finan_exp content
                     ebit = operating_profit - interest_expense # Subtracting negative interest expense adds it back
                 ebiat = ebit * (1 - self.tax_rate)
+                if np.isnan(ebiat) or np.isinf(ebiat):
+                    print(f"警告: {year} 年 EBIAT 计算无效 ({ebiat})，将视为 0。")
+                    ebiat = 0
 
                 # D&A (Depreciation & Amortization)
                 depreciation = float(row.get('depr_fa_coga_dpba', 0) or 0)
                 amortization = float(row.get('amort_intang_assets', 0) or 0)
                 da = depreciation + amortization
+                if np.isnan(da) or np.isinf(da):
+                    print(f"警告: {year} 年 D&A 计算无效 ({da})，将视为 0。")
+                    da = 0
 
                 # Capex (Capital Expenditures)
                 capex_field = 'stot_out_inv_act' if capex_type == 'full' else 'c_pay_acq_const_fiolta'
                 capital_expenditure = float(row.get(capex_field, 0) or 0)
                 # Capex from cash flow statement is often negative, use absolute value
                 capital_expenditure = abs(capital_expenditure)
+                if np.isnan(capital_expenditure) or np.isinf(capital_expenditure):
+                    print(f"警告: {year} 年 Capex ({capex_type}) 计算无效 ({capital_expenditure})，将视为 0。")
+                    capital_expenditure = 0
 
 
                 # Change in NWC (Net Working Capital)
@@ -249,26 +258,53 @@ class ValuationCalculator:
                         prev_cash = float(prev_row.get('money_cap', 0) or 0)
                         prev_st_debt = float(prev_row.get('st_borr', 0) or 0)
                         prev_nwc = (prev_assets - prev_cash) - (prev_liab - prev_st_debt)
-                        working_capital_change = current_nwc - prev_nwc
+                        # Check if NWC values are valid before calculating change
+                        if not (np.isnan(current_nwc) or np.isinf(current_nwc) or np.isnan(prev_nwc) or np.isinf(prev_nwc)):
+                            working_capital_change = current_nwc - prev_nwc
+                        else:
+                            print(f"警告: {year} 年 NWC 或上一年 NWC 计算无效，无法计算 NWC 变动，将视为 0。")
+                            working_capital_change = 0 # Default to 0 if components are invalid
+                # Check the final working_capital_change value
+                if np.isnan(working_capital_change) or np.isinf(working_capital_change):
+                     print(f"警告: {year} 年 NWC 变动计算无效 ({working_capital_change})，将视为 0。")
+                     working_capital_change = 0
 
                 # FCFF = EBIAT + D&A - Capex - Change in NWC
                 fcff = ebiat + da - capital_expenditure - working_capital_change
+                fcff_value_to_store = fcff if not (np.isnan(fcff) or np.isinf(fcff)) else None
+                if fcff_value_to_store is None:
+                     print(f"警告: {year} 年 FCFF ({capex_type} capex) 计算结果无效 ({fcff})。")
 
                 # FCFE = FCFF - Interest Expense * (1 - Tax Rate) + Net Debt Issued
                 # Net Debt Issued = Cash from borrowing - Cash paid for debt
                 cash_recp_borrow = float(row.get('c_recp_borrow', 0) or 0)
                 cash_prepay_amt_borr = float(row.get('c_prepay_amt_borr', 0) or 0)
                 net_debt_increase = cash_recp_borrow - cash_prepay_amt_borr
+                if np.isnan(net_debt_increase) or np.isinf(net_debt_increase):
+                     print(f"警告: {year} 年净债务发行计算无效 ({net_debt_increase})，将视为 0。")
+                     net_debt_increase = 0
+
                 # Interest expense should be positive for this formula
                 interest_paid_after_tax = abs(interest_expense) * (1 - self.tax_rate)
+                if np.isnan(interest_paid_after_tax) or np.isinf(interest_paid_after_tax):
+                     print(f"警告: {year} 年税后利息费用计算无效 ({interest_paid_after_tax})，将视为 0。")
+                     interest_paid_after_tax = 0
 
-                fcfe = fcff - interest_paid_after_tax + net_debt_increase
+                fcfe = None
+                if fcff_value_to_store is not None: # Only calculate FCFE if FCFF is valid
+                    fcfe = fcff_value_to_store - interest_paid_after_tax + net_debt_increase
+                    fcfe_value_to_store = fcfe if not (np.isnan(fcfe) or np.isinf(fcfe)) else None
+                    if fcfe_value_to_store is None:
+                         print(f"警告: {year} 年 FCFE ({capex_type} capex) 计算结果无效 ({fcfe})。")
+                else:
+                    fcfe_value_to_store = None # If FCFF was invalid, FCFE is also invalid
 
-                fcff_history.append({'year': year, 'value': fcff})
-                fcfe_history.append({'year': year, 'value': fcfe})
+                fcff_history.append({'year': year, 'value': fcff_value_to_store})
+                fcfe_history.append({'year': year, 'value': fcfe_value_to_store})
 
             except Exception as e:
                  print(f"计算 {year} 年 FCFF/FCFE ({capex_type} capex) 时出错: {e}")
+                 # Ensure None is appended on general exception too
                  fcff_history.append({'year': year, 'value': None})
                  fcfe_history.append({'year': year, 'value': None})
 

@@ -44,7 +44,7 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center p-8 sm:p-12 md:p-24 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <div className="w-full max-w-4xl">
         <h1 className="text-3xl sm:text-4xl font-bold text-center mb-8 sm:mb-12">
-          股票估值工具
+          股票估值神器
         </h1>
 
         {/* Integrate ValuationForm */}

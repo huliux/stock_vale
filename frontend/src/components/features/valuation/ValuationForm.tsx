@@ -21,7 +21,7 @@ const ValuationForm: React.FC<ValuationFormProps> = ({ onSubmit, isLoading }) =>
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="tsCode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          股票代码 (例如: 600104.SH 或 000001.SZ)
+          股票代码 (例如: 000001.SZ)
         </label>
         <input
           type="text"
