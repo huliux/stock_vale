@@ -38,18 +38,90 @@ class ValuationCalculator:
             self.cost_of_debt_pretax = 0.05
             self.dcf_growth_cap = 0.25 # Ensure default is set on error
 
-        # 预先计算 Ke 和 WACC
-        # Calculate Ke first as it's needed by WACC
-        self.cost_of_equity = self.risk_free_rate + self.beta * self.market_risk_premium
-        self.wacc = self.calculate_wacc() # Now self.cost_of_equity exists when this is called
-        if self.wacc is None: # Corrected indentation
-            print("警告：WACC 计算失败，DCF 估值可能受影响或无法进行。") # Corrected indentation
-        # Ke is always calculated, useful for DDM
+        # Store defaults read from environment or hardcoded
+        self.default_beta = self.beta
+        self.default_risk_free_rate = self.risk_free_rate
+        self.default_market_risk_premium = self.market_risk_premium
+        self.default_cost_of_debt_pretax = self.cost_of_debt_pretax
+        self.default_tax_rate = self.tax_rate
+        # Add default for size premium and target debt ratio
+        self.default_size_premium = float(os.getenv('DEFAULT_SIZE_PREMIUM', '0.0'))
+        self.default_target_debt_ratio = float(os.getenv('TARGET_DEBT_RATIO', '0.45')) # Default target ratio
+
+        # WACC and Ke are no longer pre-calculated in __init__
+        # They will be calculated on demand based on request parameters or defaults
 
 
-    def calculate_wacc(self):
-        """计算加权平均资本成本 (WACC)"""
+    def _get_wacc_and_ke(self, params: dict):
+        """
+        Internal helper to calculate WACC and Ke based on provided parameters or defaults.
+        Args:
+            params (dict): A dictionary potentially containing request overrides for WACC calculation.
+                           Keys like 'target_debt_ratio', 'cost_of_debt', 'tax_rate',
+                           'risk_free_rate', 'beta', 'market_risk_premium', 'size_premium'.
+        Returns:
+            tuple: (wacc, cost_of_equity) or (None, None) if calculation fails.
+        """
         try:
+            # Get parameters, falling back to defaults stored in __init__
+            debt_ratio = params.get('target_debt_ratio', self.default_target_debt_ratio)
+            cost_of_debt = params.get('cost_of_debt', self.default_cost_of_debt_pretax)
+            tax_rate = params.get('tax_rate', self.default_tax_rate)
+            rf_rate = params.get('risk_free_rate', self.default_risk_free_rate)
+            beta = params.get('beta', self.default_beta)
+            mrp = params.get('market_risk_premium', self.default_market_risk_premium)
+            size_premium = params.get('size_premium', self.default_size_premium)
+
+            # Validate ratios
+            if not (0 <= debt_ratio <= 1):
+                print(f"警告: 无效的目标债务比率 ({debt_ratio})，将使用默认值 {self.default_target_debt_ratio}")
+                debt_ratio = self.default_target_debt_ratio
+            equity_ratio = 1.0 - debt_ratio
+
+            if not (0 <= tax_rate <= 1):
+                 print(f"警告: 无效的税率 ({tax_rate})，将使用默认值 {self.default_tax_rate}")
+                 tax_rate = self.default_tax_rate
+
+            # Calculate Cost of Equity (Ke)
+            # Ke = Rf + Beta * MRP + Size Premium
+            cost_of_equity = rf_rate + beta * mrp + size_premium
+            if np.isnan(cost_of_equity) or np.isinf(cost_of_equity) or cost_of_equity <= 0: # Ke should generally be positive
+                 print(f"警告: 计算出的权益成本(Ke)无效或非正 ({cost_of_equity:.4f})，无法计算 WACC。参数: Rf={rf_rate}, Beta={beta}, MRP={mrp}, SP={size_premium}")
+                 return None, None # Return None for both if Ke is invalid
+
+            # Calculate After-Tax Cost of Debt (Kd)
+            cost_of_debt_after_tax = cost_of_debt * (1 - tax_rate)
+            if np.isnan(cost_of_debt_after_tax) or np.isinf(cost_of_debt_after_tax):
+                 print(f"警告: 计算出的税后债务成本无效 ({cost_of_debt_after_tax:.4f})，无法计算 WACC。参数: Kd={cost_of_debt}, Tax={tax_rate}")
+                 return None, cost_of_equity # Return calculated Ke, but None for WACC
+
+            # Calculate WACC using Target Structure
+            # WACC = (E/V * Ke) + (D/V * Kd * (1-t))
+            wacc = (equity_ratio * cost_of_equity) + (debt_ratio * cost_of_debt_after_tax)
+
+            if np.isnan(wacc) or np.isinf(wacc) or not (0 < wacc < 1): # Basic sanity check for WACC
+                 print(f"警告: 计算出的 WACC ({wacc:.4f}) 无效或超出合理范围 (0-100%)。Ke={cost_of_equity:.4f}, Kd(AT)={cost_of_debt_after_tax:.4f}, DebtRatio={debt_ratio:.2f}")
+                 # Decide whether to return None or the calculated (potentially odd) value
+                 # Returning None might be safer to prevent propagation
+                 return None, cost_of_equity # Return calculated Ke, but None for WACC
+
+            return wacc, cost_of_equity
+
+        except Exception as e:
+            print(f"计算 WACC 和 Ke 时出错: {e}")
+            return None, None
+
+
+    def calculate_wacc_based_on_market_values(self):
+        """
+        计算基于当前市场价值的 WACC (保留原始逻辑，可能用于参考或回退)。
+        注意：此方法现在不直接用于核心估值，核心估值使用 _get_wacc_and_ke 配合目标参数。
+        """
+        try:
+            # Requires self.cost_of_equity to be calculated based on *some* beta etc.
+            # Let's use the defaults for this calculation.
+            cost_of_equity_default = self.default_risk_free_rate + self.default_beta * self.default_market_risk_premium + self.default_size_premium
+
             if self.financials.empty:
                 print("财务数据为空，无法计算 WACC")
                 return None
@@ -478,8 +550,17 @@ class ValuationCalculator:
         # DEBUG print removed
         return growth_rates
 
-    def _perform_dcf_valuation(self, latest_fcf, fcf_history, growth_rates, discount_rates, is_fcff=False):
-        """通用的两阶段DCF估值逻辑"""
+    def _perform_dcf_valuation(self, latest_fcf, fcf_history, growth_rates, discount_rates_override, wacc_params: dict, is_fcff=False):
+        """
+        通用的两阶段DCF估值逻辑。
+        Args:
+            latest_fcf: 最新的自由现金流。
+            fcf_history: 自由现金流历史记录。
+            growth_rates: 用户指定的增长率列表 [low, mid, high] 或 None。
+            discount_rates_override: 用户指定的折现率列表 [low, mid, high] 或 None。
+            wacc_params (dict): 包含 WACC 计算所需参数的字典 (可能来自 API 请求)。
+            is_fcff (bool): 指示是计算 FCFF (True) 还是 FCFE (False)。
+        """
         if latest_fcf is None or latest_fcf <= 0:
             return None, "自由现金流为负、零或计算失败"
 
@@ -491,20 +572,27 @@ class ValuationCalculator:
             # Ensure provided rates are floats
             growth_rates = [float(g) for g in growth_rates]
 
-        # 确定折现率
-        if discount_rates is None:
-            # Use WACC for FCFF, Ke for FCFE by default
-            base_rate = self.wacc if is_fcff else self.cost_of_equity
+        # --- 确定折现率 ---
+        calculated_wacc, calculated_ke = self._get_wacc_and_ke(wacc_params)
+
+        if discount_rates_override is None:
+            # Use calculated WACC for FCFF, calculated Ke for FCFE as base rate
+            base_rate = calculated_wacc if is_fcff else calculated_ke
             if base_rate is None:
                  error_msg = "WACC 计算失败，无法进行 FCFF 估值" if is_fcff else "股权成本(Ke) 计算失败，无法进行 FCFE 估值"
+                 # Store the calculated WACC/Ke even if one fails, for the response model
+                 self.last_calculated_wacc = calculated_wacc
+                 self.last_calculated_ke = calculated_ke
                  return None, error_msg
-            # Sensitivity analysis around the base rate
+            # Sensitivity analysis around the calculated base rate
             discount_rates = [max(0.01, base_rate - 0.01), base_rate, base_rate + 0.01]
         else:
-             discount_rates = [float(r) for r in discount_rates]
+             # Use user-provided override rates
+             discount_rates = [float(r) for r in discount_rates_override]
 
-        # DEBUG print removed
-        # DEBUG print removed
+        # Store the calculated WACC/Ke for potential use in the response model
+        self.last_calculated_wacc = calculated_wacc
+        self.last_calculated_ke = calculated_ke
 
         valuations = []
         for g in growth_rates:
@@ -574,8 +662,14 @@ class ValuationCalculator:
 
         return valuations, None
 
-    def calculate_ddm_valuation(self, growth_rates=None, discount_rates=None):
-        """股利贴现模型(DDM)估值"""
+    def calculate_ddm_valuation(self, growth_rates=None, discount_rates_override=None, wacc_params: dict = {}):
+        """
+        股利贴现模型(DDM)估值。
+        Args:
+            growth_rates: 用户指定的增长率列表 [low, mid, high] 或 None。
+            discount_rates_override: 用户指定的折现率列表 [low, mid, high] 或 None。
+            wacc_params (dict): 包含 WACC/Ke 计算所需参数的字典。
+        """
         current_yield, div_history, avg_div, _ = self.calculate_dividend_yield()
 
         if avg_div <= 0:
@@ -609,14 +703,22 @@ class ValuationCalculator:
         else:
              growth_rates = [float(g) for g in growth_rates]
 
-        # 确定折现率 (DDM 通常用 Ke)
-        if discount_rates is None:
-            if self.cost_of_equity is None:
+        # --- 确定折现率 (DDM 通常用 Ke) ---
+        _, calculated_ke = self._get_wacc_and_ke(wacc_params) # We only need Ke for DDM
+
+        if discount_rates_override is None:
+            if calculated_ke is None:
+                 # Store the calculated Ke even if it fails, for the response model
+                 self.last_calculated_ke = calculated_ke # WACC might be valid, store Ke anyway
                  return None, "无法计算股权成本(Ke)，无法进行DDM估值"
-            # Sensitivity analysis around Ke
-            discount_rates = [max(0.01, self.cost_of_equity - 0.01), self.cost_of_equity, self.cost_of_equity + 0.01]
+            # Sensitivity analysis around calculated Ke
+            discount_rates = [max(0.01, calculated_ke - 0.01), calculated_ke, calculated_ke + 0.01]
         else:
-             discount_rates = [float(r) for r in discount_rates]
+             # Use user-provided override rates
+             discount_rates = [float(r) for r in discount_rates_override]
+
+        # Store the calculated Ke for potential use in the response model
+        self.last_calculated_ke = calculated_ke
 
         valuations = []
         for g in growth_rates:
@@ -663,33 +765,31 @@ class ValuationCalculator:
 
         return valuations, None
 
-    # --- DCF 方法重构 ---
+    # --- DCF 方法重构 (接受 wacc_params) ---
 
-    def perform_fcff_valuation_basic_capex(self, growth_rates=None, discount_rates=None):
+    def perform_fcff_valuation_basic_capex(self, growth_rates=None, discount_rates_override=None, wacc_params: dict = {}):
         """基于基本资本性支出FCFF的DCF估值"""
         latest_fcff, _, fcff_history, _, _ = self.calculate_fcff_fcfe(capex_type='basic')
-        # Pass the correct history
-        return self._perform_dcf_valuation(latest_fcff, fcff_history, growth_rates, discount_rates, is_fcff=True)
+        # Pass the correct history and wacc_params
+        return self._perform_dcf_valuation(latest_fcff, fcff_history, growth_rates, discount_rates_override, wacc_params, is_fcff=True)
 
-    def perform_fcfe_valuation_basic_capex(self, growth_rates=None, discount_rates=None):
+    def perform_fcfe_valuation_basic_capex(self, growth_rates=None, discount_rates_override=None, wacc_params: dict = {}):
         """基于基本资本性支出FCFE的DCF估值"""
         _, latest_fcfe, _, fcfe_history, _ = self.calculate_fcff_fcfe(capex_type='basic')
-        # Pass the correct history
-        return self._perform_dcf_valuation(latest_fcfe, fcfe_history, growth_rates, discount_rates, is_fcff=False)
+        # Pass the correct history and wacc_params
+        return self._perform_dcf_valuation(latest_fcfe, fcfe_history, growth_rates, discount_rates_override, wacc_params, is_fcff=False)
 
-    def perform_fcfe_valuation_full_capex(self, growth_rates=None, discount_rates=None):
+    def perform_fcfe_valuation_full_capex(self, growth_rates=None, discount_rates_override=None, wacc_params: dict = {}):
         """基于完整资本性支出FCFE的DCF估值"""
         _, latest_fcfe, _, fcfe_history, _ = self.calculate_fcff_fcfe(capex_type='full')
-         # Need to ensure calculate_fcff_fcfe returns the correct history based on type
-        # Assuming it does for now, or recalculate if necessary
-        return self._perform_dcf_valuation(latest_fcfe, fcfe_history, growth_rates, discount_rates, is_fcff=False)
+        # Pass the correct history and wacc_params
+        return self._perform_dcf_valuation(latest_fcfe, fcfe_history, growth_rates, discount_rates_override, wacc_params, is_fcff=False)
 
-    def perform_fcff_valuation_full_capex(self, growth_rates=None, discount_rates=None):
+    def perform_fcff_valuation_full_capex(self, growth_rates=None, discount_rates_override=None, wacc_params: dict = {}):
         """基于完整资本性支出FCFF的DCF估值"""
         latest_fcff, _, fcff_history, _, _ = self.calculate_fcff_fcfe(capex_type='full')
-        # Need to ensure calculate_fcff_fcfe returns the correct history based on type
-        # Assuming it does for now, or recalculate if necessary
-        return self._perform_dcf_valuation(latest_fcff, fcff_history, growth_rates, discount_rates, is_fcff=True)
+        # Pass the correct history and wacc_params
+        return self._perform_dcf_valuation(latest_fcff, fcff_history, growth_rates, discount_rates_override, wacc_params, is_fcff=True)
 
     # --- 其他分析和综合分析 ---
 
@@ -719,17 +819,27 @@ class ValuationCalculator:
 
         return analysis
 
-    def get_combo_valuations(self, pe_multiples, pb_multiples, ev_ebitda_multiples, growth_rates=None, discount_rates=None):
-        """计算新的绝对估值组合（包含安全边际）及投资建议"""
+    def get_combo_valuations(self, pe_multiples, pb_multiples, ev_ebitda_multiples, growth_rates=None, discount_rates_override=None, wacc_params: dict = {}):
+        """
+        计算新的绝对估值组合（包含安全边际）及投资建议。
+        Args:
+            pe_multiples, pb_multiples, ev_ebitda_multiples: 用于相对估值参考。
+            growth_rates: 用户指定的增长率列表 [low, mid, high] 或 None。
+            discount_rates_override: 用户指定的折现率列表 [low, mid, high] 或 None。
+            wacc_params (dict): 包含 WACC/Ke 计算所需参数的字典。
+        """
         combos_with_margin = {} # Store results as {'Alias': {'value': float, 'safety_margin_pct': float}} or None
         investment_advice = {}
+        # Initialize attributes to store calculated WACC/Ke for the response
+        self.last_calculated_wacc = None
+        self.last_calculated_ke = None
         try:
-            # --- 计算核心绝对/DDM估值模型结果 ---
-            dcf_fcff_basic_results, _ = self.perform_fcff_valuation_basic_capex(growth_rates, None)
-            dcf_fcfe_basic_results, _ = self.perform_fcfe_valuation_basic_capex(growth_rates, None)
-            dcf_fcff_full_results, _ = self.perform_fcff_valuation_full_capex(growth_rates, None)
-            dcf_fcfe_full_results, _ = self.perform_fcfe_valuation_full_capex(growth_rates, None)
-            ddm_results, _ = self.calculate_ddm_valuation(growth_rates, None)
+            # --- 计算核心绝对/DDM估值模型结果 (传递 wacc_params) ---
+            dcf_fcff_basic_results, _ = self.perform_fcff_valuation_basic_capex(growth_rates, discount_rates_override, wacc_params)
+            dcf_fcfe_basic_results, _ = self.perform_fcfe_valuation_basic_capex(growth_rates, discount_rates_override, wacc_params)
+            dcf_fcff_full_results, _ = self.perform_fcff_valuation_full_capex(growth_rates, discount_rates_override, wacc_params)
+            dcf_fcfe_full_results, _ = self.perform_fcfe_valuation_full_capex(growth_rates, discount_rates_override, wacc_params)
+            ddm_results, _ = self.calculate_ddm_valuation(growth_rates, discount_rates_override, wacc_params)
 
             # --- 提取各模型中心值 ---
             def extract_central_value(results):

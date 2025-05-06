@@ -101,27 +101,48 @@ async def calculate_valuation_endpoint(request: StockValuationRequest):
         results_container = ValuationResultsContainer() # Initialize the container
 
         # Current Metrics
+        # Current Metrics & Context
+        results_container.latest_price = latest_price # Add the latest price used
         results_container.current_pe = calculator.calculate_pe_ratio()
         results_container.current_pb = calculator.calculate_pb_ratio()
         _, _, results_container.current_ev_ebitda = calculator.calculate_ev()
-        results_container.calculated_wacc_pct = calculator.wacc * 100 if calculator.wacc is not None else None
-        results_container.calculated_cost_of_equity_pct = calculator.cost_of_equity * 100 if calculator.cost_of_equity is not None else None
+        # WACC and Ke are now calculated dynamically, remove direct access here
 
-        # Absolute Valuation Models
-        dcf_fcff_basic_res, dcf_fcff_basic_err = calculator.perform_fcff_valuation_basic_capex(request.growth_rates, None)
+        # Prepare WACC parameters dictionary from request (pass None values if not provided)
+        wacc_params = {
+            'target_debt_ratio': request.target_debt_ratio,
+            'cost_of_debt': request.cost_of_debt,
+            'tax_rate': request.tax_rate,
+            'risk_free_rate': request.risk_free_rate,
+            'beta': request.beta,
+            'market_risk_premium': request.market_risk_premium,
+            'size_premium': request.size_premium
+        }
+        # Filter out None values if calculator expects only provided overrides
+        wacc_params = {k: v for k, v in wacc_params.items() if v is not None}
+
+
+        # Absolute Valuation Models (Pass wacc_params)
+        # Note: We are passing None for discount_rates_override, letting the calculator derive them
+        dcf_fcff_basic_res, dcf_fcff_basic_err = calculator.perform_fcff_valuation_basic_capex(request.growth_rates, None, wacc_params)
         results_container.dcf_fcff_basic_capex = ValuationMethodResult(results=dcf_fcff_basic_res, error_message=dcf_fcff_basic_err)
 
-        dcf_fcfe_basic_res, dcf_fcfe_basic_err = calculator.perform_fcfe_valuation_basic_capex(request.growth_rates, None)
+        dcf_fcfe_basic_res, dcf_fcfe_basic_err = calculator.perform_fcfe_valuation_basic_capex(request.growth_rates, None, wacc_params)
         results_container.dcf_fcfe_basic_capex = ValuationMethodResult(results=dcf_fcfe_basic_res, error_message=dcf_fcfe_basic_err)
 
-        dcf_fcff_full_res, dcf_fcff_full_err = calculator.perform_fcff_valuation_full_capex(request.growth_rates, None)
+        dcf_fcff_full_res, dcf_fcff_full_err = calculator.perform_fcff_valuation_full_capex(request.growth_rates, None, wacc_params)
         results_container.dcf_fcff_full_capex = ValuationMethodResult(results=dcf_fcff_full_res, error_message=dcf_fcff_full_err)
 
-        dcf_fcfe_full_res, dcf_fcfe_full_err = calculator.perform_fcfe_valuation_full_capex(request.growth_rates, None)
+        dcf_fcfe_full_res, dcf_fcfe_full_err = calculator.perform_fcfe_valuation_full_capex(request.growth_rates, None, wacc_params)
         results_container.dcf_fcfe_full_capex = ValuationMethodResult(results=dcf_fcfe_full_res, error_message=dcf_fcfe_full_err)
 
-        ddm_res, ddm_err = calculator.calculate_ddm_valuation(request.growth_rates, None)
+        ddm_res, ddm_err = calculator.calculate_ddm_valuation(request.growth_rates, None, wacc_params)
         results_container.ddm = ValuationMethodResult(results=ddm_res, error_message=ddm_err)
+
+        # Retrieve calculated WACC and Ke after calculations that trigger them
+        results_container.calculated_wacc_pct = calculator.last_calculated_wacc * 100 if hasattr(calculator, 'last_calculated_wacc') and calculator.last_calculated_wacc is not None else None
+        results_container.calculated_cost_of_equity_pct = calculator.last_calculated_ke * 100 if hasattr(calculator, 'last_calculated_ke') and calculator.last_calculated_ke is not None else None
+
 
         # Other Analysis
         other_analysis_data = calculator.get_other_analysis()
@@ -136,7 +157,9 @@ async def calculate_valuation_endpoint(request: StockValuationRequest):
             pe_multiples=request.pe_multiples,
             pb_multiples=request.pb_multiples,
             ev_ebitda_multiples=request.ev_ebitda_multiples, # Pass this even if not directly used in combos, might be needed later
-            growth_rates=request.growth_rates
+            growth_rates=request.growth_rates,
+            # Pass the wacc_params dictionary here
+            wacc_params=wacc_params
         )
         results_container.combo_valuations = combo_vals
         if advice_data:

@@ -107,6 +107,10 @@ const ResultsDisplay: React.FC<ResultsDisplayProps> = ({ results }) => {
           <span className="font-medium text-gray-600 dark:text-gray-400">行业:</span>
           <span className="ml-2">{stock_info.industry || 'N/A'}</span>
         </div>
+         <div>
+          <span className="font-medium text-gray-600 dark:text-gray-400">最新价格:</span>
+          <span className="ml-2 font-semibold">{formatNumber(valuation_results.latest_price)}</span>
+        </div>
         <div>
           <span className="font-medium text-gray-600 dark:text-gray-400">市盈率 (PE):</span>
           <span className="ml-2">{formatNumber(valuation_results.current_pe)}</span>

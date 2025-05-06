@@ -1,7 +1,7 @@
 # 当前项目进展
 
 ## 项目阶段
-- **当前:** Web 服务化改造 - Phase 1 (后端 API) 和 Phase 2 (前端基础) 完成。Phase 3 (后端核心估值增强) 主要部分完成。
+- **当前:** Web 服务化改造 - Phase 1 (后端 API) 和 Phase 2 (前端基础) 完成。Phase 3 (后端核心估值增强及前端WACC集成) 完成。目前在 Phase 3 的测试和调试阶段，遇到前端交互问题。
 - **目标:** 将 CLI 工具转变为前后端分离的 Web 应用。
 
 ## 已完成工作
@@ -34,41 +34,37 @@
     - [x] 设计和实现基础 UI 样式 (Tailwind CSS in components)
     - [x] 实现加载状态和错误处理 (`page.tsx`)
     - [x] 定义前端类型 (`types/api.ts`)
-- **Phase 3: 后端核心估值增强 (主要部分)**
-    - [x] **数据获取:** (部分完成) 在 `data_fetcher.py` 中添加了获取 WACC 和 EV 计算所需额外字段的逻辑 (`money_cap`, `lt_borr`, `st_borr`, `bond_payable`, `ebit`, `ebitda`)。
-    - [x] **WACC 计算:** 在 `valuation_calculator.py` 中实现 `calculate_wacc` 方法。
-    - [x] **估值计算 (`valuation_calculator.py`):**
-        - [x] 修复 `calculate_ev` (使用实际数据，处理现金缺失)。
-        - [x] 修改 `calculate_fcff_fcfe` 以支持 Basic/Full Capex。
-        - [x] 重构 DCF 方法 (重命名, 使用 WACC +/- 1% 作为折现率, 调用正确的 Capex 类型)。
-        - [x] 实现 DDM 估值 (`calculate_ddm_valuation`)。
-        - [x] 实现其他分析 (`get_other_analysis` - 股息、增长)。
-        - [x] 实现综合分析 (`get_combo_valuations` - 六种组合、投资建议规则)。
-        - [ ] 处理 NaN 值 (部分完成，需要进一步审查)。
-    - [x] **API 层:**
-        - [x] `api/models.py`: 定义了完整的请求和响应模型。
-        - [x] `api/main.py`: 更新了 API 端点逻辑以调用所有计算并返回新模型。
-    - [x] **测试:**
+- **Phase 3: 后端核心估值增强 & 前端WACC集成 (主要部分)**
+    - [x] **数据获取:** (部分完成) 在 `data_fetcher.py` 中添加了获取 WACC 和 EV 计算所需额外字段的逻辑。
+    - [x] **WACC 计算 (后端):** 在 `valuation_calculator.py` 中实现 `calculate_wacc` 方法，并重构相关估值方法以接受 WACC 参数或使用计算值。
+    - [x] **API 层 (后端):**
+        - [x] `api/models.py`: 定义了包含可选 WACC 参数的请求模型和包含 WACC/Ke 结果的响应模型。
+        - [x] `api/main.py`: 更新了 API 端点逻辑以处理 WACC 参数并返回 WACC/Ke。
+    - [x] **前端WACC集成:**
+        - [x] `frontend/src/types/api.ts`: 更新类型。
+        - [x] `frontend/src/components/features/valuation/ValuationForm.tsx`: 添加 WACC 输入字段。
+        - [x] `frontend/src/app/page.tsx`: 更新逻辑以收集和发送 WACC 参数。
+    - [x] **前端报告增强:** API 返回 `latest_price`，前端显示 `latest_price`。
+    - [x] **前端输入体验:** 分离股票数字代码和市场后缀输入。
+    - [x] **开发工作流脚本:** 创建 `start-dev.sh` 和 `stop-dev.sh`。
+    - [x] **测试 (部分):**
         - [x] `tests/api/test_main.py`: 更新测试用例以覆盖新 API 结构。
         - [x] `tests/api/test_main.py`: 修复了 `test_calculate_valuation_not_found` 失败用例。
-    - [x] **配置:** 更新 `.env.example` 添加 WACC 参数 (`DEFAULT_BETA`, `RISK_FREE_RATE`, `MARKET_RISK_PREMIUM`, `DEFAULT_COST_OF_DEBT`)。
-    - [x] **调试 (TypeError):** 解决了 `/api/v1/valuation` 端点因重复方法定义导致的 `TypeError`。
-    - [x] **调试 (数值准确性):**
-        - [x] 修复了 PE, EV/EBITDA, Payout Ratio 异常高的问题 (修正 `total_shares` 单位处理)。
-        - [x] 调查并确认 DCF 估值偏高源于历史自由现金流波动导致的增长率计算问题。
-        - [x] 在 `_get_growth_rates_for_dcf` 中添加增长率上限 (25%) 逻辑。
-        - [x] 修复了添加调试代码时引入的缩进错误。
-        - [x] 确认增长率上限逻辑已生效。
-        - [x] 将 DCF 增长率上限配置移至 `.env` 文件。
+        - [x] 成功通过脚本启动和停止开发服务器。
+        - [x] 通过日志确认服务器正常启动。
+        - [x] 使用 `lsof` 识别了占用端口的进程。
+    - [x] **配置:** 更新 `.env.example` 添加 WACC 参数。
+    - [x] **调试 (TypeError & 数值准确性):** 已解决。
 
 ## 剩余任务 (Web 服务开发)
-- **Phase 3: 后端核心估值增强 (当前)**
-    - [x] **重构估值组合与建议 (`valuation_calculator.py`, `api/models.py`):**
-        - 移除了相对估值在组合计算中的权重。
-        - 实现了新的绝对估值组合，使用描述性别名，并为每个组合计算了安全边际百分比，存储在嵌套字典中 (`{'value': ..., 'safety_margin_pct': ...}`)。
-        - 实现了新的“综合估值” (`Composite_Valuation`) 加权计算 (FCFE_Basic=40%, 其他均分60%)。
-        - 重构了投资建议逻辑 (基于安全边际 - FCFE Basic & DDM，参考 FCFE_Basic, Avg_FCFE_Basic_DDM, Composite_Valuation)。
-        - 更新了 API 模型以反映新的组合结构（包含安全边际）和别名。
+- **Phase 3: 测试与调试 (当前阻塞)**
+    - [ ] **调试前端交互问题 (高优先级):**
+        - [ ] 调查并解决无法展开 "WACC 配置参数 (可选)" 的问题。
+        - [ ] 调查并解决提交估值表单后无响应/API 请求未发出的问题。
+    - [ ] **完成 WACC 功能的端到端测试:** (在前端问题解决后)
+        - [ ] 测试使用默认 WACC 参数提交估值请求，验证结果（包括最新价格和计算出的 WACC/Ke）。
+        - [ ] 测试修改 WACC 参数后提交估值请求，验证 WACC/Ke 和估值结果是否相应变化。
+- **Phase 3: 后端核心估值增强 (收尾)**
     - [ ] **估值计算 (`valuation_calculator.py`):** 进一步审查和处理潜在的 NaN 值问题。
     - [ ] **数据获取:** 验证 WACC/EV 所需字段是否总能可靠获取，考虑备用方案。
     - [ ] **DCF 增长率优化 (可选):** 考虑更稳健的历史增长率计算方法。
@@ -84,27 +80,21 @@
 
 ## 当前状态
 - 后端 API (FastAPI) 和基础前端 (Next.js) 已开发完成并可运行。
-- 后端核心估值逻辑已增强，API 现在可以返回包含多种模型、分析和建议的详细结果。
-- 前端可以调用后端 API 获取并展示**增强后**的估值结果（但前端展示尚未更新以匹配新数据结构）。
-- 项目结构符合预期 (`api/`, `frontend/`, `tests/` 等)。
+- 后端核心估值逻辑已增强，支持通过 API 配置 WACC 参数。
+- 前端已集成 WACC 输入字段，并更新了股票代码输入方式。
+- 开发服务器管理脚本 (`start-dev.sh`, `stop-dev.sh`) 已创建并基本验证。
+- **阻塞点:** 前端浏览器测试中发现交互问题（无法展开 WACC 配置，表单提交无响应），导致无法完成对 WACC 功能的端到端测试。
 - API 测试已更新并通过。
 - `/api/v1/valuation` 端点现在可以成功返回 200 OK 和完整的估值结果，PE/EV/Payout Ratio 数值已修正。
 - DCF 估值中基于历史数据的增长率计算已加入上限限制 (25%)。
-- **下一步:** 验证增长率上限对 DCF 结果的影响，继续 Phase 3 的收尾工作（NaN 值处理）或开始其他改进。
 
 ## 已知问题
+- **前端表单提交无响应，WACC 配置无法展开 (新发现，高优先级)。**
 - 应用增长率上限后的 DCF 估值结果的合理性有待验证。
 - 估值计算中可能仍存在未完全处理的 `nan` 值问题 (待审查)。
-- 前端 `ResultsDisplay` 组件尚未更新以展示 API 返回的全部详细信息。
+- 前端 `ResultsDisplay` 组件尚未更新以展示 API 返回的全部详细信息 (包括 WACC/Ke 和 `latest_price` 的正确显示需要确认)。
 
 ## 决策演变
-- 确定了向前后端分离的 Web 服务架构演进的方向。
-- 选定了 FastAPI (后端) 和 Next.js (前端) 作为核心技术栈。
-- 确定了通过策略模式支持多市场数据源的架构方案。
-- **明确了资本性支出 (Capex) 的区分:** Basic Capex (`c_pay_acq_const_fiolta`) 和 Full Capex (`stot_out_inv_act`)。
-- **确定了折现率方案:** 计算 WACC 并将其作为 DCF/DDM 的中心折现率，进行敏感性分析。
-- **确定了投资建议逻辑:** 基于安全边际 (使用 FCFE Basic 和 DDM 最低值计算)，并参考 `FCFE_Basic`, `Avg_FCFE_Basic_DDM` 和 `Composite_Valuation`。
-- **确定了相对估值处理:** 仅作参考，不纳入组合加权。
-- **确定了新的组合估值体系:** 定义了使用描述性别名的组合（每个组合包含 `value` 和 `safety_margin_pct`）及最终综合估值的加权方法。
-- **接受了 EV 计算中的现金估算** (在无法获取精确数据时)。
-- **识别了 DCF 历史增长率计算的敏感性问题** 并引入了基于 `.env` 配置的上限限制。
+- (保持不变) ...
+- **明确了 WACC 参数可由前端配置并通过 API 传递。**
+- **开发了 `start-dev.sh` 和 `stop-dev.sh` 以简化开发流程。**

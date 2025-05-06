@@ -31,6 +31,15 @@ class StockValuationRequest(BaseModel):
     #     description="Discount rates [low, mid, high] for DCF/DDM sensitivity. Overrides WACC/Ke calculation if provided."
     # ) # Let's rely on WACC/Ke based rates for now
 
+    # --- Optional parameters for WACC calculation ---
+    target_debt_ratio: Optional[float] = Field(None, ge=0, le=1, description="Target Debt / Total Capital ratio for WACC calculation (e.g., 0.45 for 45%). Overrides calculation based on market values if provided.")
+    cost_of_debt: Optional[float] = Field(None, ge=0, description="Pre-tax Cost of Debt for WACC calculation (e.g., 0.05 for 5%). Overrides default if provided.")
+    tax_rate: Optional[float] = Field(None, ge=0, le=1, description="Effective Tax Rate for WACC calculation (e.g., 0.25 for 25%). Overrides default if provided.")
+    risk_free_rate: Optional[float] = Field(None, ge=0, description="Risk-Free Rate for Cost of Equity (Ke) calculation (e.g., 0.03 for 3%). Overrides default if provided.")
+    beta: Optional[float] = Field(None, description="Levered Beta for Cost of Equity (Ke) calculation. Overrides default if provided.")
+    market_risk_premium: Optional[float] = Field(None, ge=0, description="Market Risk Premium for Cost of Equity (Ke) calculation (e.g., 0.0611 for 6.11%). Overrides default if provided.")
+    size_premium: Optional[float] = Field(None, description="Size Premium for Cost of Equity (Ke) calculation (e.g., 0.0 for 0%). Overrides default if provided.")
+
 
 # --- Response Models ---
 
@@ -77,7 +86,8 @@ class InvestmentAdvice(BaseModel):
 
 class ValuationResultsContainer(BaseModel):
     """Container for all calculated valuation results."""
-    # Current Metrics
+    # Current Metrics & Context
+    latest_price: Optional[float] = Field(None, description="The latest stock price used for these calculations.")
     current_pe: Optional[float] = Field(None, description="Current Price-to-Earnings ratio.")
     current_pb: Optional[float] = Field(None, description="Current Price-to-Book ratio.")
     current_ev_ebitda: Optional[float] = Field(None, description="Current Enterprise Value to EBITDA ratio.")

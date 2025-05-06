@@ -5,17 +5,72 @@ import ValuationForm from "@/components/features/valuation/ValuationForm"; // Im
 import ResultsDisplay from "@/components/features/valuation/ResultsDisplay"; // Import actual component
 import { StockValuationResponse } from "@/types/api";
 
+// Define FormData interface here as well, or import if moved to types
+interface FormData {
+  tsCode: string;
+  targetDebtRatio: string;
+  costOfDebt: string;
+  taxRate: string;
+  riskFreeRate: string;
+  beta: string;
+  marketRiskPremium: string;
+  sizePremium: string;
+}
+
 export default function Home() {
   const [results, setResults] = useState<StockValuationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleValuationRequest = async (tsCode: string) => {
+  // Helper function to safely parse float and convert percentage string to decimal
+  const parsePercentToDecimal = (value: string | undefined | null): number | null => {
+    if (value === undefined || value === null || value.trim() === '') {
+      return null; // Treat empty string as null (don't send to backend)
+    }
+    const num = parseFloat(value);
+    return isNaN(num) ? null : num / 100.0; // Convert percentage to decimal
+  };
+
+  // Helper function to safely parse float string
+  const parseFloatInput = (value: string | undefined | null): number | null => {
+     if (value === undefined || value === null || value.trim() === '') {
+      return null; // Treat empty string as null
+    }
+    const num = parseFloat(value);
+    return isNaN(num) ? null : num;
+  };
+
+
+  // Update the handler function signature and logic
+  const handleValuationRequest = async (formData: FormData) => {
     setIsLoading(true);
     setError(null);
     setResults(null);
 
     try {
+      // Construct the request body, converting percentages to decimals
+      // Only include parameters if they have valid numeric values
+      const requestBody: { [key: string]: any } = {
+        ts_code: formData.tsCode.trim(),
+      };
+
+      const waccParams = {
+        target_debt_ratio: parsePercentToDecimal(formData.targetDebtRatio),
+        cost_of_debt: parsePercentToDecimal(formData.costOfDebt),
+        tax_rate: parsePercentToDecimal(formData.taxRate),
+        risk_free_rate: parsePercentToDecimal(formData.riskFreeRate),
+        beta: parseFloatInput(formData.beta),
+        market_risk_premium: parsePercentToDecimal(formData.marketRiskPremium),
+        size_premium: parsePercentToDecimal(formData.sizePremium),
+      };
+
+      // Add WACC params to request body only if they are not null
+      for (const [key, value] of Object.entries(waccParams)) {
+        if (value !== null) {
+          requestBody[key] = value;
+        }
+      }
+
       // IMPORTANT: Replace with your actual API endpoint URL
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8124";
       const response = await fetch(`${apiUrl}/api/v1/valuation`, {
@@ -23,7 +78,7 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ ts_code: tsCode }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -47,25 +102,25 @@ export default function Home() {
           股票估值神器
         </h1>
 
-        {/* Integrate ValuationForm */}
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md mb-8">
-           <ValuationForm onSubmit={handleValuationRequest} isLoading={isLoading} />
-        </div>
+        {/* Integrate ValuationForm - onSubmit now expects FormData */}
+        {/* The form component itself is already updated */}
+        <ValuationForm onSubmit={handleValuationRequest} isLoading={isLoading} />
+
 
         {isLoading && (
-          <div className="text-center text-blue-600 dark:text-blue-400">
+          <div className="text-center text-blue-600 dark:text-blue-400 mt-8"> {/* Added margin top */}
             正在加载结果...
           </div>
         )}
 
         {error && (
-          <div className="text-center text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 p-4 rounded-md">
+          <div className="text-center text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 p-4 rounded-md mt-8"> {/* Added margin top */}
             错误: {error}
           </div>
         )}
 
         {results && !error && (
-           // Integrate ResultsDisplay
+           // Integrate ResultsDisplay - No changes needed here as it accepts StockValuationResponse
            <ResultsDisplay results={results} />
         )}
       </div>

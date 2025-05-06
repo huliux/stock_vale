@@ -1,7 +1,7 @@
 # 当前工作重点
 
 ## 项目状态
-- **当前阶段:** Web 服务化改造 - Phase 1 (后端 API) 和 Phase 2 (前端基础) 完成。Phase 3 (后端核心估值增强) 主要部分完成。
+- **当前阶段:** Web 服务化改造 - Phase 1 (后端 API) 和 Phase 2 (前端基础) 完成。Phase 3 (后端核心估值增强及前端WACC集成) 完成。正在进行 Phase 3 的测试和调试。
 - **目标:** 将现有 Python 命令行估值工具改造为前后端分离的 Web 应用。
 - **技术选型:**
     - 后端: FastAPI
@@ -11,76 +11,55 @@
     - 前端负责用户交互和结果展示。
     - 后端 `DataFetcher` 采用策略模式以支持多市场（A 股、港股等）。
 
-## 最新完成的工作 (后端核心估值增强)
-- **`valuation_calculator.py`:**
-    - [x] 确认 `get_other_analysis` (股息、增长) 和 `get_combo_valuations` (六种组合、投资建议) 方法已正确实现。
-    - [x] 清理了因之前编辑中断导致的重复代码。
-- **API 层:**
-    - [x] `api/models.py`: 定义了详细的 Pydantic 请求 (`StockValuationRequest` 包含敏感度分析参数) 和响应模型 (`StockValuationResponse` 包含 `ValuationResultsContainer` 以容纳所有计算维度)。
-    - [x] `api/main.py`: 更新了 `/api/v1/valuation` 端点逻辑，以调用 `ValuationCalculator` 的所有相关方法，并使用新的模型结构返回详细结果。
-- **测试:**
-    - [x] `tests/api/test_main.py`: 更新了 API 测试用例，修复了 `test_calculate_valuation_not_found`，并扩展了 `test_calculate_valuation_success` 以覆盖新的 API 响应结构和模拟计算器的输出。
-- **调试与修复:**
-    - [x] 诊断并修复了 `/api/v1/valuation` 端点调用 `calculator.get_combo_valuations` 时发生的 `TypeError: cannot unpack non-iterable NoneType object`。
-    - [x] 根本原因确定为 `valuation_calculator.py` 中存在重复的 `get_combo_valuations` 方法定义，其中重复的方法缺少 `return` 语句，导致隐式返回 `None`。
-    - [x] 通过添加和分析调试打印语句逐步定位问题，最终删除了重复的方法定义。
-    - [x] 确认 `/api/v1/valuation` 端点现在可以成功返回 200 OK 和完整的估值结果。
-    - [x] 清理了在调试过程中添加到 `api/main.py` 和 `valuation_calculator.py` 的所有 `DEBUG:` 打印语句（用于修复 TypeError）。
-- **调试与修复 (数值准确性):**
-    - [x] 诊断并修复了 PE、EV/EBITDA、派息率异常高的问题。根本原因确定为 `api/main.py` 和 `valuation_calculator.py` 中对 `total_shares` 单位处理不一致（获取的是实际股数，但错误地按万股处理并乘以了 10000）。已修正两处代码。
-    - [x] 调查了 DCF (FCFE/FCFF) 估值结果显著偏高的问题。
-    - [x] 通过添加 DEBUG 打印，确认高估值主要源于 `_get_growth_rates_for_dcf` 函数中基于历史自由现金流计算出的平均增长率 (`avg_growth`) 因历史数据波动（特别是正负转换）而异常高。
-    - [x] 在 `_get_growth_rates_for_dcf` 中添加了增长率上限 (`reasonable_growth_cap = 0.25`) 逻辑，以限制过高的历史平均增长率对未来预测的影响。
-    - [x] 修复了添加调试代码时引入的缩进错误。
-    - [x] 通过 DEBUG 输出确认增长率上限逻辑已生效。
-    - [x] 将 DCF 增长率上限配置移至 `.env` 文件 (`DCF_GROWTH_CAP`)。
+## 最新完成的工作 (本轮会话及上一轮)
+- **WACC 参数配置 (后端):**
+    - [x] `api/models.py`: 修改 API 模型以接受可选的 WACC 配置参数 (目标债务比率, 债务成本, 税率, 无风险利率, Beta, 市场风险溢价, 规模溢价)。
+    - [x] `valuation_calculator.py`: 重构，移除 WACC/Ke 的预计算，添加 `_get_wacc_and_ke` 辅助方法，更新 DCF 和 DDM 方法以使用新逻辑。
+    - [x] `api/main.py`: 更新 API 端点以提取 WACC 参数，传递给计算器，并在响应中包含计算出的 WACC/Ke。
+- **WACC 参数配置 (前端):**
+    - [x] `frontend/src/types/api.ts`: 更新前端类型以反映新的可选请求参数和响应字段。
+    - [x] `frontend/src/components/features/valuation/ValuationForm.tsx`: 添加 WACC 参数的输入字段和默认值。
+    - [x] `frontend/src/app/page.tsx`: 更新逻辑以收集 WACC 参数，进行转换并包含在 API 请求中。
+- **前端报告增强:**
+    - [x] 后端 API 响应添加 `latest_price`。
+    - [x] 前端类型和 `ResultsDisplay.tsx` 更新以显示 `latest_price`。
+- **前端输入体验:**
+    - [x] `ValuationForm.tsx`: 分离股票数字代码和市场后缀 (.SH/.SZ) 的输入。
+- **开发工作流脚本:**
+    - [x] 创建 `start-dev.sh` 脚本启动后台开发服务器并记录 PID 和日志。
+    - [x] 创建 `stop-dev.sh` 脚本通过 PID 停止开发服务器。
+- **测试与调试 (本轮会话):**
+    - [x] 使用 `stop-dev.sh` 和 `start-dev.sh` 成功管理开发服务器。
+    - [x] 通过日志确认后端和前端服务器均正常启动。
+    - [ ] **遇到问题:** 前端浏览器测试中：
+        - 无法展开 "WACC 配置参数 (可选)" 部分。
+        - 提交估值表单（使用默认WACC参数）后，页面无明显反应（未显示加载状态、结果或错误），服务器日志未显示 API 请求。
+    - [x] 使用 `lsof -i :3000` 成功识别了占用端口 3000 的进程。
 
 ## 下一步计划 (当前)
-- **后端核心估值逻辑重构 (已完成):**
-    - [x] **修改 `valuation_calculator.py` (`get_combo_valuations`):**
-        - 移除了相对估值 (PE/PB) 在组合计算中的权重。
-        - 实现了新的绝对估值组合定义，使用描述性别名 (如 `FCFE_Basic`, `Avg_FCF_Basic`, `Composite_Valuation` 等) 作为键名，并处理了无效依赖项。每个组合结果现在包含 `value` 和 `safety_margin_pct`。
-        - 实现了新的“综合估值”计算逻辑 (FCFE_Basic=40%, 其余有效组合均分60%)。
-        - 重构了投资建议逻辑：基于安全边际（使用 FCFE Basic 和 DDM 的最低值计算），并参考 `FCFE_Basic`, `Avg_FCFE_Basic_DDM` 和 `Composite_Valuation`。
-    - [x] **修改 `api/models.py` (`ValuationResultsContainer`):** 更新了 `combo_valuations` 字典结构以反映新的别名键和嵌套结构 (`Optional[Dict[str, Optional[Dict[str, Optional[float]]]]]`)。
-    - [x] **(已完成)** 从 API 请求模型和端点移除 `dcf_growth_cap` 参数。
-- **下一步计划 (潜在方向):**
-    - **后端增强:** 进一步优化增长率计算、处理 NaN 值、验证数据获取可靠性。
-    - **前端改进:** 美化 `ResultsDisplay` 组件、添加用户反馈、输入验证。
-    - 添加更精细的加载状态和错误提示。
-    - 实现输入验证。
-- **后端增强:**
-    - 完善 `DataFetcher` 策略模式，添加对其他市场（如港股）的支持 (`HKDataFetcher`)。
-    - 在 `ValuationCalculator` 中实现更多估值模型或完善现有模型（例如，处理 NaN 值）。
-    - 添加日志记录。
-- **联调与部署:**
-    - 进行更全面的端到端测试。
-    - 考虑 Docker 化部署。
+- **首要任务: 调试前端交互问题:**
+    - 调查并解决无法展开 "WACC 配置参数 (可选)" 的问题。
+    - 调查并解决提交估值表单后无响应/API 请求未发出的问题。
+    - **建议调试方法:**
+        - 检查浏览器开发者工具的控制台是否有 JavaScript 错误。
+        - 在 `ValuationForm.tsx` 的 `handleSubmit` 和 `page.tsx` 的 `handleValuationRequest` 中添加 `console.log` 来跟踪函数调用和数据。
+        - 使用浏览器开发者工具的网络(Network)标签页监控 API 请求。
+- **完成 WACC 功能的端到端测试:** (在前端问题解决后)
+    - 测试使用默认 WACC 参数提交估值请求，验证结果（包括最新价格和计算出的 WACC/Ke）。
+    - 测试修改 WACC 参数后提交估值请求，验证 WACC/Ke 和估值结果是否相应变化。
+- **后续 (参考 `progress.md`):**
+    - 后端增强: NaN 值处理, 数据获取可靠性, DCF 增长率优化。
+    - 前端改进: `ResultsDisplay` 美化, 用户反馈, 输入验证。
+    - 其他: 港股支持, 日志记录, Docker化。
 
 ## 当前决策和考虑事项
 - **项目结构:** 后端在根目录，API 在 `api/`；前端在 `frontend/`。
-- **数据流:** 前端 (localhost:3000) -> 后端 API (localhost:8124) -> 前端展示。
-- **API 响应:** API 现在返回一个包含多种估值模型结果、分析和建议的综合结构 (`ValuationResultsContainer`)。
-- **测试:** 后端 API 测试 (`test_calculate_valuation_success`) 现在覆盖了新的响应结构，并且之前失败的 `test_calculate_valuation_not_found` 已修复。
-- **资本性支出 (Capex):** 明确区分 Basic Capex (`c_pay_acq_const_fiolta`) 和 Full Capex (`stot_out_inv_act`) 并在 DCF 计算中体现。
-- **折现率 (Discount Rate):** 采用计算出的 WACC 作为 DCF 和 DDM 的中心折现率，并进行敏感性分析 (e.g., WACC +/- 1%)，替代原用户输入方式。
-- **投资建议:**
-    - 基于格雷厄姆的安全边际理念。
-    - 安全边际使用 DCF FCFE Basic (X) 和 DDM (D) 的最低估值结果计算。
-    - 建议理由需参考 X, B 和综合估值。
-- **相对估值:** PE, PB, EV/EBITDA 仅作为参考指标展示，不纳入组合估值加权计算。
-- **组合估值:**
-    - 定义了新的绝对估值组合，使用描述性别名 (如 `FCFE_Basic`, `Avg_FCF_Basic`, `Composite_Valuation`)。
-    - 每个组合结果包含估值 (`value`) 和对应的安全边际 (`safety_margin_pct`)。
-    - 最终“综合估值” (`Composite_Valuation`) 采用特定权重：`FCFE_Basic` (40%)，其余有效组合均分 60%。无效组合不参与计算。
-- **DCF 增长率上限:** (保持不变) 通过 `.env` 文件中的 `DCF_GROWTH_CAP` 配置，默认为 0.25。
-- **现金估算:** (保持不变) 在无法直接获取货币资金时，接受使用占总资产百分比估算 EV 中的现金部分。
+- **数据流:** 前端 (localhost:3001) -> 后端 API (localhost:8124) -> 前端展示。
+- **前端调试:** 由于 `browser_action` 工具的限制，无法直接查看详细的浏览器控制台错误，需要手动调试或在代码中添加更多日志。
+- **端口管理:** 明确了如何使用 `lsof` 查找占用端口的进程。
 
 ## 学习和项目洞察
-- 从 CLI 到 Web 服务的转变需要考虑 API 设计、数据序列化、前后端通信和异步处理（FastAPI 天然支持）。
-- 提前考虑多市场支持的架构设计能避免未来的大规模重构。
-- 准确定义和区分不同类型的资本性支出对 DCF 估值至关重要。
-- 使用计算出的 WACC 作为折现率比依赖用户输入更严谨。
-- 投资建议需要明确的规则和基于核心估值方法的安全边际判断。
-- 详细的 Pydantic 模型对于定义和验证复杂的 API 响应结构非常有帮助。
-- Mocking 在测试 FastAPI 端点时至关重要，特别是当涉及到外部依赖（如数据库）或复杂的内部逻辑（如 `ValuationCalculator`）时。
+- **客户端调试至关重要:** 服务器端日志可能无法完全反映前端的运行时问题。浏览器开发者工具是诊断客户端 JavaScript 错误和网络问题的关键。
+- **`browser_action` 局限性:** 对于复杂的交互式调试（如检查 DOM 状态、事件监听器、详细控制台输出），`browser_action` 能力有限。
+- **开发脚本的有效性:** `start-dev.sh` 和 `stop-dev.sh` 脚本在管理开发环境方面表现良好。
+- **端口冲突是常见问题:** 了解如何识别和解决端口冲突（如使用 `lsof` 和 `kill`）是开发过程中的有用技能。

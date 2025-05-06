@@ -59,6 +59,7 @@ export interface InvestmentAdvice {
 
 // Updated interface for the main valuation results container
 export interface ValuationResultsContainer {
+  latest_price?: number | null; // Add latest_price field
   current_pe?: number | null;
   current_pb?: number | null;
   current_ev_ebitda?: number | null;
