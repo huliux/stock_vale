@@ -1,10 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware # Import CORS Middleware
-from .models import StockValuationRequest, StockValuationResponse # Use relative import
+# Import all models needed
+from .models import (
+    StockValuationRequest, StockValuationResponse, ValuationResultsContainer,
+    ValuationMethodResult, OtherAnalysis, DividendAnalysis, GrowthAnalysis,
+    InvestmentAdvice
+)
 from data_fetcher import AshareDataFetcher # Assuming data_fetcher.py is in the root
 # Defer ValuationCalculator import to endpoint
 # from valuation_calculator import ValuationCalculator
 import pandas as pd
+import traceback # For detailed error logging
 
 app = FastAPI(
     title="Stock Valuation API",
@@ -38,75 +44,123 @@ async def read_root():
     """
     return {"message": "Welcome to the Stock Valuation API"}
 
-@app.post("/api/v1/valuation", response_model=StockValuationResponse)
+@app.post("/api/v1/valuation", response_model=StockValuationResponse, summary="Calculate Stock Valuation")
 async def calculate_valuation_endpoint(request: StockValuationRequest):
     """
-    Calculates valuation metrics for a given stock code.
+    Calculates comprehensive valuation metrics for a given stock code (ts_code).
+
+    Accepts optional parameters for sensitivity analysis:
+    - **pe_multiples**: List of PE ratios (e.g., [15, 20, 25])
+    - **pb_multiples**: List of PB ratios (e.g., [1.5, 2.0, 2.5])
+    - **ev_ebitda_multiples**: List of EV/EBITDA ratios (e.g., [8, 10, 12])
+    - **growth_rates**: List of growth rates [low, mid, high] (e.g., [0.05, 0.08, 0.10]). If None, calculator uses historical data.
+
+    Returns a detailed valuation report including various models, analysis, and investment advice.
     """
     try:
-        # 1. Instantiate Data Fetcher (Assuming A-share for now)
+        # 1. Instantiate Data Fetcher
         fetcher = AshareDataFetcher(ts_code=request.ts_code)
 
-        # 2. Fetch Data
+        # 2. Fetch Essential Data
         stock_info = fetcher.get_stock_info()
-        latest_price = fetcher.get_latest_price()
-        total_shares = fetcher.get_total_shares() # In 10k shares, need conversion? Check calculator usage
-        financials = fetcher.get_financial_data()
+        if not stock_info:
+             raise HTTPException(status_code=404, detail=f"Stock info not found for {request.ts_code}")
 
-        # Check for empty financials *before* proceeding further
+        latest_price = fetcher.get_latest_price()
+        if latest_price is None or latest_price <= 0:
+             raise HTTPException(status_code=404, detail=f"Valid latest price not found for {request.ts_code}")
+
+        total_shares = fetcher.get_total_shares() # In 10k shares
+        if total_shares is None or total_shares <= 0:
+             raise HTTPException(status_code=404, detail=f"Valid total shares not found for {request.ts_code}")
+
+        financials = fetcher.get_financial_data()
         if financials.empty:
             raise HTTPException(status_code=404, detail=f"Financial data not found for {request.ts_code}")
 
-        # Fetch dividends only if financials are available
-        dividends = fetcher.get_dividend_data()
+        dividends = fetcher.get_dividend_data() # Can be empty, calculator handles it
 
-        # 3. Calculate Market Cap (Ensure units match calculator expectations)
-        # Calculator uses market_cap in billions (亿元) for PE, but EV uses raw value.
-        # Let's pass raw value and let calculator handle units if needed, or adjust here.
-        # total_shares from DB is in 10k shares. Convert to shares.
-        market_cap_raw = latest_price * (total_shares * 10000)
-        market_cap_billion = market_cap_raw / 100000000 # Convert to billions (亿元) for PE calc consistency
+        # 3. Calculate Market Cap (in billions - 亿元)
+        # total_shares from fetcher is already the actual share count
+        market_cap_raw = latest_price * total_shares
+        market_cap_billion = market_cap_raw / 100000000
 
-        # 4. Instantiate Calculator (Import inside endpoint)
+        # 4. Instantiate Calculator (Import inside endpoint to avoid potential circular deps)
         from valuation_calculator import ValuationCalculator
         calculator = ValuationCalculator(
             stock_info=stock_info,
             latest_price=latest_price,
-            total_shares=total_shares * 10000, # Pass total shares in actual number
+            total_shares=total_shares, # Pass the actual total shares fetched
             financials=financials,
             dividends=dividends,
             market_cap=market_cap_billion # Pass market cap in billions
+            # dcf_growth_cap is no longer passed here, calculator reads from env
         )
 
-        # 5. Perform Calculations (Example subset)
-        pe_ratio = calculator.calculate_pe_ratio()
-        pb_ratio = calculator.calculate_pb_ratio()
-        current_yield, div_history, avg_div, payout_ratio = calculator.calculate_dividend_yield()
-        # Use default rates for DDM for now
-        ddm_results, ddm_error = calculator.calculate_ddm_valuation([], [])
+        # 5. Perform All Calculations
+        results_container = ValuationResultsContainer() # Initialize the container
 
-        # 6. Structure Response
-        valuation_results = {
-            "pe_ratio": pe_ratio,
-            "pb_ratio": pb_ratio,
-            "dividend_yield_current": current_yield,
-            "dividend_payout_ratio": payout_ratio,
-            "ddm_valuation": ddm_results if not ddm_error else {"error": ddm_error},
-            # Add more results as needed
-        }
+        # Current Metrics
+        results_container.current_pe = calculator.calculate_pe_ratio()
+        results_container.current_pb = calculator.calculate_pb_ratio()
+        _, _, results_container.current_ev_ebitda = calculator.calculate_ev()
+        results_container.calculated_wacc_pct = calculator.wacc * 100 if calculator.wacc is not None else None
+        results_container.calculated_cost_of_equity_pct = calculator.cost_of_equity * 100 if calculator.cost_of_equity is not None else None
 
+        # Absolute Valuation Models
+        dcf_fcff_basic_res, dcf_fcff_basic_err = calculator.perform_fcff_valuation_basic_capex(request.growth_rates, None)
+        results_container.dcf_fcff_basic_capex = ValuationMethodResult(results=dcf_fcff_basic_res, error_message=dcf_fcff_basic_err)
+
+        dcf_fcfe_basic_res, dcf_fcfe_basic_err = calculator.perform_fcfe_valuation_basic_capex(request.growth_rates, None)
+        results_container.dcf_fcfe_basic_capex = ValuationMethodResult(results=dcf_fcfe_basic_res, error_message=dcf_fcfe_basic_err)
+
+        dcf_fcff_full_res, dcf_fcff_full_err = calculator.perform_fcff_valuation_full_capex(request.growth_rates, None)
+        results_container.dcf_fcff_full_capex = ValuationMethodResult(results=dcf_fcff_full_res, error_message=dcf_fcff_full_err)
+
+        dcf_fcfe_full_res, dcf_fcfe_full_err = calculator.perform_fcfe_valuation_full_capex(request.growth_rates, None)
+        results_container.dcf_fcfe_full_capex = ValuationMethodResult(results=dcf_fcfe_full_res, error_message=dcf_fcfe_full_err)
+
+        ddm_res, ddm_err = calculator.calculate_ddm_valuation(request.growth_rates, None)
+        results_container.ddm = ValuationMethodResult(results=ddm_res, error_message=ddm_err)
+
+        # Other Analysis
+        other_analysis_data = calculator.get_other_analysis()
+        if other_analysis_data:
+            results_container.other_analysis = OtherAnalysis(
+                dividend_analysis=DividendAnalysis(**other_analysis_data.get('dividend_analysis', {})),
+                growth_analysis=GrowthAnalysis(**other_analysis_data.get('growth_analysis', {}))
+            )
+
+        # Combo Valuations & Investment Advice
+        combo_vals, advice_data = calculator.get_combo_valuations(
+            pe_multiples=request.pe_multiples,
+            pb_multiples=request.pb_multiples,
+            ev_ebitda_multiples=request.ev_ebitda_multiples, # Pass this even if not directly used in combos, might be needed later
+            growth_rates=request.growth_rates
+        )
+        results_container.combo_valuations = combo_vals
+        if advice_data:
+            results_container.investment_advice = InvestmentAdvice(**advice_data)
+
+
+        # 6. Structure Final Response
         return StockValuationResponse(
             stock_info=stock_info,
-            valuation_results=valuation_results
+            valuation_results=results_container
         )
 
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions directly
+        raise http_exc
     except ValueError as ve:
-        # Handle specific errors like missing price
+        # Handle specific data fetching/validation errors
+        print(f"ValueError during valuation for {request.ts_code}: {ve}\n{traceback.format_exc()}")
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
-        # Generic error handler
-        # Log the error in a real application: logger.error(f"Error calculating valuation for {request.ts_code}: {e}")
-        raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")
+        # Generic error handler for unexpected issues
+        print(f"Unexpected error calculating valuation for {request.ts_code}: {e}\n{traceback.format_exc()}")
+        # Log the error in a real application: logger.error(...)
+        raise HTTPException(status_code=500, detail=f"An internal server error occurred. Please try again later.")
 
 if __name__ == "__main__":
     import uvicorn

@@ -72,13 +72,22 @@ class AshareDataFetcher(BaseDataFetcher):
         self.income_statement_fields = ['ts_code', 'end_date', 'n_income', 'revenue', 'total_revenue', 'oper_cost', 'operate_profit', 'non_oper_income', 'non_oper_exp']
         
         self.financial_indicators_table = 'financial_indicators'
-        self.financial_indicators_fields = ['ts_code', 'end_date', 'eps', 'bps', 'roe', 'netprofit_margin', 'debt_to_assets']
+        # 添加 ebit, ebitda 用于潜在比较或使用
+        self.financial_indicators_fields = [
+            'ts_code', 'end_date', 'eps', 'bps', 'roe', 'netprofit_margin', 
+            'debt_to_assets', 'ebit', 'ebitda' 
+        ]
         
         self.cash_flow_table = 'cash_flow'
         self.cash_flow_fields = ['ts_code', 'end_date', 'n_cashflow_act', 'stot_out_inv_act', 'stot_cash_in_fnc_act', 'stot_cashout_fnc_act', 'c_pay_acq_const_fiolta', 'c_paid_invest', 'decr_inventories', 'incr_oper_payable', 'decr_oper_payable', 'c_recp_borrow', 'c_prepay_amt_borr', 'depr_fa_coga_dpba', 'amort_intang_assets']
         
         self.balance_sheet_table = 'balance_sheet'
-        self.balance_sheet_fields = ['ts_code', 'end_date', 'total_share', 'total_assets', 'total_liab', 'total_hldr_eqy_exc_min_int', 'total_cur_assets', 'total_cur_liab']
+        # 添加 money_cap, lt_borr, st_borr, bond_payable 用于 EV 和 WACC 计算
+        self.balance_sheet_fields = [
+            'ts_code', 'end_date', 'total_share', 'total_assets', 'total_liab', 
+            'total_hldr_eqy_exc_min_int', 'total_cur_assets', 'total_cur_liab',
+            'money_cap', 'lt_borr', 'st_borr', 'bond_payable' 
+        ]
         
         self.dividend_table = 'dividend'
         self.dividend_fields = ['ts_code', 'end_date', 'cash_div_tax', 'ann_date', 'div_proc']
