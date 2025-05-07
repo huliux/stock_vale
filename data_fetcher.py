@@ -205,3 +205,56 @@ class AshareDataFetcher(BaseDataFetcher):
                 # 将现金分红转为浮点数
                 df['cash_div_tax'] = df['cash_div_tax'].astype(float)
             return df
+
+    def get_raw_financial_data(self, years: int = 5) -> Dict[str, pd.DataFrame]:
+        """
+        获取指定年限的原始财务报表数据 (年度报告)。
+        返回包含 balance_sheet, income_statement, cash_flow DataFrame 的字典。
+        """
+        raw_data = {}
+        current_year = pd.Timestamp.now().year
+        start_year = current_year - years
+
+        with self.engine.connect() as conn:
+            # 获取资产负债表
+            bs_query = text(f"""
+                SELECT * FROM {self.balance_sheet_table}
+                WHERE ts_code = :ts_code 
+                AND EXTRACT(MONTH FROM end_date::timestamp) = 12
+                AND EXTRACT(YEAR FROM end_date::timestamp) >= :start_year
+                ORDER BY end_date DESC
+            """)
+            bs_result = conn.execute(bs_query, {'ts_code': self.ts_code, 'start_year': start_year})
+            raw_data['balance_sheet'] = pd.DataFrame([row._asdict() for row in bs_result])
+            if not raw_data['balance_sheet'].empty:
+                 raw_data['balance_sheet']['end_date'] = pd.to_datetime(raw_data['balance_sheet']['end_date'])
+
+
+            # 获取利润表
+            is_query = text(f"""
+                SELECT * FROM {self.income_statement_table}
+                WHERE ts_code = :ts_code
+                AND EXTRACT(MONTH FROM end_date::timestamp) = 12
+                AND EXTRACT(YEAR FROM end_date::timestamp) >= :start_year
+                ORDER BY end_date DESC
+            """)
+            is_result = conn.execute(is_query, {'ts_code': self.ts_code, 'start_year': start_year})
+            raw_data['income_statement'] = pd.DataFrame([row._asdict() for row in is_result])
+            if not raw_data['income_statement'].empty:
+                 raw_data['income_statement']['end_date'] = pd.to_datetime(raw_data['income_statement']['end_date'])
+
+            # 获取现金流量表
+            cf_query = text(f"""
+                SELECT * FROM {self.cash_flow_table}
+                WHERE ts_code = :ts_code
+                AND EXTRACT(MONTH FROM end_date::timestamp) = 12
+                AND EXTRACT(YEAR FROM end_date::timestamp) >= :start_year
+                ORDER BY end_date DESC
+            """)
+            cf_result = conn.execute(cf_query, {'ts_code': self.ts_code, 'start_year': start_year})
+            raw_data['cash_flow'] = pd.DataFrame([row._asdict() for row in cf_result])
+            if not raw_data['cash_flow'].empty:
+                 raw_data['cash_flow']['end_date'] = pd.to_datetime(raw_data['cash_flow']['end_date'])
+
+        print(f"Fetched raw financial data for {self.ts_code} for the last {years} years.")
+        return raw_data

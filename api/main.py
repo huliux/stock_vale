@@ -153,11 +153,13 @@ async def calculate_valuation_endpoint(request: StockValuationRequest):
             )
 
         # Combo Valuations & Investment Advice
+        # TODO: Pass the actual main_dcf_result_dict when forecast DCF is implemented
         combo_vals, advice_data = calculator.get_combo_valuations(
+            main_dcf_result_dict=None, # Placeholder for forecast DCF result
             pe_multiples=request.pe_multiples,
             pb_multiples=request.pb_multiples,
-            ev_ebitda_multiples=request.ev_ebitda_multiples, # Pass this even if not directly used in combos, might be needed later
-            growth_rates=request.growth_rates,
+            ev_ebitda_multiples=request.ev_ebitda_multiples,
+            # Removed growth_rates=request.growth_rates, as it's not an expected argument
             # Pass the wacc_params dictionary here
             wacc_params=wacc_params
         )
