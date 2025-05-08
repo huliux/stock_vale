@@ -52,10 +52,16 @@
         *   测试 fixture 或测试用例本身逻辑与被测代码不一致。
     *   修改的文件包括所有 `tests/test_*.py` 文件以及对应的计算器模块 (`equity_bridge_calculator.py`, `fcf_calculator.py`, `financial_forecaster.py`, `present_value_calculator.py`, `terminal_value_calculator.py`, `wacc_calculator.py`)。
     *   最终运行 `pytest` 确认所有 85 个测试全部通过。
--   **应用状态:** 当前应用可以完成端到端计算并显示结果，单元测试全部通过。存在已知的数据警告（如 D&A/Revenue 配对问题）。
+-   **WACC 权重模式实现 (进行中):**
+    *   根据用户要求，增加了 WACC 计算的灵活性。
+    *   修改了 `wacc_calculator.py`，允许根据 `wacc_weight_mode` 参数选择使用“目标债务比例”或“最新市场价值权重”来计算 WACC。
+    *   修改了 `api/models.py` 和 `api/main.py` 以支持新的 `wacc_weight_mode` 参数传递。
+    *   修改了 `streamlit_app.py`，添加了前端 UI 选项来控制 WACC 权重模式，并动态调整“目标债务比例”输入框的可用性。
+-   **应用状态:** 当前应用可以完成端到端计算并显示结果，单元测试全部通过。增加了 WACC 权重模式选项。存在已知的数据警告（如 D&A/Revenue 配对问题）。
 
 ## 当前目标
--   **更新记忆库:** 根据已完成的单元测试修复工作，更新 `cline_docs/`。
+-   **测试 WACC 权重模式功能:** 需要用户在 Streamlit UI 上测试新添加的 WACC 权重模式选项，确认其行为符合预期。
+-   **更新记忆库:** 根据已完成的 WACC 权重模式功能，更新 `cline_docs/` (特别是 `progress.md`)。
 
 ## 后续步骤 (优先级排序)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**

@@ -101,10 +101,14 @@
     - [x] 解决了总股本单位错误，使每股价值计算合理。
     - [x] 确认 PE/PB 数据源为 `valuation_metrics` 表，并更新了 `DataFetcher`。
     - [x] 确认 LLM (DeepSeek) API 调用成功。
+- **WACC 权重模式实现:**
+    - [x] **后端:** 修改 `wacc_calculator.py`, `api/models.py`, `api/main.py` 以支持基于 "target" 或 "market" 模式计算 WACC 权重。
+    - [x] **前端:** 修改 `streamlit_app.py` 添加模式选择 UI，并动态控制目标债务比例输入框。
 
 ## 剩余任务 (新计划)
 - **项目重大改版 - 阶段四：测试与完善**
-    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。
+    - [ ] **WACC 权重模式测试:** 需要用户在 Streamlit UI 上测试新添加的 WACC 权重模式选项，确认其行为符合预期（包括 UI 交互和计算结果）。
+    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式的特定测试）
         *   修复了 `tests/api/test_main.py` 中的类型和断言错误 (先前任务)。
         *   修复了 `tests/test_data_processor.py` 中的 NaN 处理、fixture 和警告断言错误 (先前任务)。
         *   修复了 `tests/test_equity_bridge_calculator.py` 中的 NaN 处理和异常捕获逻辑。

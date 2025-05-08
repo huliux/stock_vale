@@ -452,9 +452,14 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                   print("Warning: 'n_income' column not found in income_statement for market cap estimation.")
 
         wacc_calculator = WaccCalculator(financials_dict=processed_data_container.processed_data, market_cap=market_cap_est)
-        wacc, cost_of_equity = wacc_calculator.get_wacc_and_ke(wacc_params_filtered)
+        # 从 request 中获取 wacc_weight_mode，如果不存在则默认为 "target" (Pydantic模型已处理默认值)
+        current_wacc_weight_mode = request.wacc_weight_mode if request.wacc_weight_mode else "target"
+        wacc, cost_of_equity = wacc_calculator.get_wacc_and_ke(
+            params=wacc_params_filtered, 
+            wacc_weight_mode=current_wacc_weight_mode
+        )
         if wacc is None: raise HTTPException(status_code=500, detail=f"WACC 计算失败。Ke: {cost_of_equity}")
-        logger.info(f"  WACC calculated: {wacc:.4f}, Ke: {cost_of_equity:.4f}")
+        logger.info(f"  WACC calculated: {wacc:.4f} (mode: {current_wacc_weight_mode}), Ke: {cost_of_equity:.4f}")
 
         # 5. 终值计算 (添加校验和默认值)
         logger.info("Step 5: Calculating Terminal Value...")

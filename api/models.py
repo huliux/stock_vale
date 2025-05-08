@@ -47,7 +47,8 @@ class StockValuationRequest(BaseModel):
     target_effective_tax_rate: Optional[float] = Field(None, ge=0, le=1, description="目标有效所得税率，留空则使用默认值")
 
     # --- WACC 计算参数 (保留，允许用户覆盖默认值) ---
-    target_debt_ratio: Optional[float] = Field(None, ge=0, le=1, description="目标资本结构中的债务比例 D/(D+E)")
+    wacc_weight_mode: Optional[str] = Field("target", description="WACC权重计算模式: 'target' (使用目标债务比例) 或 'market' (使用最新市场价值计算权重)", pattern="^(target|market)$")
+    target_debt_ratio: Optional[float] = Field(None, ge=0, le=1, description="目标资本结构中的债务比例 D/(D+E) (仅在 wacc_weight_mode='target' 时有效)")
     cost_of_debt: Optional[float] = Field(None, ge=0, description="税前债务成本 (Rd)")
     risk_free_rate: Optional[float] = Field(None, ge=0, description="无风险利率 (Rf)")
     beta: Optional[float] = Field(None, description="贝塔系数 (Levered Beta)")

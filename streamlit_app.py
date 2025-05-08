@@ -11,8 +11,8 @@ API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8124/api/v1/valuation
 # --- 页面配置 ---
 st.set_page_config(page_title="股票估值分析工具", layout="wide")
 
-st.title("📈 股票估值分析工具 (DCF + LLM)")
-st.caption("结合基本面数据、DCF 模型和 LLM 分析")
+st.title("📈 稳如狗估值服务")
+st.caption("炒股风险高，投资需谨慎。梭哈要安全，远离割韭菜。")
 
 # --- 用户输入区域 ---
 with st.sidebar:
@@ -61,7 +61,27 @@ with st.sidebar:
         target_effective_tax_rate = st.number_input("目标有效所得税率:", min_value=0.0, max_value=1.0, value=0.25, step=0.01, format="%.2f", key="tax_rate")
 
     with st.expander("WACC 参数 (可选覆盖)"):
-        target_debt_ratio = st.number_input("目标债务比例 D/(D+E):", min_value=0.0, max_value=1.0, value=0.45, step=0.05, format="%.2f", help="留空则使用默认值", key="wacc_debt_ratio")
+        wacc_weight_mode_ui = st.radio(
+            "WACC 权重模式:", 
+            options=["使用目标债务比例", "使用最新市场价值计算权重"], 
+            index=0, 
+            key="wacc_weight_mode_selector",
+            help="选择使用预设的目标资本结构，还是基于最新的市值和负债动态计算资本结构权重。"
+        )
+        
+        target_debt_ratio_disabled = (wacc_weight_mode_ui == "使用最新市场价值计算权重")
+        target_debt_ratio = st.number_input(
+            "目标债务比例 D/(D+E):", 
+            min_value=0.0, 
+            max_value=1.0, 
+            value=0.45, 
+            step=0.05, 
+            format="%.2f", 
+            help="仅在选择“使用目标债务比例”模式时有效。留空则使用后端默认值。", 
+            key="wacc_debt_ratio",
+            disabled=target_debt_ratio_disabled
+        )
+        
         cost_of_debt = st.number_input("税前债务成本 (Rd):", min_value=0.0, value=0.05, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_cost_debt")
         risk_free_rate = st.number_input("无风险利率 (Rf):", min_value=0.0, value=0.03, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_rf")
         beta = st.number_input("贝塔系数 (Beta):", value=1.0, step=0.1, format="%.2f", help="留空则使用数据库最新值或默认值", key="wacc_beta")
@@ -234,7 +254,8 @@ if st.sidebar.button("🚀 开始估值计算", key="start_valuation_button"): #
         # Tax Rate
         "target_effective_tax_rate": target_effective_tax_rate,
         # WACC Params
-        "target_debt_ratio": target_debt_ratio,
+        "wacc_weight_mode": "market" if wacc_weight_mode_ui == "使用最新市场价值计算权重" else "target", # 添加模式
+        "target_debt_ratio": target_debt_ratio if not target_debt_ratio_disabled else None, # 仅在 target 模式下传递
         "cost_of_debt": cost_of_debt,
         "risk_free_rate": risk_free_rate,
         "beta": beta,
