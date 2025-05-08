@@ -199,7 +199,8 @@ class DataProcessor:
             valid_mask = s1_aligned.notna() & s2_safe.notna()
             
             if not valid_mask.any():
-                 warning_msg = f"计算中位数时，列 '{series1.name}' 和 '{series2.name}' 之间没有有效的配对数据点。"
+                 # 简化警告信息，并说明替代方案
+                 warning_msg = f"无法计算历史中位数 ({series1.name}/{series2.name})：缺少有效配对数据。将使用默认值进行预测。"
                  self.warnings.append(warning_msg);
                  return None
 
@@ -389,37 +390,83 @@ class DataProcessor:
         else:
             self.historical_ratios['effective_tax_rate'] = None
 
-        # --- 计算历史 CAGR ---
-        if 'revenue' in is_df.columns and len(is_df) >= 4:
-            is_df_sorted = is_df.sort_values(by='end_date')
-            # Ensure we have at least 3 years difference for 3-year CAGR
-            if (is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[-4]).days > 365 * 2.5:
-                start_revenue = is_df_sorted['revenue'].iloc[-4]
-                end_revenue = is_df_sorted['revenue'].iloc[-1]
-                if pd.notna(start_revenue) and pd.notna(end_revenue) and start_revenue > 0 and end_revenue > 0:
-                    try:
-                        # Calculate exact years between the points for accuracy
-                        years_diff = (is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[-4]).days / 365.25
-                        if years_diff > 0: # Avoid division by zero or negative exponent
-                            revenue_cagr_3y = ((end_revenue / start_revenue) ** (1/years_diff)) - 1
-                            self.historical_ratios['revenue_cagr_3y'] = revenue_cagr_3y * 100 # Store as percentage
-                        else: self.historical_ratios['revenue_cagr_3y'] = None
-                    except Exception as e:
-                        warning_msg_cagr_err = f"计算3年收入CAGR时出错: {e}"; self.warnings.append(warning_msg_cagr_err); print(warning_msg_cagr_err); self.historical_ratios['revenue_cagr_3y'] = None
-                else: self.historical_ratios['revenue_cagr_3y'] = None
-            else: 
-                 self.historical_ratios['revenue_cagr_3y'] = None
-                 warning_msg_cagr_span = "Warning: 数据点时间跨度不足3年，无法计算3年收入CAGR。"
-                 self.warnings.append(warning_msg_cagr_span); # Removed print(warning_msg_cagr_span)
-        else:
-            self.historical_ratios['revenue_cagr_3y'] = None
-            if len(is_df) < 4: 
-                 warning_msg_cagr_len = "Warning: 数据点少于4个，无法计算3年收入CAGR。"
-                 self.warnings.append(warning_msg_cagr_len); # Removed print(warning_msg_cagr_len)
+        # --- 计算历史收入 CAGR (优先3年，失败则尝试所有年份) ---
+        from decimal import Decimal, InvalidOperation # 确保 Decimal 可用
+        self.historical_ratios['historical_revenue_cagr'] = None # 初始化为 None
+        revenue_col = 'total_revenue' # 确认使用 total_revenue
+        
+        if revenue_col in is_df.columns and not is_df[revenue_col].isnull().all():
+            is_df_sorted = is_df.dropna(subset=[revenue_col]).sort_values(by='end_date')
+            is_df_sorted[revenue_col] = is_df_sorted[revenue_col].apply(lambda x: Decimal(str(x)) if pd.notna(x) else None) # 转为 Decimal
+            is_df_sorted = is_df_sorted.dropna(subset=[revenue_col]) # 再次去除可能因转换失败产生的 None
 
-        # 清理结果中的 NaN 为 None
+            calculated_cagr = None
+
+            # 尝试计算3年CAGR
+            if len(is_df_sorted) >= 4:
+                if (is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[-4]).days > 365 * 2.5:
+                    start_revenue = is_df_sorted[revenue_col].iloc[-4]
+                    end_revenue = is_df_sorted[revenue_col].iloc[-1]
+                    if start_revenue is not None and end_revenue is not None and start_revenue > Decimal('0') and end_revenue > Decimal('0'):
+                        try:
+                            years_diff = Decimal((is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[-4]).days) / Decimal('365.25')
+                            if years_diff > Decimal('0'):
+                                # 使用 Decimal 进行幂运算
+                                calculated_cagr = (end_revenue / start_revenue) ** (Decimal('1') / years_diff) - Decimal('1')
+                                print(f"Calculated 3-year CAGR: {calculated_cagr:.4f}")
+                        except Exception as e:
+                            warning_msg_cagr_err = f"计算3年收入CAGR时出错: {e}"; self.warnings.append(warning_msg_cagr_err); print(f"Warning: {warning_msg_cagr_err}")
+                            calculated_cagr = None # 确保出错时 cagr 为 None
+                # else: # 合并警告：3年CAGR因数据点或时间跨度不足而失败
+                #     warning_msg_cagr_3y_fail = "无法计算3年收入CAGR：数据点不足或时间跨度不够。"
+                #     if warning_msg_cagr_3y_fail not in self.warnings: self.warnings.append(warning_msg_cagr_3y_fail)
+            # else: # 合并警告：3年CAGR因数据点或时间跨度不足而失败
+            #     warning_msg_cagr_3y_fail = "无法计算3年收入CAGR：数据点不足或时间跨度不够。"
+            #     if warning_msg_cagr_3y_fail not in self.warnings: self.warnings.append(warning_msg_cagr_3y_fail)
+            
+            # 统一处理3年CAGR计算失败的情况
+            if calculated_cagr is None:
+                 warning_msg_cagr_3y_fail = "无法计算3年收入CAGR：数据不足或计算错误。"
+                 if warning_msg_cagr_3y_fail not in self.warnings: self.warnings.append(warning_msg_cagr_3y_fail)
+
+                 # 如果3年CAGR计算失败，尝试计算所有年份CAGR
+                 if len(is_df_sorted) >= 2:
+                     if (is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[0]).days > 365 * 0.9: # 至少接近一年
+                        start_revenue_all = is_df_sorted[revenue_col].iloc[0]
+                        end_revenue_all = is_df_sorted[revenue_col].iloc[-1]
+                        if start_revenue_all is not None and end_revenue_all is not None and start_revenue_all > Decimal('0') and end_revenue_all > Decimal('0'):
+                            try:
+                                years_diff_all = Decimal((is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[0]).days) / Decimal('365.25')
+                                if years_diff_all > Decimal('0'):
+                                    calculated_cagr = (end_revenue_all / start_revenue_all) ** (Decimal('1') / years_diff_all) - Decimal('1')
+                                    print(f"Calculated all-years CAGR: {calculated_cagr:.4f}")
+                                    # 简化回退警告
+                                    warning_msg_cagr_all = "警告：3年收入CAGR计算失败，已回退使用所有年份CAGR。"
+                                    if warning_msg_cagr_all not in self.warnings: self.warnings.append(warning_msg_cagr_all)
+                            except Exception as e:
+                                warning_msg_cagr_all_err = f"计算所有年份收入CAGR时出错: {e}"; self.warnings.append(warning_msg_cagr_all_err); print(f"Warning: {warning_msg_cagr_all_err}")
+                                calculated_cagr = None # 确保出错时 cagr 为 None
+                     # else: # 合并警告：所有年份CAGR因数据点或时间跨度不足而失败
+                     #     warning_msg_cagr_all_fail = "无法计算所有年份收入CAGR：数据点不足或时间跨度不够。"
+                     #     if warning_msg_cagr_all_fail not in self.warnings: self.warnings.append(warning_msg_cagr_all_fail)
+                 # else: # 合并警告：所有年份CAGR因数据点或时间跨度不足而失败
+                 #     warning_msg_cagr_all_fail = "无法计算所有年份收入CAGR：数据点不足或时间跨度不够。"
+                 #     if warning_msg_cagr_all_fail not in self.warnings: self.warnings.append(warning_msg_cagr_all_fail)
+                 
+                 # 统一处理所有年份CAGR也失败的情况
+                 if calculated_cagr is None:
+                      warning_msg_cagr_all_fail = "警告：无法计算历史收入CAGR（尝试3年及所有年份均失败）。"
+                      if warning_msg_cagr_all_fail not in self.warnings: self.warnings.append(warning_msg_cagr_all_fail)
+
+
+            # 存储最终计算得到的 CAGR (可能是3年的，也可能是所有年份的，或者是 None)
+            # 返回给 FinancialForecaster 的应该是小数形式
+            self.historical_ratios['historical_revenue_cagr'] = calculated_cagr 
+
+        # 清理结果中的 NaN/NaT 为 None (Decimal 不会有 NaN, 但其他计算可能产生)
         for key, value in self.historical_ratios.items():
-            if pd.isna(value): self.historical_ratios[key] = None
+            if pd.isna(value):
+                self.historical_ratios[key] = None
 
         print("Historical ratios (median) and CAGR calculated:", {k: round(v, 4) if isinstance(v, (float, np.number)) and v is not None else v for k, v in self.historical_ratios.items()})
         return self.historical_ratios

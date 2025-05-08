@@ -157,11 +157,21 @@ class FinancialForecaster:
         try:
             # Convert historical CAGR raw value (assumed already a fraction or convertible) to Decimal
             # The fixture provides Decimal('0.12'), so no division by 100 needed.
-            historical_cagr = Decimal(str(historical_cagr_raw)) if historical_cagr_raw is not None else Decimal('0.05')
-            if historical_cagr_raw is None: print("Warning: 历史收入 CAGR 未计算或不可用，将使用默认增长率 5%。")
-        except (InvalidOperation, TypeError, ValueError): # Added ValueError
-             print(f"Warning: Invalid historical_revenue_cagr value '{historical_cagr_raw}'. Using default 0.05.")
-             historical_cagr = Decimal('0.05')
+            default_cagr = Decimal('0.05')
+            historical_cagr = default_cagr # Default value
+            if historical_cagr_raw is not None:
+                try:
+                    historical_cagr = Decimal(str(historical_cagr_raw))
+                except (InvalidOperation, TypeError, ValueError):
+                     print(f"警告：无效的历史收入CAGR值 '{historical_cagr_raw}'。现采用默认值 {default_cagr:.1%}")
+                     historical_cagr = default_cagr # Use default if conversion fails
+            else:
+                 # 简化警告信息，符合用户示例
+                 print(f"警告：无法计算历史收入CAGR。现采用默认值 {default_cagr:.1%}")
+                 historical_cagr = default_cagr # Use default if raw value is None
+        except Exception as e: # Catch potential unexpected errors during get/conversion
+             print(f"处理历史收入CAGR时发生错误: {e}。现采用默认值 {default_cagr:.1%}")
+             historical_cagr = default_cagr
 
 
         decay_rate_input = self.assumptions.get('revenue_cagr_decay_rate') # Renamed key
@@ -388,15 +398,21 @@ class FinancialForecaster:
         # Pass the merged_df which might have Decimal columns
         final_forecast_df = fcf_calculator.calculate_ufcf(merged_df) 
 
-        # Convert final DataFrame columns to float for output consistency
+        # Convert final DataFrame columns to float for output consistency, handling Decimal
         for col in final_forecast_df.columns:
-             if col != 'year' and pd.api.types.is_numeric_dtype(final_forecast_df[col]):
-                 # Attempt conversion, handle potential errors for non-numeric types if any remain
-                 try:
-                     final_forecast_df[col] = final_forecast_df[col].astype(float)
-                 except Exception as e:
-                      print(f"Warning: Could not convert column {col} to float: {e}")
-
+            if col == 'year': # 年份保持整数
+                try:
+                    final_forecast_df[col] = final_forecast_df[col].astype(int)
+                except Exception as e:
+                     print(f"Warning: Could not convert year column {col} to int: {e}")
+            # Check if the column contains Decimal objects or is a standard numeric type
+            elif final_forecast_df[col].apply(lambda x: isinstance(x, Decimal)).any() or pd.api.types.is_numeric_dtype(final_forecast_df[col]):
+                try:
+                    # Convert Decimal to float, keep other numerics as float
+                    final_forecast_df[col] = final_forecast_df[col].apply(lambda x: float(x) if isinstance(x, Decimal) else x).astype(float)
+                except Exception as e:
+                     print(f"Warning: Could not convert column {col} to float: {e}")
+            # else: Keep non-numeric columns as they are (e.g., potentially strings if errors occurred)
 
         self.forecasted_statements['final_forecast'] = final_forecast_df
         print("Balance sheet/CF items forecast and final merge completed.")

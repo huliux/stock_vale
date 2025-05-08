@@ -102,85 +102,83 @@ def render_valuation_results(payload_filtered, current_ts_code):
                 stock_info = results.get("stock_info", {})
                 valuation_results = results.get("valuation_results", {})
                 dcf_details = valuation_results.get("dcf_forecast_details", {})
-                llm_summary = valuation_results.get("llm_analysis_summary")
-                data_warnings = valuation_results.get("data_warnings")
+                llm_summary = valuation_results.get("llm_analysis_summary") # 修正缩进
+                data_warnings = valuation_results.get("data_warnings") # 修正缩进
 
-                # 创建两列布局
-                main_col, llm_col = st.columns([3, 2]) # 左侧占3/5，右侧占2/5
+                # 移除左右布局，改为垂直布局 (修正整个块的缩进)
 
-                with main_col:
-                    # 1. 数据处理警告区 (优先显示)
-                    if data_warnings:
-                        with st.expander("⚠️ 数据处理警告", expanded=False):
-                            for warning in data_warnings:
-                                st.warning(warning)
+                # 1. 数据处理警告区 (优先显示)
+                if data_warnings:
+                    with st.expander("⚠️ 数据处理警告", expanded=False):
+                        for warning in data_warnings:
+                            st.warning(warning)
 
-                    # 2. 股票基本信息区
-                    st.subheader(f"📊 {stock_info.get('name', 'N/A')} ({stock_info.get('ts_code', 'N/A')}) - 基本信息")
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("最新价格", f"{valuation_results.get('latest_price', 'N/A'):.2f}" if valuation_results.get('latest_price') else "N/A")
-                    col2.metric("当前 PE", f"{valuation_results.get('current_pe', 'N/A'):.2f}" if valuation_results.get('current_pe') else "N/A")
-                    col3.metric("当前 PB", f"{valuation_results.get('current_pb', 'N/A'):.2f}" if valuation_results.get('current_pb') else "N/A")
-                    col4.metric("所属行业", stock_info.get("industry", "N/A"))
+                # 2. 股票基本信息区
+                st.subheader(f"📊 {stock_info.get('name', 'N/A')} ({stock_info.get('ts_code', 'N/A')}) - 基本信息")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("最新价格", f"{valuation_results.get('latest_price', 'N/A'):.2f}" if valuation_results.get('latest_price') else "N/A")
+                col2.metric("当前 PE", f"{valuation_results.get('current_pe', 'N/A'):.2f}" if valuation_results.get('current_pe') else "N/A")
+                col3.metric("当前 PB", f"{valuation_results.get('current_pb', 'N/A'):.2f}" if valuation_results.get('current_pb') else "N/A")
+                col4.metric("所属行业", stock_info.get("industry", "N/A"))
+                
+                # 3. DCF 核心结果区
+                st.subheader("核心 DCF 估值结果")
+                col1_dcf, col2_dcf, col3_dcf, col4_dcf = st.columns(4)
+                dcf_value = dcf_details.get('value_per_share')
+                latest_price = valuation_results.get('latest_price')
+                safety_margin = ((dcf_value / latest_price) - 1) * 100 if dcf_value is not None and latest_price is not None and latest_price > 0 else None
+                
+                col1_dcf.metric("每股价值 (DCF)", f"{dcf_value:.2f}" if dcf_value is not None else "N/A")
+                col2_dcf.metric("安全边际", f"{safety_margin:.1f}%" if safety_margin is not None else "N/A", delta=f"{safety_margin:.1f}%" if safety_margin is not None else None, delta_color="normal")
+                col3_dcf.metric("WACC", f"{dcf_details.get('wacc_used', 'N/A') * 100:.2f}%" if dcf_details.get('wacc_used') is not None else "N/A")
+                col4_dcf.metric("Ke (股权成本)", f"{dcf_details.get('cost_of_equity_used', 'N/A') * 100:.2f}%" if dcf_details.get('cost_of_equity_used') is not None else "N/A")
+
+                with st.expander("查看 DCF 详细构成"):
+                    col1_detail, col2_detail = st.columns(2) # 保留这里的两列布局以紧凑显示
+                    col1_detail.metric("企业价值 (EV)", f"{dcf_details.get('enterprise_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('enterprise_value') is not None else "N/A")
+                    col1_detail.metric("预测期 UFCF 现值", f"{dcf_details.get('pv_forecast_ufcf', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_forecast_ufcf') is not None else "N/A")
+                    col1_detail.metric("终值 (TV)", f"{dcf_details.get('terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('terminal_value') is not None else "N/A")
                     
-                    # 3. DCF 核心结果区
-                    st.subheader("核心 DCF 估值结果")
-                    col1_dcf, col2_dcf, col3_dcf, col4_dcf = st.columns(4)
-                    dcf_value = dcf_details.get('value_per_share')
-                    latest_price = valuation_results.get('latest_price')
-                    safety_margin = ((dcf_value / latest_price) - 1) * 100 if dcf_value is not None and latest_price is not None and latest_price > 0 else None
+                    col2_detail.metric("股权价值", f"{dcf_details.get('equity_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('equity_value') is not None else "N/A")
+                    col2_detail.metric("终值现值 (PV of TV)", f"{dcf_details.get('pv_terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_terminal_value') is not None else "N/A")
+                    col2_detail.metric("净债务", f"{dcf_details.get('net_debt', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('net_debt') is not None else "N/A")
                     
-                    col1_dcf.metric("每股价值 (DCF)", f"{dcf_value:.2f}" if dcf_value is not None else "N/A")
-                    col2_dcf.metric("安全边际", f"{safety_margin:.1f}%" if safety_margin is not None else "N/A", delta=f"{safety_margin:.1f}%" if safety_margin is not None else None, delta_color="normal")
-                    col3_dcf.metric("WACC", f"{dcf_details.get('wacc_used', 'N/A') * 100:.2f}%" if dcf_details.get('wacc_used') is not None else "N/A")
-                    col4_dcf.metric("Ke (股权成本)", f"{dcf_details.get('cost_of_equity_used', 'N/A') * 100:.2f}%" if dcf_details.get('cost_of_equity_used') is not None else "N/A")
+                    st.caption(f"终值计算方法: {dcf_details.get('terminal_value_method_used', 'N/A')}")
+                    if dcf_details.get('terminal_value_method_used') == 'exit_multiple':
+                        st.caption(f"退出乘数: {dcf_details.get('exit_multiple_used', 'N/A')}")
+                    elif dcf_details.get('terminal_value_method_used') == 'perpetual_growth':
+                        st.caption(f"永续增长率: {dcf_details.get('perpetual_growth_rate_used', 'N/A') * 100:.2f}%")
 
-                    with st.expander("查看 DCF 详细构成"):
-                        col1_detail, col2_detail = st.columns(2)
-                        col1_detail.metric("企业价值 (EV)", f"{dcf_details.get('enterprise_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('enterprise_value') is not None else "N/A")
-                        col1_detail.metric("预测期 UFCF 现值", f"{dcf_details.get('pv_forecast_ufcf', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_forecast_ufcf') is not None else "N/A")
-                        col1_detail.metric("终值 (TV)", f"{dcf_details.get('terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('terminal_value') is not None else "N/A")
+                # 详细预测表格展示
+                st.subheader("预测期详细数据")
+                detailed_forecast_table_data = valuation_results.get("detailed_forecast_table")
+                if detailed_forecast_table_data:
+                    try:
+                        df_forecast = pd.DataFrame(detailed_forecast_table_data)
+                        # 简单的格式化示例 (可以根据需要调整)
+                        columns_to_format = ['revenue', 'cogs', 'gross_profit', 'sga_rd', 'ebit', 'income_tax', 'nopat', 'd_a', 'capex', 'accounts_receivable', 'inventories', 'accounts_payable', 'other_current_assets', 'other_current_liabilities', 'nwc', 'delta_nwc', 'ebitda', 'ufcf']
+                        format_dict = {col: "{:,.0f}" for col in columns_to_format if col in df_forecast.columns} # 格式化为千位分隔符，无小数
+                        if 'growth_rate' in df_forecast.columns:
+                            format_dict['growth_rate'] = "{:.2%}" # 格式化为百分比
                         
-                        col2_detail.metric("股权价值", f"{dcf_details.get('equity_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('equity_value') is not None else "N/A")
-                        col2_detail.metric("终值现值 (PV of TV)", f"{dcf_details.get('pv_terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_terminal_value') is not None else "N/A")
-                        col2_detail.metric("净债务", f"{dcf_details.get('net_debt', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('net_debt') is not None else "N/A")
+                        # 选择要显示的列 (可以调整顺序和包含的列)
+                        display_columns = ['year', 'revenue', 'growth_rate', 'ebit', 'nopat', 'd_a', 'capex', 'delta_nwc', 'ufcf', 'ebitda']
+                        existing_display_columns = [col for col in display_columns if col in df_forecast.columns]
                         
-                        st.caption(f"终值计算方法: {dcf_details.get('terminal_value_method_used', 'N/A')}")
-                        if dcf_details.get('terminal_value_method_used') == 'exit_multiple':
-                            st.caption(f"退出乘数: {dcf_details.get('exit_multiple_used', 'N/A')}")
-                        elif dcf_details.get('terminal_value_method_used') == 'perpetual_growth':
-                            st.caption(f"永续增长率: {dcf_details.get('perpetual_growth_rate_used', 'N/A') * 100:.2f}%")
+                        st.dataframe(df_forecast[existing_display_columns].style.format(format_dict, na_rep='-'))
+                    except Exception as e:
+                        st.error(f"无法显示预测表格: {e}")
+                else:
+                    st.info("未找到详细的预测数据。")
 
-                    # 详细预测表格展示
-                    st.subheader("预测期详细数据")
-                    detailed_forecast_table_data = valuation_results.get("detailed_forecast_table")
-                    if detailed_forecast_table_data:
-                        try:
-                            df_forecast = pd.DataFrame(detailed_forecast_table_data)
-                            # 简单的格式化示例 (可以根据需要调整)
-                            columns_to_format = ['revenue', 'cogs', 'gross_profit', 'sga_rd', 'ebit', 'income_tax', 'nopat', 'd_a', 'capex', 'accounts_receivable', 'inventories', 'accounts_payable', 'other_current_assets', 'other_current_liabilities', 'nwc', 'delta_nwc', 'ebitda', 'ufcf']
-                            format_dict = {col: "{:,.0f}" for col in columns_to_format if col in df_forecast.columns} # 格式化为千位分隔符，无小数
-                            if 'growth_rate' in df_forecast.columns:
-                                format_dict['growth_rate'] = "{:.2%}" # 格式化为百分比
-                            
-                            # 选择要显示的列 (可以调整顺序和包含的列)
-                            display_columns = ['year', 'revenue', 'growth_rate', 'ebit', 'nopat', 'd_a', 'capex', 'delta_nwc', 'ufcf', 'ebitda']
-                            existing_display_columns = [col for col in display_columns if col in df_forecast.columns]
-                            
-                            st.dataframe(df_forecast[existing_display_columns].style.format(format_dict, na_rep='-'))
-                        except Exception as e:
-                            st.error(f"无法显示预测表格: {e}")
-                    else:
-                        st.info("未找到详细的预测数据。")
+                # 4. LLM 分析与建议区 (移动到末尾)
+                st.subheader("🤖 LLM 分析与投资建议摘要")
+                st.caption("请结合以下分析判断投资价值。") # 添加引导说明
+                if llm_summary:
+                    st.markdown(llm_summary)
+                else:
+                    st.warning("未能获取 LLM 分析结果。")
 
-                with llm_col:
-                    # 4. LLM 分析与建议区
-                    st.subheader("🤖 LLM 分析与投资建议摘要")
-                    st.caption("请结合以下分析判断投资价值。") # 添加引导说明
-                    if llm_summary:
-                        st.markdown(llm_summary)
-                    else:
-                        st.warning("未能获取 LLM 分析结果。")
         else:
              st.error(f"API 请求失败，状态码: {response.status_code}")
              try:
