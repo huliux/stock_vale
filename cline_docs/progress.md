@@ -104,11 +104,16 @@
 - **WACC 权重模式实现:**
     - [x] **后端:** 修改 `wacc_calculator.py`, `api/models.py`, `api/main.py` 以支持基于 "target" 或 "market" 模式计算 WACC 权重。
     - [x] **前端:** 修改 `streamlit_app.py` 添加模式选择 UI，并动态控制目标债务比例输入框。
+    - [x] **测试:** 用户已确认 WACC 权重模式功能符合预期。
+- **敏感性分析功能实现:**
+    - [x] **后端:** 创建 `api/sensitivity_models.py`。修改 `api/models.py` 引入新模型。重构 `api/main.py` 以支持敏感性分析计算循环和结果返回。
+    - [x] **前端:** 修改 `streamlit_app.py` 添加敏感性分析配置 UI 和结果展示表格。
 
 ## 剩余任务 (新计划)
-- **项目重大改版 - 阶段四：测试与完善**
-    - [ ] **WACC 权重模式测试:** 需要用户在 Streamlit UI 上测试新添加的 WACC 权重模式选项，确认其行为符合预期（包括 UI 交互和计算结果）。
-    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式的特定测试）
+- **项目重大改版 - 阶段四：敏感性分析与完善**
+    - [ ] **敏感性分析功能测试 (当前任务):** 用户手动测试 UI 交互、计算流程和结果展示。
+    - [ ] **添加敏感性分析测试:** (后续任务) 补充后端单元测试和 API 集成测试。
+    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式和敏感性分析的特定测试）
         *   修复了 `tests/api/test_main.py` 中的类型和断言错误 (先前任务)。
         *   修复了 `tests/test_data_processor.py` 中的 NaN 处理、fixture 和警告断言错误 (先前任务)。
         *   修复了 `tests/test_equity_bridge_calculator.py` 中的 NaN 处理和异常捕获逻辑。
@@ -118,10 +123,9 @@
         *   修复了 `tests/test_present_value_calculator.py` 中的数值比较、异常处理和 NaN 检查逻辑及错误消息断言。
         *   修复了 `tests/test_terminal_value_calculator.py` 中的缩进错误、数值比较、类型错误和错误消息断言。
         *   修复了 `tests/test_wacc_calculator.py` 中的类型错误、数值比较和错误消息断言。
-    - [ ] **Streamlit UI 完善:** (可选) 根据测试结果和用户反馈，优化布局（特别是右侧LLM区域）、交互和错误处理。
-    - [ ] **优化投资建议呈现:** (可选) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-    - [ ] **实现情景分析功能:** (未来功能)
-    - [ ] **Memory Bank 更新:** (当前正在进行) 确保所有文档与最终代码状态一致。
+    - [ ] **Streamlit UI 完善:** (可选，优先级降低) 根据测试结果和用户反馈，优化布局（特别是右侧LLM区域）、交互和错误处理。
+    - [ ] **优化投资建议呈现:** (可选，优先级降低) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
+    - [x] **Memory Bank 更新:** (已完成) 更新文档以反映敏感性分析计划。
     - [ ] **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
     - [ ] **规范符合性检查:** (持续进行) 确保所有实现都已对照 `wiki/` 文档进行验证。
 

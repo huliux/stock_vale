@@ -101,12 +101,108 @@ with st.sidebar:
     st.caption("未来功能：情景分析")
     st.info("未来版本将支持对关键假设进行情景分析。")
 
+# --- 敏感性分析配置 (移到主区域) ---
+st.divider()
+st.subheader("🔬 敏感性分析 (可选)")
+# 默认启用敏感性分析
+enable_sensitivity = st.checkbox("启用敏感性分析", value=True, key="enable_sensitivity_cb")
+
+if enable_sensitivity:
+    # --- 轴定义 ---
+    supported_axis_params = {
+        "WACC": "wacc", 
+        "退出乘数 (EBITDA)": "exit_multiple", 
+        "永续增长率": "perpetual_growth_rate"
+    }
+    # 定义支持的输出指标及其显示名称和后端 key
+    supported_output_metrics = { 
+        "每股价值": "value_per_share",
+        "企业价值 (EV)": "enterprise_value",
+        "股权价值": "equity_value",
+        "EV/EBITDA (末期)": "ev_ebitda", # 使用末期 EBITDA 近似
+        "终值/EV 比例": "tv_ev_ratio"
+    }
+    
+    col_sens1, col_sens2, col_sens3 = st.columns(3) # Use 3 columns for better layout
+    
+    with col_sens1:
+        st.markdown("**行轴设置**")
+        row_param_display = st.selectbox(
+            "选择行轴参数:", 
+            options=list(supported_axis_params.keys()), 
+            index=0, 
+            key="sens_row_param"
+        )
+        row_param_key = supported_axis_params[row_param_display]
+        
+        # 中心值需要从基础计算结果获取，这里先放占位符或默认值
+        # TODO: 获取基础计算的 WACC, Exit Multiple, PGR
+        row_center_value_placeholder = 0.08 if row_param_key == "wacc" else (8.0 if row_param_key == "exit_multiple" else 0.025)
+        row_center_value = st.number_input(f"中心值 ({row_param_display}):", value=row_center_value_placeholder, key="sens_row_center", disabled=True, format="%.3f")
+        
+        row_step = st.number_input("步长:", value=0.005 if row_param_key == "wacc" or row_param_key == "perpetual_growth_rate" else 0.5, step=0.001 if row_param_key != "exit_multiple" else 0.1, format="%.3f" if row_param_key != "exit_multiple" else "%.1f", key="sens_row_step")
+        row_points = st.slider("点数 (奇数):", min_value=3, max_value=9, value=5, step=2, key="sens_row_points")
+        
+        # 自动生成并允许编辑
+        row_values_generated = [row_center_value + row_step * (i - (row_points - 1) // 2) for i in range(row_points)]
+        row_values_str = st.text_area(
+            "行轴值列表 (逗号分隔):", 
+            value=", ".join([f"{v:.4f}" if row_param_key != "exit_multiple" else f"{v:.1f}" for v in row_values_generated]), 
+            key="sens_row_values_str"
+        )
+
+    with col_sens2:
+        st.markdown("**列轴设置**")
+        # 过滤掉行轴已选的参数
+        available_col_params = {k: v for k, v in supported_axis_params.items() if v != row_param_key}
+        col_param_display = st.selectbox(
+            "选择列轴参数:", 
+            options=list(available_col_params.keys()), 
+            index=0, 
+            key="sens_col_param"
+        )
+        col_param_key = available_col_params[col_param_display]
+
+        # 中心值占位符
+        col_center_value_placeholder = 0.08 if col_param_key == "wacc" else (8.0 if col_param_key == "exit_multiple" else 0.025)
+        col_center_value = st.number_input(f"中心值 ({col_param_display}):", value=col_center_value_placeholder, key="sens_col_center", disabled=True, format="%.3f")
+
+        col_step = st.number_input("步长:", value=0.005 if col_param_key == "wacc" or col_param_key == "perpetual_growth_rate" else 0.5, step=0.001 if col_param_key != "exit_multiple" else 0.1, format="%.3f" if col_param_key != "exit_multiple" else "%.1f", key="sens_col_step")
+        col_points = st.slider("点数 (奇数):", min_value=3, max_value=9, value=5, step=2, key="sens_col_points")
+
+        # 自动生成并允许编辑
+        col_values_generated = [col_center_value + col_step * (i - (col_points - 1) // 2) for i in range(col_points)]
+        col_values_str = st.text_area(
+            "列轴值列表 (逗号分隔):", 
+            value=", ".join([f"{v:.4f}" if col_param_key != "exit_multiple" else f"{v:.1f}" for v in col_values_generated]), 
+            key="sens_col_values_str"
+        )
+
+    with col_sens3:
+        st.markdown("**输出指标**")
+        # 改为多选，默认全选
+        selected_output_metric_displays = st.multiselect(
+            "选择要显示的敏感性表格指标:", 
+            options=list(supported_output_metrics.keys()), 
+            default=list(supported_output_metrics.keys()), # 默认全选
+            key="sens_output_metrics_select"
+        )
+        # 获取选中指标的后端 key 列表
+        selected_output_metric_keys = [supported_output_metrics[d] for d in selected_output_metric_displays]
+
 
 # --- 函数：渲染估值结果 ---
-def render_valuation_results(payload_filtered, current_ts_code):
+def render_valuation_results(payload_filtered, current_ts_code, base_assumptions):
+    """
+    渲染估值结果，包括基础结果和可选的敏感性分析。
+    Args:
+        payload_filtered (dict): 发送给 API 的请求体。
+        current_ts_code (str): 当前股票代码。
+        base_assumptions (dict): 用于显示中心值的基础假设。
+    """
     st.header("估值结果")
     st.info(f"正在为 {current_ts_code} 请求估值...")
-    # st.json(payload_filtered) # 调试时可以取消注释
+    # st.json(payload_filtered) # Debugging: Show payload
 
     try:
         with st.spinner('正在调用后端 API 并进行计算...'):
@@ -190,8 +286,61 @@ def render_valuation_results(payload_filtered, current_ts_code):
                         st.error(f"无法显示预测表格: {e}")
                 else:
                     st.info("未找到详细的预测数据。")
+                
+                # 5. 敏感性分析结果区 (如果存在)
+                sensitivity_data = valuation_results.get("sensitivity_analysis_result")
+                if sensitivity_data and enable_sensitivity: # Also check if sensitivity was enabled for this run
+                    st.subheader("🔬 敏感性分析结果")
+                    try:
+                        row_param = sensitivity_data['row_parameter']
+                        col_param = sensitivity_data['column_parameter']
+                        row_vals = sensitivity_data['row_values']
+                        col_vals = sensitivity_data['column_values']
+                        result_tables = sensitivity_data['result_tables'] # Get the dictionary of tables
 
-                # 4. LLM 分析与建议区 (移动到末尾)
+                        # 渲染用户选择的每个指标的表格
+                        for metric_key in selected_output_metric_keys: # Iterate through user selection
+                            if metric_key in result_tables:
+                                table_data = result_tables[metric_key]
+                                metric_display_name = next((k for k, v in supported_output_metrics.items() if v == metric_key), metric_key)
+                                st.markdown(f"**指标: {metric_display_name}**") 
+                                
+                                df_sensitivity = pd.DataFrame(table_data, index=row_vals, columns=col_vals)
+                                
+                                # 格式化显示
+                                row_format = "{:.2%}" if row_param == "wacc" or row_param == "perpetual_growth_rate" else "{:.1f}x"
+                                col_format = "{:.2%}" if col_param == "wacc" or col_param == "perpetual_growth_rate" else "{:.1f}x"
+                                
+                                if metric_key == "value_per_share":
+                                    cell_format = "{:,.2f}"
+                                elif metric_key == "enterprise_value" or metric_key == "equity_value":
+                                     cell_format = lambda x: f"{x/1e8:,.2f} 亿" if pd.notna(x) else "N/A"
+                                elif metric_key == "ev_ebitda":
+                                     cell_format = "{:.1f}x"
+                                elif metric_key == "tv_ev_ratio":
+                                     cell_format = "{:.1%}"
+                                else:
+                                     cell_format = "{:,.2f}"
+
+                                df_sensitivity.index = df_sensitivity.index.map(lambda x: row_format.format(x) if pd.notna(x) else '-')
+                                df_sensitivity.columns = df_sensitivity.columns.map(lambda x: col_format.format(x) if pd.notna(x) else '-')
+                                
+                                # 应用单元格格式化
+                                if isinstance(cell_format, str):
+                                     st.dataframe(df_sensitivity.style.format(cell_format, na_rep='N/A').highlight_null(color='lightgrey'))
+                                else: # Apply function formatter
+                                     st.dataframe(df_sensitivity.style.format(cell_format, na_rep='N/A').highlight_null(color='lightgrey'))
+                                
+                                # TODO: Highlight center value
+                                st.divider() # Add divider between tables
+                            else:
+                                st.warning(f"未找到指标 '{metric_key}' 的敏感性分析结果。")
+
+                    except Exception as e:
+                        st.error(f"无法显示敏感性分析表格: {e}")
+                        # st.json(sensitivity_data) # Debugging
+
+                # 6. LLM 分析与建议区 (移动到末尾)
                 st.subheader("🤖 LLM 分析与投资建议摘要")
                 st.caption("请结合以下分析判断投资价值。") # 添加引导说明
                 if llm_summary:
@@ -216,10 +365,10 @@ def render_valuation_results(payload_filtered, current_ts_code):
         st.error(traceback.format_exc())
 
 # --- 触发计算 ---
-if st.sidebar.button("🚀 开始估值计算", key="start_valuation_button"): # 按钮保留在 sidebar
-    # 构建请求体 - 包含所有可能的输入参数
-    # 注意：所有输入变量 (ts_code, valuation_date 等) 仍然从 sidebar 中获取
-    request_payload = {
+if st.button("🚀 开始估值计算", key="start_valuation_button"): # 将按钮移到主区域
+    
+    # --- 构建基础请求体 ---
+    base_request_payload = {
         "ts_code": ts_code,
         "valuation_date": valuation_date.strftime('%Y-%m-%d') if valuation_date else None,
         "forecast_years": forecast_years,
@@ -263,8 +412,41 @@ if st.sidebar.button("🚀 开始估值计算", key="start_valuation_button"): #
         # Terminal Value
         "terminal_value_method": terminal_value_method,
         "exit_multiple": exit_multiple,
-        "perpetual_growth_rate": perpetual_growth_rate
+        "perpetual_growth_rate": perpetual_growth_rate,
+        # Sensitivity Analysis (will be added below if enabled)
     }
-    # 过滤掉 None 值
-    request_payload_filtered = {k: v for k, v in request_payload.items() if v is not None}
-    render_valuation_results(request_payload_filtered, ts_code)
+
+    # --- 添加敏感性分析配置 (如果启用) ---
+    sensitivity_payload = None
+    if enable_sensitivity:
+        try:
+            # 解析用户输入的或自动生成的值列表
+            row_values_parsed = [float(x.strip()) for x in row_values_str.split(',') if x.strip()]
+            col_values_parsed = [float(x.strip()) for x in col_values_str.split(',') if x.strip()]
+            
+            if not row_values_parsed or not col_values_parsed:
+                 st.error("敏感性分析的行轴和列轴值列表不能为空。")
+            else:
+                sensitivity_payload = {
+                    "row_axis": {
+                        "parameter_name": row_param_key,
+                        "values": row_values_parsed
+                    },
+                    "column_axis": {
+                        "parameter_name": col_param_key,
+                        "values": col_values_parsed
+                    },
+                    # "output_metric" is no longer sent in the request
+                }
+                base_request_payload["sensitivity_analysis"] = sensitivity_payload
+        except ValueError:
+            st.error("无法解析敏感性分析的值列表，请确保输入的是逗号分隔的有效数字。")
+            sensitivity_payload = None # Reset if parsing fails
+            base_request_payload["sensitivity_analysis"] = None # Ensure it's not sent
+
+    # 过滤掉基础 payload 中的 None 值 (敏感性部分已处理)
+    request_payload_filtered = {k: v for k, v in base_request_payload.items() if v is not None}
+    
+    # 渲染结果 (传递基础假设用于显示中心值)
+    # TODO: Pass actual base assumptions used for center value highlighting
+    render_valuation_results(request_payload_filtered, ts_code, base_assumptions=base_request_payload)

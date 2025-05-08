@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List, Union
 from decimal import Decimal # Ensure Decimal is imported
+from .sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult # Import new models
 
 # --- Request Model ---
 
@@ -59,6 +60,9 @@ class StockValuationRequest(BaseModel):
     terminal_value_method: str = Field(default='exit_multiple', description="终值计算方法 ('exit_multiple' 或 'perpetual_growth')")
     exit_multiple: Optional[float] = Field(None, ge=0, description="退出乘数 (基于 EBITDA，仅在 exit_multiple 模式下有效)")
     perpetual_growth_rate: Optional[float] = Field(None, description="永续增长率 (仅在 perpetual_growth 模式下有效)")
+
+    # --- Sensitivity Analysis ---
+    sensitivity_analysis: Optional[SensitivityAnalysisRequest] = Field(None, description="敏感性分析配置 (可选)")
 
 
 # --- Response Models ---
@@ -123,6 +127,7 @@ class ValuationResultsContainer(BaseModel):
     llm_analysis_summary: Optional[str] = Field(None, description="LLM 生成的投资分析摘要 (Markdown 格式)")
     data_warnings: Optional[List[str]] = Field(None, description="数据处理过程中产生的警告信息列表")
     detailed_forecast_table: Optional[List[Dict[str, Any]]] = Field(None, description="详细的逐年财务预测表格")
+    sensitivity_analysis_result: Optional[SensitivityAnalysisResult] = Field(None, description="敏感性分析结果 (可选)")
 
 class StockValuationResponse(BaseModel):
     """
