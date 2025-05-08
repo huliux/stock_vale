@@ -1,40 +1,132 @@
 import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
-from unittest.mock import MagicMock, patch
+from decimal import Decimal
+from unittest.mock import MagicMock, patch, AsyncMock
 
 # Import the FastAPI app instance
-from api.main import app 
+from api.main import app
+from api.models import StockValuationRequest # Import request model - Corrected Name
 
 client = TestClient(app)
 
 # --- Test Data ---
 MOCK_TS_CODE = '000001.SZ'
-MOCK_STOCK_INFO = {'ts_code': MOCK_TS_CODE, 'name': '平安银行', 'industry': '银行'}
-MOCK_LATEST_PRICE = 15.0
-MOCK_TOTAL_SHARES = 1940591800 # Actual shares
-# Simplified Mock Financials Dictionary for DataProcessor input
-MOCK_FINANCIALS_DICT = {
-    'income_statement': pd.DataFrame({'end_date': pd.to_datetime(['2023-12-31']), 'n_income': [450e8], 'total_revenue': [1800e8], 'operate_profit': [600e8], 'finan_exp': [-50e8], 'ebit': [650e8], 'ebitda': [666e8]}),
-    'balance_sheet': pd.DataFrame({'end_date': pd.to_datetime(['2023-12-31']), 'total_liab': [45000e8], 'total_hldr_eqy_inc_min_int': [3600e8], 'lt_borr': [5000e8], 'st_borr': [3000e8], 'bond_payable': [1000e8], 'money_cap': [2000e8]}),
-    'cash_flow': pd.DataFrame({'end_date': pd.to_datetime(['2023-12-31']), 'depr_fa_coga_dpba': [10e8], 'amort_intang_assets': [5e8], 'lt_amort_deferred_exp': [1e8]})
+MOCK_STOCK_BASIC_INFO = {
+    'ts_code': MOCK_TS_CODE,
+    'name': '平安银行',
+    'industry': '银行',
+    'list_date': '19910403',
+    'exchange': 'SZSE',
+    'currency': 'CNY',
+    'latest_pe_ttm': Decimal('10.5'),
+    'latest_pb_mrq': Decimal('1.2'),
+    'total_shares': Decimal('19405918000'), # Example total shares
+    'free_float_shares': Decimal('18000000000')
 }
-MOCK_DIVIDENDS = pd.DataFrame({'end_date': pd.to_datetime(['2023-12-31']), 'cash_div_tax': [0.8]})
+MOCK_LATEST_PRICE = Decimal('15.0')
 
-# --- Mock Calculator Results ---
-MOCK_DCF_RESULT = {
-    "enterprise_value": 55000e8, "equity_value": 30000e8, "value_per_share": 21.50,
-    "error": None, "wacc_used": 0.08, "terminal_value_method_used": "exit_multiple", 
+# Raw financial data as returned by DataFetcher
+MOCK_RAW_FINANCIAL_DATA = {
+    'income_statement': pd.DataFrame({
+        'end_date': pd.to_datetime(['2021-12-31', '2022-12-31', '2023-12-31']),
+        'total_revenue': [100, 120, 150],
+        'oper_cost': [60, 70, 80],
+        'income_tax': [10, 12, 15],
+        'n_income': [30, 38, 55], # Net Income
+        'ebit': [40, 50, 70] # Assuming EBIT is available
+    }),
+    'balance_sheet': pd.DataFrame({
+        'end_date': pd.to_datetime(['2020-12-31', '2021-12-31', '2022-12-31', '2023-12-31']),
+        'accounts_receiv_bill': [10, 12, 15, 18],
+        'inventories': [20, 22, 25, 30],
+        'accounts_pay': [15, 18, 20, 22],
+        'total_cur_assets': [100,110,120,130],
+        'total_cur_liab': [50,55,60,65],
+        'money_cap': [10,12,15,20], # Cash and equivalents
+        'st_borr': [5,6,7,8], # Short term debt
+        'lt_borr': [20,22,25,30], # Long term debt
+        'minority_int': [1,1.2,1.5,2], # Minority interest
+        'preferred_stk_val': [0,0,0,0] # Preferred equity
+    }),
+    'cash_flow': pd.DataFrame({
+        'end_date': pd.to_datetime(['2021-12-31', '2022-12-31', '2023-12-31']),
+        'depr_fa_coga_dpba': [5, 6, 7], # Depreciation
+        'amort_intang_assets': [1, 1, 2], # Amortization
+        'lt_amort_deferred_exp': [0,1,1],
+        'c_pay_acq_const_fiolta': [10,12,15] # Capex
+    })
 }
-MOCK_COMBO_VALUATIONS = {
-    "DCF_Forecast": {"value": 21.5, "safety_margin_pct": 43.33},
-    "DDM": {"value": 18.0, "safety_margin_pct": 20.0},
-    "Composite_Valuation": {"value": 20.45, "safety_margin_pct": 36.33}
+MOCK_LATEST_BS_INFO = { # As returned by DataFetcher.get_latest_balance_sheet_info
+    'cash_and_equivalents': Decimal('20'),
+    'short_term_debt': Decimal('8'),
+    'long_term_debt': Decimal('30'),
+    'minority_interest': Decimal('2'),
+    'preferred_equity': Decimal('0'),
+    'net_debt': Decimal('18') # 8 + 30 - 20
 }
-MOCK_INVESTMENT_ADVICE = {
-    "advice":"买入", 
-    "reason":"Mocked reason",
+
+MOCK_PROCESSED_DATA_FOR_FORECASTER = MOCK_RAW_FINANCIAL_DATA # Simplified for this mock
+MOCK_HISTORICAL_RATIOS = {
+    'cogs_to_revenue_ratio': Decimal('0.6'),
+    'sga_to_revenue_ratio': Decimal('0.1'),
+    'rd_to_revenue_ratio': Decimal('0.05'),
+    'da_to_revenue_ratio': Decimal('0.05'),
+    'capex_to_revenue_ratio': Decimal('0.08'),
+    'effective_tax_rate': Decimal('0.25'),
+    'accounts_receivable_days': Decimal('75'),
+    'inventory_days': Decimal('180'),
+    'accounts_payable_days': Decimal('90'),
+    'other_current_assets_to_revenue_ratio': Decimal('0.05'),
+    'other_current_liabilities_to_revenue_ratio': Decimal('0.03'),
+    'last_actual_nwc': Decimal('50'),
+    'last_actual_cogs': Decimal('80'), # from IS 2023
+    'historical_revenue_cagr': Decimal('0.2247') # (150/100)^(1/2)-1
 }
+# Mock for DataProcessor.get_latest_metrics()
+MOCK_LATEST_METRICS = {
+    'pe': MOCK_STOCK_BASIC_INFO['latest_pe_ttm'],
+    'pb': MOCK_STOCK_BASIC_INFO['latest_pb_mrq'],
+    'beta': Decimal('1.1') # Example beta
+}
+MOCK_DETAILED_FORECAST_TABLE = pd.DataFrame({
+    'year': [1, 2, 3, 4, 5],
+    'revenue': [Decimal('183.71'), Decimal('213.65'), Decimal('243.60'), Decimal('273.54'), Decimal('303.49')],
+    'ufcf': [Decimal('20'), Decimal('22'), Decimal('25'), Decimal('28'), Decimal('30')] # Renamed column to ufcf
+    # Add other necessary columns if they are directly used by calculators
+})
+
+MOCK_LLM_ANALYSIS = {"summary": "Mocked LLM analysis summary.", "rating": "Buy", "confidence": "High"}
+
+DEFAULT_VALUATION_REQUEST_PAYLOAD = {
+    "ts_code": MOCK_TS_CODE,
+    "risk_free_rate": 0.025,
+    "market_risk_premium": 0.06,
+    "beta": 1.1,
+    "cost_of_debt": 0.045,
+    "tax_rate_for_wacc": 0.25, # This is corp tax rate for WACC, not necessarily historical effective
+    "debt_to_equity_target": 0.5,
+    "prediction_mode": "historical_median",
+    "forecast_years": 5,
+    "revenue_cagr_decay_rate": 0.01,
+    "terminal_growth_rate": 0.02,
+    "terminal_ev_ebitda_multiple": 8.0,
+    "terminal_value_method": "perpetual_growth", # Corrected method name
+    # Target ratios (optional, used if prediction_mode is 'transition_to_target')
+    "effective_tax_rate_target": 0.25,
+    "cogs_to_revenue_target": 0.6,
+    "sga_to_revenue_target": 0.1,
+    "rd_to_revenue_target": 0.05,
+    "da_to_revenue_target": 0.05,
+    "capex_to_revenue_target": 0.08,
+    "ar_days_target": 75,
+    "inventory_days_target": 180,
+    "ap_days_target": 90,
+    "other_ca_to_revenue_target": 0.05,
+    "other_cl_to_revenue_target": 0.03,
+    "transition_years": 3
+}
+
 
 # --- Tests ---
 
@@ -42,150 +134,232 @@ def test_read_root():
     """Test the root endpoint."""
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Welcome to the Stock Valuation API"}
+    # Correct the expected message based on api/main.py
+    assert response.json() == {"message": "Welcome to the Stock Valuation API (Streamlit Backend)"}
 
-# Patch dependencies at their source location
-# api.main directly uses AshareDataFetcher and ValuationCalculator (imported inside endpoint)
-# It does NOT directly use DataProcessor or FinancialForecaster.
-@patch("data_fetcher.AshareDataFetcher")
-@patch("valuation_calculator.ValuationCalculator") # This will mock it when api.main imports it
-def test_calculate_valuation_success(MockCalculator, MockFetcher): # Adjusted parameters
-    """Test the valuation endpoint with mocked dependencies."""
+# Correct the patch targets based on imports in api/main.py
+@patch("api.main.AshareDataFetcher") # Corrected class name
+@patch("api.main.DataProcessor")
+@patch("api.main.FinancialForecaster")
+@patch("api.main.WaccCalculator") # Corrected class name
+# FcfCalculator is not directly used in api.main, it's part of FinancialForecaster
+@patch("api.main.TerminalValueCalculator")
+@patch("api.main.PresentValueCalculator")
+@patch("api.main.EquityBridgeCalculator")
+@patch("api.main.call_llm_api") # Corrected function name and removed AsyncMock as it's sync now
+def test_calculate_valuation_success(
+    MockCallLLM, MockEquityBridge, MockPV, MockTV, MockWACC, # Removed MockFCF
+    MockFinancialForecaster, MockDataProcessor, MockAshareDataFetcher # Renamed mock parameter
+):
+    """Test the valuation endpoint with mocked dependencies (new structure)."""
 
-    # Configure Mock DataFetcher
-    mock_fetcher_instance = MockFetcher.return_value
-    mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_INFO
+    # --- Configure Mocks ---
+    # DataFetcher
+    mock_fetcher_instance = MockAshareDataFetcher.return_value # Corrected variable name
+    mock_fetcher_instance.get_stock_basic_info.return_value = MOCK_STOCK_BASIC_INFO
     mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE
-    mock_fetcher_instance.get_total_shares.return_value = MOCK_TOTAL_SHARES
-    # api.main calls get_financial_data() which should return a single DataFrame
-    # Let's simulate that the fetcher returns a pre-combined DataFrame
-    mock_combined_financials = pd.concat(MOCK_FINANCIALS_DICT.values())
-    mock_fetcher_instance.get_financial_data.return_value = mock_combined_financials
-    mock_fetcher_instance.get_dividend_data.return_value = MOCK_DIVIDENDS
+    mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA
+    mock_fetcher_instance.get_latest_balance_sheet_info.return_value = MOCK_LATEST_BS_INFO
+    # Mock get_latest_total_shares to return value in 亿股, explicitly convert to float
+    mock_fetcher_instance.get_latest_total_shares.return_value = float(MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000)
 
-    # Configure Mock ValuationCalculator
-    mock_calculator_instance = MockCalculator.return_value
-    mock_calculator_instance.calculate_pe_ratio.return_value = 10.0
-    mock_calculator_instance.calculate_pb_ratio.return_value = 1.5
-    mock_calculator_instance.calculate_ev.return_value = (50000e8, 665e8, 7.5) # ev, net_debt, ev_ebitda
+    # DataProcessor
+    # DataProcessor
+    mock_processor_instance = MockDataProcessor.return_value
+    mock_processor_instance.clean_data.return_value = MOCK_PROCESSED_DATA_FOR_FORECASTER # Cleaned data
+    # Corrected mock target method name & using explicit mock object
+    mock_get_hist_ratios = MagicMock(return_value=MOCK_HISTORICAL_RATIOS)
+    mock_processor_instance.get_historical_ratios = mock_get_hist_ratios
+    # mock_processor_instance.get_historical_ratios.return_value = MOCK_HISTORICAL_RATIOS # Original way
+    mock_processor_instance.get_basic_info.return_value = MOCK_STOCK_BASIC_INFO # After processing
+    mock_processor_instance.get_latest_metrics.return_value = MOCK_LATEST_METRICS # Added mock
+    mock_processor_instance.get_latest_balance_sheet_info.return_value = MOCK_LATEST_BS_INFO # After processing
+    # Mock the get_warnings() method instead of the attribute
+    mock_processor_instance.get_warnings.return_value = ["Mock warning 1", "Mock warning 2"]
 
-    # Mock the DCF and DDM methods called in api.main.py
-    # Each should return a tuple: (results_list_of_dict, error_message_str_or_none)
-    # ValuationMethodResult.results expects List[Dict[str, Any]]
-    # The actual structure returned by _perform_dcf_valuation is like:
-    # [{'growth_rate': g, 'discount_rate': r, 'value': value_per_share, 'premium': premium}]
-    mock_dcf_method_res_list = [{'growth_rate': 0.05, 'discount_rate': 0.10, 'value': 15.0, 'premium': 0.0}] # Adjusted structure
-    mock_calculator_instance.perform_fcff_valuation_basic_capex.return_value = (mock_dcf_method_res_list, None)
-    mock_calculator_instance.perform_fcfe_valuation_basic_capex.return_value = (mock_dcf_method_res_list, None)
-    mock_calculator_instance.perform_fcff_valuation_full_capex.return_value = (mock_dcf_method_res_list, None)
-    mock_calculator_instance.perform_fcfe_valuation_full_capex.return_value = (mock_dcf_method_res_list, None)
-    mock_calculator_instance.calculate_ddm_valuation.return_value = (mock_dcf_method_res_list, None) # DDM also returns a list with this structure
+    # FinancialForecaster
+    mock_forecaster_instance = MockFinancialForecaster.return_value
+    # get_full_forecast should return the DataFrame directly
+    mock_forecaster_instance.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE 
 
-    # Mock other analysis and combo valuations
-    mock_other_analysis_data = {
-        'dividend_analysis': {'avg_dividend_yield_5y': 0.03, 'payout_ratio_ttm': 0.30, 'dividend_growth_rate_3y': 0.05, 'sustainable_growth_rate': 0.06},
-        'growth_analysis': {'revenue_growth_3y_cagr': 0.08, 'net_profit_growth_3y_cagr': 0.10, 'roic_avg_3y': 0.12}
-    }
-    mock_calculator_instance.get_other_analysis.return_value = mock_other_analysis_data
-    mock_calculator_instance.get_combo_valuations.return_value = (MOCK_COMBO_VALUATIONS, MOCK_INVESTMENT_ADVICE)
-    mock_calculator_instance.last_calculated_wacc = 0.08 # Mock WACC
-    mock_calculator_instance.last_calculated_ke = 0.10 # Mock Ke
+    # WACCCalculator
+    mock_wacc_instance = MockWACC.return_value
+    # Mock the correct method called in api/main.py
+    mock_wacc_instance.get_wacc_and_ke.return_value = (Decimal('0.085'), Decimal('0.10')) # Return tuple (wacc, ke)
 
+    # FCFCalculator is mocked as part of FinancialForecaster if FinancialForecaster is mocked.
+    # No need to mock FcfCalculator separately here.
+    # The MOCK_DETAILED_FORECAST_TABLE should already include 'free_cash_flow' if it's the output of FinancialForecaster.
 
-    # Make the request
-    response = client.post("/api/v1/valuation", json={"ts_code": MOCK_TS_CODE})
+    # TerminalValueCalculator
+    mock_tv_instance = MockTV.return_value
+    # Return None for the error part in the success case
+    mock_tv_instance.calculate_terminal_value.return_value = (Decimal('500'), None) 
 
-    # Assertions
+    # PresentValueCalculator
+    mock_pv_instance = MockPV.return_value
+    # Return tuple (pv_ufcf, pv_tv, error) - use floats as in the other test
+    mock_pv_instance.calculate_present_values.return_value = (400.0, 931.38, None) 
+
+    # EquityBridgeCalculator
+    mock_eb_instance = MockEquityBridge.return_value
+    # Return tuple (net_debt, equity_value, value_per_share, error)
+    mock_eb_instance.calculate_equity_value.return_value = (Decimal('1500'), Decimal('350'), Decimal('18.04'), None) 
+
+    # LLM Call
+    # Return only the summary string as expected by the model
+    MockCallLLM.return_value = MOCK_LLM_ANALYSIS["summary"] 
+    
+    # --- Make the request ---
+    response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
+
+    # --- Assertions ---
     assert response.status_code == 200, f"Response content: {response.content}"
     data = response.json()
+
+    # Use the correct key 'stock_info' based on StockValuationResponse model
+    assert data["stock_info"]["name"] == "平安银行" 
+    assert data["stock_info"]["latest_pe_ttm"] == 10.5 # Pydantic converts Decimal to float for JSON
     
-    assert data["stock_info"] == MOCK_STOCK_INFO
-    assert "valuation_results" in data
     results = data["valuation_results"]
+    # Updated assertions to match ValuationResultsContainer and DcfForecastDetails structure
+    assert results["dcf_forecast_details"]["value_per_share"] == 18.04
+    assert results["dcf_forecast_details"]["wacc_used"] == 0.085
+    assert results["current_pe"] == 10.5
+    assert results["current_pb"] == 1.2
+    assert results["llm_analysis_summary"] == "Mocked LLM analysis summary."
+    
+    assert "detailed_forecast_table" in results # Check within results container
+    assert len(results["detailed_forecast_table"]) == DEFAULT_VALUATION_REQUEST_PAYLOAD["forecast_years"] # Corrected key access
+    assert "ufcf" in results["detailed_forecast_table"][0] # Corrected key access
 
-    assert results["current_pe"] == 10.0
-    assert results["current_pb"] == 1.5
-    # Check one of the DCF results (they all use mock_dcf_method_res_list in this mock setup)
-    # Access the first item in the list, then the 'value' key
-    assert results["dcf_fcff_basic_capex"]["results"][0]["value"] == 15.0 # Adjusted assertion
-    assert results["combo_valuations"]["Composite_Valuation"]["value"] == 20.45 # From MOCK_COMBO_VALUATIONS
-    assert results["investment_advice"]["advice"] == "买入" # From MOCK_INVESTMENT_ADVICE
+    assert "data_warnings" in results # Check within results container
+    assert "Mock warning 1" in results["data_warnings"] # Corrected key access
 
-@patch("data_fetcher.AshareDataFetcher")
-def test_calculate_valuation_not_found(MockFetcher):
-    """Test valuation endpoint when financial data is not found."""
-    mock_fetcher_instance = MockFetcher.return_value
-    mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_INFO # Valid stock info
-    # The actual behavior seems to be that get_latest_price fails first for an invalid ts_code.
-    # We will test this actual behavior.
-    # Mock get_latest_price to raise the specific error seen in the traceback.
-    mock_fetcher_instance.get_latest_price.side_effect = ValueError(f"No latest price found for ts_code: 999999.SZ")
-    mock_fetcher_instance.get_total_shares.return_value = MOCK_TOTAL_SHARES # Mock shares for 999999.SZ
-    mock_fetcher_instance.get_financial_data.return_value = pd.DataFrame() # Financial data is empty
+@patch("api.main.AshareDataFetcher") # Corrected patch target
+def test_calculate_valuation_fetcher_error(MockAshareDataFetcher): # Corrected mock parameter name
+    """Test valuation endpoint when DataFetcher raises an error."""
+    mock_fetcher_instance = MockAshareDataFetcher.return_value
+    mock_fetcher_instance.get_stock_info.side_effect = ValueError("Failed to fetch stock basic info") # Use get_stock_info
 
-    response = client.post("/api/v1/valuation", json={"ts_code": "999999.SZ"})
+    response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
 
-    assert response.status_code == 404
-    # Assert the error message that is actually raised first.
-    assert "No latest price found for ts_code: 999999.SZ" in response.json()["detail"] # Adjusted assertion
-
-# Use monkeypatch instead of @patch for fetcher methods
-def test_calculate_valuation_missing_price(monkeypatch):
-    """Test valuation endpoint when latest price is missing."""
-    # Mock the methods of AshareDataFetcher using monkeypatch
-    mock_fetcher = MagicMock()
-    mock_fetcher.get_stock_info.return_value = MOCK_STOCK_INFO
-    mock_fetcher.get_latest_price.return_value = None # Simulate missing price
-    mock_fetcher.get_total_shares.return_value = MOCK_TOTAL_SHARES
-    mock_combined_financials = pd.concat(MOCK_FINANCIALS_DICT.values())
-    mock_fetcher.get_financial_data.return_value = mock_combined_financials
-    mock_fetcher.get_dividend_data.return_value = MOCK_DIVIDENDS
-
-    # Patch the AshareDataFetcher class itself to return our mock instance
-    monkeypatch.setattr("api.main.AshareDataFetcher", lambda *args, **kwargs: mock_fetcher)
-
-    response = client.post("/api/v1/valuation", json={"ts_code": "000001.SZ"})
-
-    assert response.status_code == 404
-    assert "Valid latest price not found for 000001.SZ" in response.json()["detail"]
-
-# Use monkeypatch instead of @patch for fetcher methods
-def test_calculate_valuation_missing_shares(monkeypatch):
-    """Test valuation endpoint when total shares are missing."""
-    mock_fetcher = MagicMock()
-    mock_fetcher.get_stock_info.return_value = MOCK_STOCK_INFO
-    mock_fetcher.get_latest_price.return_value = MOCK_LATEST_PRICE
-    mock_fetcher.get_total_shares.return_value = 0 # Simulate missing shares
-    mock_combined_financials = pd.concat(MOCK_FINANCIALS_DICT.values())
-    mock_fetcher.get_financial_data.return_value = mock_combined_financials
-    mock_fetcher.get_dividend_data.return_value = MOCK_DIVIDENDS
-
-    monkeypatch.setattr("api.main.AshareDataFetcher", lambda *args, **kwargs: mock_fetcher)
-
-    response = client.post("/api/v1/valuation", json={"ts_code": "000001.SZ"})
-
-    assert response.status_code == 404
-    assert "Valid total shares not found for 000001.SZ" in response.json()["detail"]
+    # Expect 500 because the exception is caught generically now
+    assert response.status_code == 500 
+    assert "服务器内部错误: Failed to fetch stock basic info" in response.json()["detail"]
 
 
-@patch("data_fetcher.AshareDataFetcher")
-@patch("valuation_calculator.ValuationCalculator") # Only mock what's directly used by api.main
-def test_calculate_valuation_internal_error(MockCalculator, MockFetcher):
-    """Test valuation endpoint for an internal server error during calculation."""
-    mock_fetcher_instance = MockFetcher.return_value
-    mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_INFO
+@patch("api.main.AshareDataFetcher") # Corrected patch target
+@patch("api.main.DataProcessor")
+@patch("api.main.FinancialForecaster")
+@patch("api.main.WaccCalculator") # Corrected class name
+@patch("api.main.call_llm_api") # Corrected function name
+def test_calculate_valuation_calculator_error(
+    MockCallLLM, MockWACC, MockFinancialForecaster, MockDataProcessor, MockAshareDataFetcher # Corrected mock parameter name
+):
+    """Test valuation endpoint for an internal server error during a calculation step."""
+    # Setup mocks up to the point of error
+    mock_fetcher_instance = MockAshareDataFetcher.return_value # Corrected mock parameter name
+    mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_BASIC_INFO # Use get_stock_info
     mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE
-    mock_fetcher_instance.get_total_shares.return_value = MOCK_TOTAL_SHARES
-    mock_combined_financials = pd.concat(MOCK_FINANCIALS_DICT.values())
-    mock_fetcher_instance.get_financial_data.return_value = mock_combined_financials
-    mock_fetcher_instance.get_dividend_data.return_value = MOCK_DIVIDENDS
+    mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA
+    mock_fetcher_instance.get_latest_balance_sheet_info.return_value = MOCK_LATEST_BS_INFO
+    mock_fetcher_instance.get_latest_pe_pb.return_value = {'pe': MOCK_STOCK_BASIC_INFO['latest_pe_ttm'], 'pb': MOCK_STOCK_BASIC_INFO['latest_pb_mrq']}
+    mock_fetcher_instance.get_latest_total_shares.return_value = MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000
 
-    mock_calculator_instance = MockCalculator.return_value
-    # Simulate an error during one of the calculation methods
-    # For example, if calculate_pe_ratio raises an unexpected error
-    mock_calculator_instance.calculate_pe_ratio.side_effect = Exception("Unexpected calculation error")
+    mock_processor_instance = MockDataProcessor.return_value
+    # Ensure processed_data is a dict, not None or empty for the check in api/main
+    mock_processor_instance.processed_data = {'income_statement': pd.DataFrame({'revenue': [100]})} # Minimal valid structure
+    mock_processor_instance.get_historical_ratios.return_value = MOCK_HISTORICAL_RATIOS # Use get method
+    mock_processor_instance.get_basic_info.return_value = MOCK_STOCK_BASIC_INFO
+    mock_processor_instance.get_latest_balance_sheet.return_value = pd.Series(MOCK_LATEST_BS_INFO) # Use get method, return Series
+    mock_processor_instance.get_warnings.return_value = [] # Use get method
 
-    response = client.post("/api/v1/valuation", json={"ts_code": "000001.SZ"})
+    mock_forecaster_instance = MockFinancialForecaster.return_value
+    # Ensure get_full_forecast returns a DataFrame with 'ufcf' column
+    mock_forecaster_instance.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE 
+
+    # Simulate an error in WACCCalculator
+    mock_wacc_instance = MockWACC.return_value
+    mock_wacc_instance.get_wacc_and_ke.side_effect = Exception("WACC calculation failed unexpectedly") # Use get_wacc_and_ke
+
+    MockCallLLM.return_value = MOCK_LLM_ANALYSIS # LLM might still be called for partial data
+
+    response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
 
     assert response.status_code == 500
-    assert "An internal server error occurred" in response.json()["detail"]
+    # Check the actual error message format from the except block in api/main.py
+    assert "服务器内部错误: WACC calculation failed unexpectedly" in response.json()["detail"] 
+
+@patch("api.main.AshareDataFetcher") # Corrected patch target
+@patch("api.main.DataProcessor")
+# Patch the calculators used within the 'with' block correctly
+@patch("api.main.FinancialForecaster") 
+@patch("api.main.WaccCalculator") 
+@patch("api.main.TerminalValueCalculator") 
+@patch("api.main.PresentValueCalculator") 
+@patch("api.main.EquityBridgeCalculator") 
+@patch("api.main.call_llm_api") # Corrected function name
+def test_calculate_valuation_llm_error(
+    MockCallLLM, MockEBC, MockPVC, MockTVC, MockW, MockFF, # Order matters for patch decorators
+    MockDataProcessor, MockAshareDataFetcher): # Corrected mock parameter name
+    """Test valuation endpoint when LLM call fails."""
+    # Setup mocks for successful DCF calculation
+    mock_fetcher_instance = MockAshareDataFetcher.return_value # Corrected mock parameter name
+    mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_BASIC_INFO # Use get_stock_info
+    mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE
+    mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA
+    mock_fetcher_instance.get_latest_balance_sheet_info.return_value = MOCK_LATEST_BS_INFO
+    mock_fetcher_instance.get_latest_pe_pb.return_value = {'pe': MOCK_STOCK_BASIC_INFO['latest_pe_ttm'], 'pb': MOCK_STOCK_BASIC_INFO['latest_pb_mrq']}
+    mock_fetcher_instance.get_latest_total_shares.return_value = MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000
+
+    mock_processor_instance = MockDataProcessor.return_value
+    mock_processor_instance.processed_data = {'income_statement': pd.DataFrame({'revenue': [100]})} # Minimal valid structure
+    # Corrected mock target method name
+    mock_processor_instance.get_historical_ratios.return_value = MOCK_HISTORICAL_RATIOS
+    mock_processor_instance.get_basic_info.return_value = MOCK_STOCK_BASIC_INFO
+    mock_processor_instance.get_latest_metrics.return_value = MOCK_LATEST_METRICS # Added mock
+    mock_processor_instance.get_latest_balance_sheet.return_value = pd.Series(MOCK_LATEST_BS_INFO)
+    mock_processor_instance.get_warnings.return_value = []
+    
+    # Simulate FinancialForecaster and other calculators returning valid data
+    MockFF.return_value.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE # Return DataFrame directly with 'ufcf'
+    MockW.return_value.get_wacc_and_ke.return_value = (0.085, 0.10) # Return tuple (wacc, ke)
+    # FcfCalculator is used internally by FinancialForecaster, no need to patch here if FF is mocked
+    MockTVC.return_value.calculate_terminal_value.return_value = (Decimal('500'), None) # Return tuple (value, error)
+    MockPVC.return_value.calculate_present_values.return_value = (400.0, 931.38, None) # Return tuple (pv_ufcf, pv_tv, error) - use floats
+    # Return tuple (net_debt, equity_val, per_share, error) - use Decimals where appropriate
+    MockEBC.return_value.calculate_equity_value.return_value = (Decimal('1500'), Decimal('350'), Decimal('18.04'), None) 
+
+    # Simulate LLM call failure
+    MockCallLLM.side_effect = Exception("LLM API unavailable")
+
+    # This block should be outside the 'with' statement
+    response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
+
+    assert response.status_code == 200 # Should still return DCF results
+    data = response.json()
+    # Access llm_analysis_summary directly
+    assert data["valuation_results"]["llm_analysis_summary"] == "Error in LLM analysis: LLM API unavailable"
+    # Rating is not part of the error response structure
+    # assert data["valuation_results"]["llm_analysis"]["rating"] is None
+    # DCF results should still be present
+    # Updated assertion to match DcfForecastDetails structure
+    assert data["valuation_results"]["dcf_forecast_details"]["value_per_share"] == 18.04
+
+def test_calculate_valuation_invalid_input_ts_code():
+    """Test valuation with invalid input (e.g., missing ts_code)."""
+    payload = DEFAULT_VALUATION_REQUEST_PAYLOAD.copy()
+    del payload["ts_code"]
+    response = client.post("/api/v1/valuation", json=payload)
+    assert response.status_code == 422 # Unprocessable Entity for Pydantic validation error
+    assert "ts_code" in response.json()["detail"][0]["loc"]
+
+def test_calculate_valuation_invalid_input_beta_type():
+    """Test valuation with invalid input type for beta."""
+    payload = DEFAULT_VALUATION_REQUEST_PAYLOAD.copy()
+    payload["beta"] = "not-a-float"
+    response = client.post("/api/v1/valuation", json=payload)
+    assert response.status_code == 422
+    assert "beta" in response.json()["detail"][0]["loc"]
+    assert "Input should be a valid number" in response.json()["detail"][0]["msg"]

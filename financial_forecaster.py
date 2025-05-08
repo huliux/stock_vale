@@ -1,5 +1,12 @@
 import pandas as pd
-from typing import Dict, List, Tuple, Any
+import numpy as np
+from typing import Dict, List, Tuple, Any, Optional, Union
+# Ensure Decimal import is present
+from decimal import Decimal, InvalidOperation 
+
+# 假设 NwcCalculator 和 FcfCalculator 类已定义
+from nwc_calculator import NwcCalculator
+from fcf_calculator import FcfCalculator
 
 class FinancialForecaster:
     def __init__(self,
@@ -8,278 +15,399 @@ class FinancialForecaster:
                  forecast_assumptions: Dict[str, Any]):
         """
         初始化财务预测器。
-        (文档字符串保持不变)
+        Args:
+            last_actual_revenue (float): 最后一个已知实际年度的收入。
+            historical_ratios (Dict[str, Any]): 包含历史比率/天数中位数和最后一年 NWC 的字典。
+            forecast_assumptions (Dict[str, Any]): 包含用户输入的预测假设的字典。
         """
-        self.last_actual_revenue = last_actual_revenue
-        self.historical_ratios = historical_ratios
-        self.assumptions = forecast_assumptions
-        self.forecast_years = forecast_assumptions.get("forecast_years", 5)
-        self.forecasted_statements = {}
+        # 确保 last_actual_revenue 是 Decimal 类型
+        try:
+            # Convert to string first for floats to ensure precision with Decimal
+            self.last_actual_revenue = Decimal(str(last_actual_revenue)) if last_actual_revenue is not None else Decimal('0.0')
+        except (InvalidOperation, TypeError, ValueError): # Added ValueError
+             print(f"Warning: Invalid last_actual_revenue value '{last_actual_revenue}'. Defaulting to Decimal('0.0').")
+             self.last_actual_revenue = Decimal('0.0')
+             
+        self.historical_ratios = historical_ratios if historical_ratios is not None else {}
+        # Convert historical_ratios values to Decimal where appropriate upon initialization or use
+        # For now, conversion is done at point of use.
+
+        self.assumptions = forecast_assumptions if forecast_assumptions is not None else {}
+        self.forecast_years = self.assumptions.get("forecast_years", 5)
+        self.forecasted_statements: Dict[str, pd.DataFrame] = {}
+
+    def _predict_metric_with_mode(self,
+                                  metric_name: str,
+                                  base_value: Union[float, Dict[str, float]],
+                                  hist_median: Optional[float],
+                                  year: int,
+                                  default_value: float = 0.0) -> Decimal: # Return Decimal
+        """
+        辅助函数：根据预测模式计算指标值（比率或绝对值）。
+        """
+        # Ensure inputs are Decimal where appropriate
+        try:
+            base_value_decimal = Decimal(str(base_value)) if isinstance(base_value, (int, float)) else (Decimal(base_value) if isinstance(base_value, str) else base_value)
+            hist_median_decimal = Decimal(str(hist_median)) if hist_median is not None else None # Convert via str for float inputs
+            
+            # Fetch the target value from assumptions
+            # Common key pattern for target values in assumptions is like 'metric_name_target_value' or 'metric_name_target'
+            # Let's try a common pattern; this might need adjustment based on actual assumption keys.
+            target_key = f'{metric_name}_target_value' # Default assumption key pattern
+            if "operating_margin" in metric_name: # Specific key for operating margin
+                target_key = 'op_margin_target_value' 
+            # Add other specific key patterns if necessary, e.g., for NWC days, ratios etc.
+            # Based on test_financial_forecaster.py, assumption keys are like:
+            # 'op_margin_target_value', 'sga_rd_ratio_target_value', 'da_ratio_target_value', etc.
+            # So, a more generic approach for target key might be needed or specific handling.
+            # For now, let's assume a convention like metric_name_target or metric_name_target_value
+            # Update: Check multiple possible key patterns based on test fixtures
+            target_raw = self.assumptions.get(f'target_{metric_name}') # Pattern like target_operating_margin
+            if target_raw is None:
+                 target_raw = self.assumptions.get(f'{metric_name}_target') # Pattern like operating_margin_target
+            if target_raw is None: 
+                 target_raw = self.assumptions.get(f'{metric_name}_target_value') # Pattern like operating_margin_target_value
+
+            target_decimal = Decimal(str(target_raw)) if target_raw is not None else None # Convert via str
+            default_value_decimal = Decimal(str(default_value)) # Convert via str
+            year_int = int(year) # Year should be int
+        except (InvalidOperation, TypeError, ValueError) as e:
+             print(f"Warning: Error converting inputs for {metric_name} (target_raw: {target_raw if 'target_raw' in locals() else 'N/A'}) to Decimal/int: {e}. Returning default.")
+             return default_value_decimal
+
+        mode = self.assumptions.get(f'{metric_name}_forecast_mode', 'historical_median')
+        # target already fetched and converted to target_decimal
+
+        # Determine transition years key based on metric type
+        transition_years_key = f'{metric_name}_transition_years' # Default key
+        if "days" in metric_name: 
+            transition_years_key = 'nwc_days_transition_years'
+        elif "other_current" in metric_name: 
+            transition_years_key = 'other_nwc_ratio_transition_years'
+        elif "operating_margin" in metric_name:
+             transition_years_key = 'op_margin_transition_years'
+        # Add specific checks for sga and rd transition year keys
+        elif metric_name == "sga_to_revenue_ratio":
+             transition_years_key = 'sga_transition_years' # Match fixture key
+        elif metric_name == "rd_to_revenue_ratio":
+             transition_years_key = 'rd_transition_years' # Match fixture key
+        # Remove or adjust combined key check if SGA/RD are always separate
+        # elif "sga_rd_to_revenue_ratio" in metric_name:
+        #      transition_years_key = 'sga_rd_transition_years'
+        elif "da_to_revenue_ratio" in metric_name:
+             transition_years_key = 'da_ratio_transition_years'
+        elif "capex_to_revenue_ratio" in metric_name:
+             transition_years_key = 'capex_ratio_transition_years'
+        transition_years_input = self.assumptions.get(transition_years_key, self.forecast_years)
+        try:
+            transition_years = int(transition_years_input) if transition_years_input is not None else int(self.forecast_years)
+        except (ValueError, TypeError):
+            transition_years = int(self.forecast_years)
+
+
+        if hist_median_decimal is None:
+             start_value = target_decimal if target_decimal is not None else default_value_decimal
+             print(f"Warning: Historical median for {metric_name} not available. Using {'target value' if target_decimal is not None else f'default {default_value_decimal}'} as base.")
+        else:
+             start_value = hist_median_decimal
+
+        current_metric_value = start_value # Default to start_value (hist_median or fallback)
+
+        if mode == 'transition_to_target' and target_decimal is not None and transition_years > 0:
+            diff = target_decimal - start_value
+            # Ensure transition_years is not zero before division
+            step = diff / Decimal(transition_years) if transition_years != 0 else Decimal('0')
+            target_year_value = start_value + step * Decimal(min(year_int, transition_years))
+            # Ensure transition doesn't overshoot target
+            if diff < Decimal('0'): current_metric_value = max(target_decimal, target_year_value)
+            else: current_metric_value = min(target_decimal, target_year_value)
+
+        # Apply the calculated metric value (ratio or days) to the base value (using Decimal)
+        if "ratio" in metric_name or "operating_margin" in metric_name:
+            if isinstance(base_value_decimal, Decimal):
+                 return base_value_decimal * current_metric_value
+            else:
+                 print(f"Warning: Invalid base_value type for ratio calculation: {metric_name}"); return Decimal('0.0')
+        elif "days" in metric_name:
+            days = current_metric_value
+            if metric_name == 'accounts_receivable_days':
+                revenue = base_value_decimal if isinstance(base_value_decimal, Decimal) else Decimal('0')
+                return (revenue / Decimal('360')) * days if revenue > Decimal('0') else Decimal('0')
+            elif metric_name in ['inventory_days', 'accounts_payable_days']:
+                 # Base value for these should be a dict containing COGS
+                 if isinstance(base_value, dict):
+                     try:
+                         cogs = Decimal(base_value.get('cogs', 0))
+                     except (InvalidOperation, TypeError):
+                         cogs = Decimal('0')
+                 else:
+                     cogs = Decimal('0')
+                 return (cogs / Decimal('360')) * days if cogs > Decimal('0') else Decimal('0')
+            else: print(f"Warning: Unknown metric type for days calculation: {metric_name}"); return Decimal('0.0')
+        else:
+             print(f"Warning: Metric name '{metric_name}' doesn't contain 'ratio' or 'days'. Returning calculated value directly."); return current_metric_value
 
     def predict_revenue(self) -> pd.DataFrame:
-        """
-        任务 2.1: 实现销售额预测的多阶段增长模型。
-        返回一个包含各年预测收入的 DataFrame。
-        """
+        """预测收入 (基于历史 CAGR 和衰减率)。"""
         revenue_forecast = []
         current_revenue = self.last_actual_revenue
         
-        growth_stages = self.assumptions.get("revenue_growth_stages", [])
-        if not growth_stages: 
-            default_growth_rate = self.historical_ratios.get('historical_revenue_cagr', 0.05) 
-            print(f"Warning: No revenue growth stages provided. Using default growth rate: {default_growth_rate:.2%}")
-            for year in range(1, self.forecast_years + 1):
-                current_revenue *= (1 + default_growth_rate)
-                revenue_forecast.append({"year": year, "revenue": current_revenue})
-        else:
-            year_counter = 0
-            for stage in growth_stages:
-                duration = stage.get("duration", 0)
-                growth_rate = stage.get("growth_rate", 0)
-                for _ in range(duration):
-                    year_counter += 1
-                    if year_counter > self.forecast_years:
-                        break
-                    current_revenue *= (1 + growth_rate)
-                    revenue_forecast.append({"year": year_counter, "revenue": current_revenue})
-                if year_counter >= self.forecast_years:
-                    break
-            
-            if year_counter < self.forecast_years and growth_stages:
-                last_growth_rate = growth_stages[-1].get("growth_rate", 0)
-                print(f"Info: Growth stages cover {year_counter} years. Extending with last growth rate {last_growth_rate:.2%} for remaining {self.forecast_years - year_counter} years.")
-                for year in range(year_counter + 1, self.forecast_years + 1):
-                    current_revenue *= (1 + last_growth_rate)
-                    revenue_forecast.append({"year": year, "revenue": current_revenue})
+        # Use the correct key 'historical_revenue_cagr' as provided in the fixture
+        historical_cagr_raw = self.historical_ratios.get('historical_revenue_cagr') 
+        try:
+            # Convert historical CAGR raw value (assumed already a fraction or convertible) to Decimal
+            # The fixture provides Decimal('0.12'), so no division by 100 needed.
+            historical_cagr = Decimal(str(historical_cagr_raw)) if historical_cagr_raw is not None else Decimal('0.05')
+            if historical_cagr_raw is None: print("Warning: 历史收入 CAGR 未计算或不可用，将使用默认增长率 5%。")
+        except (InvalidOperation, TypeError, ValueError): # Added ValueError
+             print(f"Warning: Invalid historical_revenue_cagr value '{historical_cagr_raw}'. Using default 0.05.")
+             historical_cagr = Decimal('0.05')
 
+
+        decay_rate_input = self.assumptions.get('revenue_cagr_decay_rate') # Renamed key
+        try:
+            decay_rate = Decimal(decay_rate_input) if decay_rate_input is not None else Decimal('0.1')
+            if not (Decimal('0') <= decay_rate <= Decimal('1')):
+                 print(f"Warning: 无效的 CAGR 衰减率 ({decay_rate})，将使用默认值 0.1。")
+                 decay_rate = Decimal('0.1')
+        except (InvalidOperation, TypeError):
+             print(f"Warning: 无效的 CAGR 衰减率类型 ({type(decay_rate_input)})，将使用默认值 0.1。")
+             decay_rate = Decimal('0.1')
+
+
+        print(f"Predicting revenue using Historical CAGR ({historical_cagr:.2%}) with decay rate ({decay_rate:.1%})...")
+        for year in range(1, self.forecast_years + 1):
+            # Use Decimal for calculations
+            current_growth_rate = historical_cagr * ((Decimal('1') - decay_rate) ** (year - 1))
+            current_revenue *= (Decimal('1') + current_growth_rate)
+            revenue_forecast.append({"year": year, "revenue": current_revenue, "revenue_growth_rate": current_growth_rate}) # Corrected key name
+            # print(f"  Year {year}: Growth Rate={current_growth_rate:.4f}, Revenue={current_revenue:.2f}")
+
+        # Convert final DataFrame columns to float if needed, or keep as object/Decimal
         df_revenue = pd.DataFrame(revenue_forecast)
-        # 确保 year 列是整数类型
-        df_revenue['year'] = df_revenue['year'].astype(int) 
+        df_revenue['year'] = df_revenue['year'].astype(int)
+        # Keep revenue and growth rate as Decimal for now
+        # df_revenue['revenue'] = df_revenue['revenue'].astype(float)
+        # df_revenue['growth_rate'] = df_revenue['growth_rate'].astype(float)
         self.forecasted_statements['revenue'] = df_revenue
-        print("Revenue forecast completed:\n", df_revenue)
+        print("Revenue forecast completed.")
         return df_revenue
 
-    def predict_income_statement_items(self) -> pd.DataFrame: # Added return type hint
-        """
-        任务 2.2 (初步): 预测利润表其他项目 (销货成本、三费、折旧摊销等)
-        基于预测的收入和历史比率（可调整）。
-        """
+    def predict_income_statement_items(self) -> pd.DataFrame:
+        """预测利润表项目 (COGS, SGA&RD, EBIT, Income Tax, NOPAT)。"""
         if 'revenue' not in self.forecasted_statements:
-            print("Error: Revenue must be predicted first.")
-            return pd.DataFrame() # Return empty DataFrame on error
+            print("Error: Revenue must be predicted first."); return pd.DataFrame()
 
         df_revenue = self.forecasted_statements['revenue']
         forecast_list = []
+        # Use Decimal for historical ratios, handle potential None from .get() before Decimal()
+        op_margin_raw = self.historical_ratios.get('operating_margin_median')
+        hist_op_margin_median = Decimal(str(op_margin_raw)) if op_margin_raw is not None else Decimal('0.15')
 
-        def get_adjustment(key_name: str, year_index: int) -> float:
-            adjustments = self.assumptions.get(key_name, [])
-            return adjustments[year_index] if year_index < len(adjustments) else 0
+        sga_ratio_raw = self.historical_ratios.get('sga_to_revenue_ratio')
+        hist_sga_ratio_median = Decimal(str(sga_ratio_raw)) if sga_ratio_raw is not None else Decimal('0.10')
 
+        rd_ratio_raw = self.historical_ratios.get('rd_to_revenue_ratio')
+        hist_rd_ratio_median = Decimal(str(rd_ratio_raw)) if rd_ratio_raw is not None else Decimal('0.05')
+
+        print("Predicting income statement items...")
         for index, row in df_revenue.iterrows():
-            # 使用 .get() 访问以防万一，尽管 predict_revenue 应该确保列存在
-            year = row.get('year', index + 1) # Fallback to index if 'year' is missing
-            revenue = row.get('revenue', 0)
+            year = int(row.get('year', index + 1))
+            revenue = Decimal(row.get('revenue', '0'))
+
+            # Predict individual components
+            sga_expenses = self._predict_metric_with_mode('sga_to_revenue_ratio', revenue, hist_sga_ratio_median, year, default_value=0.10)
+            rd_expenses = self._predict_metric_with_mode('rd_to_revenue_ratio', revenue, hist_rd_ratio_median, year, default_value=0.05)
+            ebit = self._predict_metric_with_mode('operating_margin', revenue, hist_op_margin_median, year, default_value=0.15)
             
-            base_cogs_ratio = self.historical_ratios.get('cogs_to_revenue_ratio', 0.6)
-            cogs_adjustment = get_adjustment('cogs_to_revenue_adjustment', index)
-            predicted_cogs_ratio = base_cogs_ratio * (1 + cogs_adjustment) 
-            cogs = revenue * predicted_cogs_ratio
-            
-            base_sga_rd_ratio = self.historical_ratios.get('sga_rd_to_revenue_ratio', 0.2)
-            sga_rd_adjustment = get_adjustment('sga_rd_to_revenue_adjustment', index)
-            predicted_sga_rd_ratio = base_sga_rd_ratio * (1 + sga_rd_adjustment)
-            sga_rd = revenue * predicted_sga_rd_ratio
-            
-            # Gross Profit (for reference, not strictly needed for EBIT if using ratios)
+            # Calculate COGS based on others
+            cogs = revenue - ebit - sga_expenses - rd_expenses
             gross_profit = revenue - cogs
+
+            # --- Predict Effective Tax Rate with Transition ---
+            hist_tax_rate = Decimal(self.historical_ratios.get('effective_tax_rate', '0.25'))
+            target_tax_rate_raw = self.assumptions.get('effective_tax_rate_target')
+            target_tax_rate = Decimal(str(target_tax_rate_raw)) if target_tax_rate_raw is not None else hist_tax_rate # Default to hist if no target
             
-            # EBIT (using predicted components)
-            ebit = gross_profit - sga_rd # Simplified EBIT calculation
+            # Use general transition years for tax rate
+            transition_years_input = self.assumptions.get('transition_years', self.forecast_years)
+            try:
+                transition_years = int(transition_years_input) if transition_years_input is not None else int(self.forecast_years)
+            except (ValueError, TypeError):
+                transition_years = int(self.forecast_years)
+
+            # Determine mode (assume target mode if target is provided, else historical)
+            # A specific mode key like 'tax_rate_forecast_mode' could be added to assumptions for more control
+            tax_rate_mode = 'transition_to_target' if target_tax_rate_raw is not None else 'historical_median'
+
+            current_year_tax_rate = hist_tax_rate # Default to historical
+
+            if tax_rate_mode == 'transition_to_target' and transition_years > 0:
+                 diff = target_tax_rate - hist_tax_rate
+                 step = diff / Decimal(transition_years) if transition_years != 0 else Decimal('0')
+                 target_year_value = hist_tax_rate + step * Decimal(min(year, transition_years))
+                 if diff < Decimal('0'): current_year_tax_rate = max(target_tax_rate, target_year_value)
+                 else: current_year_tax_rate = min(target_tax_rate, target_year_value)
             
-            effective_tax_rate = self.assumptions.get('effective_tax_rate', 0.25)
-            income_tax = ebit * effective_tax_rate if ebit > 0 else 0
-            nopat = ebit * (1 - effective_tax_rate) # Renamed from noplat to nopat
+            # Ensure rate is within bounds [0, 1]
+            current_year_tax_rate = max(Decimal('0'), min(Decimal('1'), current_year_tax_rate))
+            # --- End Tax Rate Prediction ---
+
+            taxes = ebit * current_year_tax_rate if ebit > Decimal('0') else Decimal('0') # Use calculated rate
+            nopat = ebit * (Decimal('1') - current_year_tax_rate) # Use calculated rate
+            
+            # Get revenue_growth_rate from the corresponding row in df_revenue
+            # Need to ensure df_revenue has this column and the index aligns
+            revenue_growth_rate = df_revenue.loc[index, 'revenue_growth_rate'] if 'revenue_growth_rate' in df_revenue.columns else Decimal('0')
+
 
             forecast_list.append({
-                "year": year,
-                "revenue": revenue,
-                "cogs": cogs,
-                "gross_profit": gross_profit, # Include gross_profit
-                "sga_rd": sga_rd, # Renamed from sga_rd_expenses for consistency
-                "ebit": ebit,
-                "income_tax": income_tax,
-                "nopat": nopat # Ensure nopat is included and correctly named
+                "year": year, "revenue": revenue, "revenue_growth_rate": revenue_growth_rate, # Added revenue_growth_rate
+                "cogs": cogs, "gross_profit": gross_profit,
+                "sga_expenses": sga_expenses, "rd_expenses": rd_expenses, # Separated columns
+                "ebit": ebit, "taxes": taxes, "nopat": nopat # Renamed income_tax to taxes
             })
-        
+            # print(f"  Year {year}: Revenue={revenue:.2f}, EBIT={ebit:.2f}, NOPAT={nopat:.2f}")
+
+        # Convert final DataFrame columns to float if needed
         df_income_statement = pd.DataFrame(forecast_list)
-        # Ensure year is int
         df_income_statement['year'] = df_income_statement['year'].astype(int)
+        # for col in df_income_statement.columns:
+        #     if col != 'year': df_income_statement[col] = df_income_statement[col].astype(float)
         self.forecasted_statements['income_statement'] = df_income_statement
-        print("Income statement items forecast completed:\n", df_income_statement)
+        print("Income statement items forecast completed.")
         return df_income_statement
 
-    def predict_balance_sheet_and_cf_items(self) -> pd.DataFrame: # Added return type hint
-        """
-        任务 2.3 (初步) 和 任务 3.1 (初步): 预测与FCF相关的资产负债表和现金流量表项目
-        主要是 D&A, CapEx, 和 营运资本变化 (ΔWC)
-        """
+    def predict_balance_sheet_and_cf_items(self) -> pd.DataFrame:
+        """预测与FCF相关的 BS 和 CF 项目 (D&A, CapEx, NWC)。"""
         if 'income_statement' not in self.forecasted_statements:
-            print("Error: Income statement items must be predicted first.")
-            return pd.DataFrame() # Return empty DataFrame on error
+            print("Error: Income statement items must be predicted first."); return pd.DataFrame()
 
         df_income_statement = self.forecasted_statements['income_statement']
-        forecast_list = [] 
+        forecast_list = []
+        # Use Decimal for historical ratios/values, handle potential None from .get() before Decimal()
+        da_ratio_raw = self.historical_ratios.get('da_to_revenue_ratio')
+        hist_da_ratio = Decimal(str(da_ratio_raw)) if da_ratio_raw is not None else Decimal('0.05')
+
+        capex_ratio_raw = self.historical_ratios.get('capex_to_revenue_ratio')
+        hist_capex_ratio = Decimal(str(capex_ratio_raw)) if capex_ratio_raw is not None else Decimal('0.07')
+
+        ar_days_raw = self.historical_ratios.get('accounts_receivable_days')
+        hist_ar_days = Decimal(str(ar_days_raw)) if ar_days_raw is not None else Decimal('30')
+
+        inv_days_raw = self.historical_ratios.get('inventory_days')
+        hist_inv_days = Decimal(str(inv_days_raw)) if inv_days_raw is not None else Decimal('60')
+
+        ap_days_raw = self.historical_ratios.get('accounts_payable_days')
+        hist_ap_days = Decimal(str(ap_days_raw)) if ap_days_raw is not None else Decimal('45')
+
+        oca_ratio_raw = self.historical_ratios.get('other_current_assets_to_revenue_ratio')
+        hist_oca_ratio = Decimal(str(oca_ratio_raw)) if oca_ratio_raw is not None else Decimal('0.05')
+
+        ocl_ratio_raw = self.historical_ratios.get('other_current_liabilities_to_revenue_ratio')
+        hist_ocl_ratio = Decimal(str(ocl_ratio_raw)) if ocl_ratio_raw is not None else Decimal('0.03')
         
-        def get_adjustment(key_name: str, year_index: int) -> float:
-            adjustments = self.assumptions.get(key_name, [])
-            return adjustments[year_index] if year_index < len(adjustments) else 0
+        # Correct key is 'last_actual_nwc' based on fixture
+        previous_nwc_raw = self.historical_ratios.get('last_actual_nwc') 
+        try:
+            previous_nwc = Decimal(str(previous_nwc_raw)) if previous_nwc_raw is not None else Decimal('0.0') # Use str() for safety
+            if previous_nwc.is_nan(): previous_nwc = Decimal('0.0')
+        except (InvalidOperation, TypeError):
+             print(f"Warning: Invalid last_historical_nwc value '{previous_nwc_raw}'. Assuming 0.")
+             previous_nwc = Decimal('0.0')
+        if previous_nwc_raw is None: print("Warning: Last historical NWC not available, assuming 0.")
 
-        last_actual_cogs = self.historical_ratios.get('last_actual_cogs', self.last_actual_revenue * self.historical_ratios.get('cogs_to_revenue_ratio', 0.6))
-        initial_ar = (self.last_actual_revenue / 360) * self.historical_ratios.get('accounts_receivable_days', 30)
-        initial_inv = (last_actual_cogs / 360) * self.historical_ratios.get('inventory_days', 60)
-        initial_ap = (last_actual_cogs / 360) * self.historical_ratios.get('accounts_payable_days', 45)
-        initial_other_ca = self.last_actual_revenue * self.historical_ratios.get('other_current_assets_to_revenue_ratio', 0.05)
-        initial_other_cl = self.last_actual_revenue * self.historical_ratios.get('other_current_liabilities_to_revenue_ratio', 0.03)
 
-        # Check for initial_nwc_override from assumptions
-        # Ensure the key matches exactly what's set in the test fixture assumptions
-        initial_nwc_override_value = self.assumptions.get('initial_nwc_override')
-
-        if initial_nwc_override_value is not None:
-            previous_nwc = initial_nwc_override_value
-            print(f"Using provided initial NWC override: {previous_nwc}")
-        else:
-            # Calculate previous_nwc based on historical ratios if override is not provided
-            previous_nwc = (initial_ar + initial_inv + initial_other_ca) - (initial_ap + initial_other_cl)
-            print(f"Calculated initial NWC for forecast base (no override): {previous_nwc}")
-
+        print("Predicting balance sheet and cash flow items...")
         for index, row in df_income_statement.iterrows():
-            year = row.get('year', index + 1)
-            revenue = row.get('revenue', 0)
-            cogs = row.get('cogs', 0) 
+            year = int(row.get('year', index + 1))
+            revenue = Decimal(row.get('revenue', '0'))
+            cogs = Decimal(row.get('cogs', '0'))
 
-            base_da_ratio = self.historical_ratios.get('da_to_revenue_ratio', 0.05)
-            da_adjustment = get_adjustment('da_to_revenue_adjustment', index)
-            predicted_da_ratio = base_da_ratio * (1 + da_adjustment)
-            depreciation_amortization = revenue * predicted_da_ratio
+            # Get results as Decimal
+            d_a = self._predict_metric_with_mode('da_to_revenue_ratio', revenue, hist_da_ratio, year, default_value=0.05)
+            capex = self._predict_metric_with_mode('capex_to_revenue_ratio', revenue, hist_capex_ratio, year, default_value=0.07)
+            accounts_receivable = self._predict_metric_with_mode('accounts_receivable_days', revenue, hist_ar_days, year, default_value=30)
+            inventories = self._predict_metric_with_mode('inventory_days', {'cogs': cogs}, hist_inv_days, year, default_value=60)
+            accounts_payable = self._predict_metric_with_mode('accounts_payable_days', {'cogs': cogs}, hist_ap_days, year, default_value=45)
+            other_current_assets = self._predict_metric_with_mode('other_current_assets_to_revenue_ratio', revenue, hist_oca_ratio, year, default_value=0.05)
+            other_current_liabilities = self._predict_metric_with_mode('other_current_liabilities_to_revenue_ratio', revenue, hist_ocl_ratio, year, default_value=0.03)
 
-            base_capex_ratio = self.historical_ratios.get('capex_to_revenue_ratio', 0.07)
-            capex_adjustment = get_adjustment('capex_to_revenue_adjustment', index)
-            predicted_capex_ratio = base_capex_ratio * (1 + capex_adjustment)
-            capital_expenditures = revenue * predicted_capex_ratio
-            
-            ar_days_target = self.assumptions.get('accounts_receivable_days_target')
-            if ar_days_target is None:
-                base_ar_days = self.historical_ratios.get('accounts_receivable_days', 30) 
-                ar_days_adjustment = get_adjustment('ar_days_adjustment', index) 
-                predicted_ar_days = base_ar_days * (1 + ar_days_adjustment)
-            else:
-                predicted_ar_days = ar_days_target 
-            accounts_receivable = (revenue / 360) * predicted_ar_days
-
-            inv_days_target = self.assumptions.get('inventory_days_target')
-            if inv_days_target is None:
-                base_inv_days = self.historical_ratios.get('inventory_days', 60) 
-                inv_days_adjustment = get_adjustment('inv_days_adjustment', index)
-                predicted_inv_days = base_inv_days * (1 + inv_days_adjustment)
-            else:
-                predicted_inv_days = inv_days_target
-            inventories = (cogs / 360) * predicted_inv_days 
-
-            ap_days_target = self.assumptions.get('accounts_payable_days_target')
-            if ap_days_target is None:
-                base_ap_days = self.historical_ratios.get('accounts_payable_days', 45) 
-                ap_days_adjustment = get_adjustment('ap_days_adjustment', index)
-                predicted_ap_days = base_ap_days * (1 + ap_days_adjustment)
-            else:
-                predicted_ap_days = ap_days_target
-            accounts_payable = (cogs / 360) * predicted_ap_days
-
-            base_other_curr_assets_ratio = self.historical_ratios.get('other_current_assets_to_revenue_ratio', 0.05)
-            oca_adj = get_adjustment('other_ca_ratio_adjustment', index)
-            other_current_assets = revenue * (base_other_curr_assets_ratio * (1 + oca_adj))
-
-            base_other_curr_liab_ratio = self.historical_ratios.get('other_current_liabilities_to_revenue_ratio', 0.03)
-            ocl_adj = get_adjustment('other_cl_ratio_adjustment', index)
-            other_current_liabilities = revenue * (base_other_curr_liab_ratio * (1 + ocl_adj))
-            
-            current_nwc = (accounts_receivable + inventories + other_current_assets) - \
-                          (accounts_payable + other_current_liabilities)
-            
+            current_nwc = (accounts_receivable + inventories + other_current_assets) - (accounts_payable + other_current_liabilities)
             delta_nwc = current_nwc - previous_nwc
-            previous_nwc = current_nwc
+            previous_nwc = current_nwc # Update for next iteration
 
             forecast_list.append({
-                "year": year,
-                "depreciation_amortization": depreciation_amortization,
-                "capital_expenditures": capital_expenditures,
-                "accounts_receivable": accounts_receivable,
-                "inventories": inventories, # Ensure inventory is included
-                "accounts_payable": accounts_payable,
-                "other_current_assets": other_current_assets, 
-                "other_current_liabilities": other_current_liabilities, 
-                "net_working_capital": current_nwc,
-                "delta_net_working_capital": delta_nwc
+                "year": year, "d_a": d_a, "capex": capex, # Use d_a, capex
+                "accounts_receivable": accounts_receivable, "inventories": inventories, "accounts_payable": accounts_payable,
+                "other_current_assets": other_current_assets, "other_current_liabilities": other_current_liabilities,
+                "nwc": current_nwc, "delta_nwc": delta_nwc # Use nwc, delta_nwc
             })
-            
+            # print(f"  Year {year}: D&A={depreciation_amortization:.2f}, Capex={capital_expenditures:.2f}, NWC={current_nwc:.2f}, DeltaNWC={delta_nwc:.2f}")
+
+        # Convert final DataFrame columns to float if needed
         df_bs_cf_items = pd.DataFrame(forecast_list)
-        # Ensure year is int
         df_bs_cf_items['year'] = df_bs_cf_items['year'].astype(int)
+        # for col in df_bs_cf_items.columns:
+        #      if col != 'year': df_bs_cf_items[col] = df_bs_cf_items[col].astype(float)
 
-        # Merge BS/CF items with Income Statement items
+
+        # 合并 IS 和 BS/CF 项目
         df_income_statement_processed = self.forecasted_statements['income_statement']
-        if 'year' not in df_income_statement_processed.columns:
-             print("Error: 'year' column missing in income_statement DataFrame for merge.")
-             return pd.DataFrame() # Return empty if merge key is missing
+        if 'year' not in df_income_statement_processed.columns: print("Error: 'year' column missing in income_statement DataFrame for merge."); return pd.DataFrame()
+        # Ensure merge keys are compatible
+        merged_df = pd.merge(df_income_statement_processed.astype({'year': int}), df_bs_cf_items.astype({'year': int}), on="year", how="left")
 
-        # Perform the merge
-        merged_df = pd.merge(
-            df_income_statement_processed, df_bs_cf_items, on="year", how="left"
-        )
-        
-        # Check if merge was successful and contains expected columns
-        # 'nopat' is now correctly named from the income statement prediction
-        required_merged_cols = ['year', 'revenue', 'cogs', 'nopat', 'depreciation_amortization',
-                                'capital_expenditures', 'delta_net_working_capital', 'inventories']
-        if not all(col in merged_df.columns for col in required_merged_cols):
-             print(f"Error: Merged DataFrame is missing required columns. Required: {required_merged_cols}. Found: {merged_df.columns.tolist()}")
-             # Attempt to return at least the BS/CF items if merge failed partially
-             self.forecasted_statements['fcf_components'] = df_bs_cf_items
-             return df_bs_cf_items
+        # 计算 EBITDA (using Decimal)
+        if 'nopat' in merged_df.columns and 'd_a' in merged_df.columns:
+             # Get target tax rate as Decimal
+             target_tax_rate_input = self.assumptions.get('effective_tax_rate_target') # Corrected key name
+             try:
+                 tax_rate = Decimal(target_tax_rate_input) if target_tax_rate_input is not None else Decimal('0.25')
+                 if not (Decimal('0') <= tax_rate <= Decimal('1')): tax_rate = Decimal('0.25')
+             except (InvalidOperation, TypeError): tax_rate = Decimal('0.25')
 
-        # Calculate EBITDA after merge
-        fcf_df = merged_df # Use merged_df which now contains all columns
-        # EBITDA calculation should use 'nopat' now
-        if 'nopat' in fcf_df.columns and 'depreciation_amortization' in fcf_df.columns:
-             tax_rate = self.assumptions.get('effective_tax_rate', 0.25)
-             if abs(1 - tax_rate) < 1e-9: # Check if tax_rate is effectively 1 (or 100%)
-                  print("Warning: Tax rate is 100% or invalid, cannot calculate EBIT from NOPAT accurately. Using EBIT + D&A for EBITDA approximation.")
-                  if 'ebit' in fcf_df.columns:
-                       fcf_df['ebitda'] = fcf_df['ebit'] + fcf_df['depreciation_amortization']
-                  else:
-                       print("Warning: EBIT column not found, cannot approximate EBITDA.")
-                       fcf_df['ebitda'] = 0
+             if abs(Decimal('1') - tax_rate) < Decimal('1e-9'): # Check tax rate is not 1
+                  print("Warning: Tax rate is 100% or invalid. Using EBIT + D&A for EBITDA.")
+                  if 'ebit' in merged_df.columns: merged_df['ebitda'] = merged_df['ebit'] + merged_df['d_a']
+                  else: print("Warning: EBIT column not found."); merged_df['ebitda'] = Decimal('0')
              else:
-                  # Back-calculate EBIT from NOPAT: EBIT = NOPAT / (1 - Tax Rate)
-                  fcf_df['calculated_ebit_from_nopat'] = fcf_df['nopat'] / (1 - tax_rate)
-                  fcf_df['ebitda'] = fcf_df['calculated_ebit_from_nopat'] + fcf_df['depreciation_amortization']
-                  # Drop the temporary calculated_ebit_from_nopat column
-                  if 'calculated_ebit_from_nopat' in fcf_df.columns:
-                      fcf_df = fcf_df.drop(columns=['calculated_ebit_from_nopat'])
-        elif 'ebit' in fcf_df.columns and 'depreciation_amortization' in fcf_df.columns:
-             print("Warning: NOPAT not found (should not happen if income statement ran correctly), approximating EBITDA using EBIT + D&A.")
-             fcf_df['ebitda'] = fcf_df['ebit'] + fcf_df['depreciation_amortization']
+                  # Ensure nopat and d_a are Decimal before calculation
+                  nopat_dec = merged_df['nopat'].apply(Decimal)
+                  d_a_dec = merged_df['d_a'].apply(Decimal)
+                  calculated_ebit = nopat_dec / (Decimal('1') - tax_rate)
+                  merged_df['ebitda'] = calculated_ebit + d_a_dec
+        elif 'ebit' in merged_df.columns and 'd_a' in merged_df.columns:
+             print("Warning: NOPAT not found, approximating EBITDA using EBIT + D&A.")
+             merged_df['ebitda'] = merged_df['ebit'].apply(Decimal) + merged_df['d_a'].apply(Decimal)
         else:
-             print("Warning: Cannot calculate EBITDA due to missing NOPAT/EBIT or D&A columns.")
-             fcf_df['ebitda'] = 0 
+             print("Warning: Cannot calculate EBITDA."); merged_df['ebitda'] = Decimal('0')
 
-        self.forecasted_statements['fcf_components'] = fcf_df 
-        print("FCF components forecast (with EBITDA) completed:\n", fcf_df)
-        return fcf_df
+        # 计算 UFCF (FcfCalculator should handle Decimal or float inputs now)
+        fcf_calculator = FcfCalculator()
+        # Pass the merged_df which might have Decimal columns
+        final_forecast_df = fcf_calculator.calculate_ufcf(merged_df) 
+
+        # Convert final DataFrame columns to float for output consistency
+        for col in final_forecast_df.columns:
+             if col != 'year' and pd.api.types.is_numeric_dtype(final_forecast_df[col]):
+                 # Attempt conversion, handle potential errors for non-numeric types if any remain
+                 try:
+                     final_forecast_df[col] = final_forecast_df[col].astype(float)
+                 except Exception as e:
+                      print(f"Warning: Could not convert column {col} to float: {e}")
 
 
-    def get_full_forecast(self) -> Dict[str, pd.DataFrame]:
+        self.forecasted_statements['final_forecast'] = final_forecast_df
+        print("Balance sheet/CF items forecast and final merge completed.")
+        return final_forecast_df
+
+    def get_full_forecast(self) -> pd.DataFrame:
+        """执行完整的预测流程并返回包含所有预测项的 DataFrame。"""
         self.predict_revenue()
         self.predict_income_statement_items()
-        self.predict_balance_sheet_and_cf_items() 
-        return self.forecasted_statements
+        self.predict_balance_sheet_and_cf_items()
+        return self.forecasted_statements.get('final_forecast', pd.DataFrame())
+
+# 需要 FcfCalculator 类定义
+from fcf_calculator import FcfCalculator

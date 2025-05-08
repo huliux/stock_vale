@@ -1,422 +1,447 @@
 import pandas as pd
-import numpy as np # 新增导入
-from typing import Dict, Tuple, Union
+import numpy as np
+from typing import Dict, Tuple, Union, List, Optional, Any
 
-# 假设从 data_fetcher.py 获取的数据是 pandas DataFrame 的字典
-# 例如: {'balance_sheet': df_balance_sheet, 'income_statement': df_income_statement, ...}
+# 假设 NwcCalculator 类在 nwc_calculator.py 中定义
+from nwc_calculator import NwcCalculator
 
 class DataProcessor:
-    def __init__(self, historical_data: Dict[str, pd.DataFrame]):
-        self.historical_data = historical_data
-        self.processed_data = {}
-        self.historical_ratios = {}
+    """
+    负责清洗、处理财务数据，计算历史比率/周转天数中位数，并提取关键信息。
+    """
+    def __init__(self, 
+                 input_data: Dict[str, pd.DataFrame], 
+                 latest_pe_pb: Optional[Dict[str, Any]] = None): # 添加 latest_pe_pb 参数
+        """
+        初始化 DataProcessor。
+        Args:
+            input_data (Dict[str, pd.DataFrame]): 包含原始数据的字典，
+                预期键: 'balance_sheet', 'income_statement', 'cash_flow', 'stock_basic'。
+            latest_pe_pb (Optional[Dict[str, Any]]): 包含最新 'pe' 和 'pb' 的字典。
+        """
+        self.input_data = input_data
+        self.input_latest_pe_pb = latest_pe_pb or {} # 存储传入的 PE/PB
+        self.processed_data: Dict[str, pd.DataFrame] = {}
+        self.historical_ratios: Dict[str, Any] = {}
+        self.latest_metrics: Dict[str, Any] = {}
+        self.basic_info: Dict[str, Any] = {}
+        self.latest_balance_sheet: Optional[pd.Series] = None
+        self.warnings: List[str] = []
+
+        self._process_input_data()
+        self.clean_data()
+        self.calculate_historical_ratios_and_turnovers() # 初始化时即计算
+
+    def _process_input_data(self):
+        """提取非时间序列信息和最新数据点。"""
+        print("Processing input data...")
+        # 处理股票基本信息 (现在 input_data['stock_basic'] 是一个 dict)
+        df_basic = self.input_data.get('stock_basic') 
+        # 修改检查方式，直接检查字典是否为真 (非 None 且非空)
+        if df_basic: 
+            self.basic_info = df_basic # 直接使用传入的字典
+            print(f"  Using provided basic info for {self.basic_info.get('name', 'N/A')}")
+        else:
+            self.warnings.append("输入数据中缺少 'stock_basic' 表或该表为空。")
+            print("Warning: 'stock_basic' table missing or empty.")
+
+        # 处理传入的最新 PE/PB
+        self.latest_metrics['pe'] = self.input_latest_pe_pb.get('pe')
+        self.latest_metrics['pb'] = self.input_latest_pe_pb.get('pb')
+        if self.latest_metrics['pe'] is None or self.latest_metrics['pb'] is None:
+             warning_msg = "未能获取最新的 PE 或 PB 数据。"
+             self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+        else:
+             print(f"  Using provided latest PE: {self.latest_metrics['pe']}, PB: {self.latest_metrics['pb']}")
+        
+        # 移除从 valuation_metrics DataFrame 获取 PE/PB 的旧逻辑
+        # df_vm = self.input_data.get('valuation_metrics') ... (旧代码移除)
+
+        # 提取最新的资产负债表
+        df_bs = self.input_data.get('balance_sheet')
+        if df_bs is not None and not df_bs.empty:
+            try:
+                 if 'end_date' in df_bs.columns:
+                    df_bs['end_date'] = pd.to_datetime(df_bs['end_date'])
+                    self.latest_balance_sheet = df_bs.sort_values(by='end_date', ascending=False).iloc[0]
+                    print(f"  Extracted latest balance sheet for date: {self.latest_balance_sheet.get('end_date')}")
+                 else:
+                    warning_msg = "'balance_sheet' 表缺少 'end_date' 列，无法确定最新报表。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            except Exception as e:
+                warning_msg = f"提取最新资产负债表时出错: {e}"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+        else:
+            self.warnings.append("输入数据中缺少 'balance_sheet' 表或该表为空。"); print("Warning: 'balance_sheet' table missing or empty.")
+
+        # 准备时间序列数据进行清洗 (创建副本)
+        for table_name in ['balance_sheet', 'income_statement', 'cash_flow']:
+            if table_name in self.input_data and self.input_data[table_name] is not None:
+                self.processed_data[table_name] = self.input_data[table_name].copy()
+            else:
+                 warning_msg = f"输入数据中缺少或为空的时间序列表: '{table_name}'。"
+                 self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+                 self.processed_data[table_name] = pd.DataFrame() # 创建空 DataFrame
+        print("Input data processing finished.")
+
+    def get_warnings(self) -> List[str]:
+        """返回处理过程中记录的所有警告信息。"""
+        return self.warnings
 
     def clean_data(self):
         """
-        任务 1.1: 强化历史数据清洗逻辑
-        - 处理异常值 (例如，基于统计方法识别并修正或标记)
-        - 处理缺失值 (例如，填充、插值或标记)
+        强化历史时间序列数据的清洗逻辑。
+        - 处理异常值 (基于 IQR)。
+        - 处理缺失值 (插值、填充、最终用 0 填充并记录警告)。
+        - 在 self.processed_data 中原地修改 DataFrame。
         """
-        print("Starting data cleaning...")
-        key_financial_items = {
+        print("Starting data cleaning for time-series data...")
+        key_financial_items = { # 用于指导插值策略
             'income_statement': ['total_revenue', 'revenue', 'oper_cost', 'sell_exp', 'admin_exp', 'rd_exp', 'income_tax', 'total_profit'],
-            'balance_sheet': ['accounts_receiv_bill', 'inventories', 'accounts_pay', 'prepayment', 'oth_cur_assets', 'contract_liab', 'adv_receipts', 'payroll_payable', 'taxes_payable', 'oth_payable', 'total_cur_assets', 'total_cur_liab'],
+            'balance_sheet': ['accounts_receiv_bill', 'inventories', 'accounts_pay', 'prepayment', 'oth_cur_assets', 'contract_liab', 'adv_receipts', 'payroll_payable', 'taxes_payable', 'oth_payable', 'total_cur_assets', 'total_cur_liab', 'money_cap', 'st_borr', 'non_cur_liab_due_1y'],
             'cash_flow': ['depr_fa_coga_dpba', 'amort_intang_assets', 'lt_amort_deferred_exp', 'c_pay_acq_const_fiolta', 'c_paid_goods_s']
         }
 
-        for table_name, df_original in self.historical_data.items():
-            df = df_original.copy()
+        for table_name, df_to_clean in self.processed_data.items():
+            if table_name not in ['balance_sheet', 'income_statement', 'cash_flow']: continue
+            if df_to_clean.empty: print(f"Skipping cleaning for empty table: {table_name}"); continue
+
             print(f"Cleaning table: {table_name}")
-
-            # 确保日期列是 datetime 类型并排序
-            if 'end_date' in df.columns:
+            if 'end_date' in df_to_clean.columns:
                 try:
-                    df['end_date'] = pd.to_datetime(df['end_date'])
-                    df = df.sort_values(by='end_date')
+                    df_to_clean['end_date'] = pd.to_datetime(df_to_clean['end_date'])
+                    df_to_clean.sort_values(by='end_date', inplace=True)
                 except Exception as e:
-                    print(f"Warning: Could not convert 'end_date' to datetime or sort in {table_name}: {e}")
-            
-            numeric_cols = df.select_dtypes(include=['number']).columns
-            
+                    warning_msg = f"无法转换 'end_date' 为 datetime 或在 {table_name} 中排序: {e}"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            else:
+                 warning_msg = f"表 '{table_name}' 缺少 'end_date' 列，无法按时间排序。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+
+            numeric_cols = df_to_clean.select_dtypes(include=np.number).columns
             for col in numeric_cols:
-                print(f"  Processing column: {col}")
-                # 1. 异常值检测与处理 (替换为 NaN)
-                # 仅对有足够非空值的列进行异常值检测
-                if df[col].notna().sum() >= 4: # 修改条件为 >= 4
-                    q1 = df[col].quantile(0.25)
-                    q3 = df[col].quantile(0.75)
+                if col not in df_to_clean.columns: continue
+                # print(f"  Processing column: {col}") # 减少打印
+
+                # 1. 异常值处理 (替换为 NaN)
+                if df_to_clean[col].notna().sum() >= 4:
+                    q1 = df_to_clean[col].quantile(0.25)
+                    q3 = df_to_clean[col].quantile(0.75)
                     iqr = q3 - q1
-                    lower_bound = q1 - 1.5 * iqr
-                    upper_bound = q3 + 1.5 * iqr
-                    
-                    outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
-                    if not outliers.empty:
-                        print(f"    Potential outliers detected in {col} at indices: {outliers.index.tolist()}. Values: {outliers[col].tolist()}")
-                        df.loc[(df[col] < lower_bound) | (df[col] > upper_bound), col] = np.nan
-                        print(f"    Replaced {len(outliers)} outliers in {col} with NaN.")
-                
-                # 2. 缺失值处理
-                if df[col].isnull().any():
-                    print(f"    Handling NaNs in column: {col}")
-                    original_nan_count = df[col].isnull().sum()
+                    if iqr > 1e-9:
+                        lower_bound = q1 - 1.5 * iqr
+                        upper_bound = q3 + 1.5 * iqr
+                        outliers_mask = (df_to_clean[col] < lower_bound) | (df_to_clean[col] > upper_bound)
+                        num_outliers = outliers_mask.sum()
+                        if num_outliers > 0:
+                            outlier_indices = df_to_clean.index[outliers_mask].tolist()
+                            outlier_dates = df_to_clean.loc[outliers_mask, 'end_date'].dt.strftime('%Y-%m-%d').tolist() if 'end_date' in df_to_clean.columns else ['N/A'] * num_outliers
+                            outlier_values = [round(v, 2) if pd.notna(v) else v for v in df_to_clean.loc[outliers_mask, col].tolist()]
+                            warning_msg_outlier = f"在表 '{table_name}' 的列 '{col}' 中检测到 {num_outliers} 个潜在异常值 (日期: {outlier_dates}, 值: {outlier_values})。已替换为 NaN 进行后续处理。"
+                            self.warnings.append(warning_msg_outlier); print(f"    警告: {warning_msg_outlier}")
+                            df_to_clean.loc[outliers_mask, col] = np.nan
 
-                    # 策略1: 对关键财务项目尝试线性插值 (需要至少两个非NaN值)
-                    if table_name in key_financial_items and col in key_financial_items[table_name] and df[col].notna().sum() >= 2:
+                # 2. 缺失值处理 (NaN)
+                if df_to_clean[col].isnull().any():
+                    # print(f"    处理 {col} 中的 NaN 值") # 减少打印
+                    original_nan_count = df_to_clean[col].isnull().sum()
+                    nan_indices_before = df_to_clean.index[df_to_clean[col].isnull()].tolist()
+                    nan_dates_before = df_to_clean.loc[nan_indices_before, 'end_date'].dt.strftime('%Y-%m-%d').tolist() if 'end_date' in df_to_clean.columns else ['N/A'] * original_nan_count
+
+                    # 策略1: 线性插值
+                    interpolated_count = 0
+                    if table_name in key_financial_items and col in key_financial_items.get(table_name, []) and df_to_clean[col].notna().sum() >= 2:
                         try:
-                            # 使用 limit_direction='both' 尝试填充两端
-                            df[col] = df[col].interpolate(method='linear', limit_direction='both', limit_area='inside') # limit_area='inside' 避免填充首尾的NaN
-                            interpolated_count = original_nan_count - df[col].isnull().sum()
-                            if interpolated_count > 0:
-                                print(f"      Applied linear interpolation to {col}, filled {interpolated_count} NaNs.")
-                        except Exception as e:
-                            print(f"      Error during interpolation for {col}: {e}")
-                    
-                    # 策略2: 对于首尾的NaN（如果插值未填充）或非关键列的NaN，或插值后仍存在的NaN，使用前向/后向填充
-                    if df[col].isnull().any():
-                        filled_ffill = df[col].ffill()
-                        if not df[col].equals(filled_ffill):
-                             df[col] = filled_ffill
-                             print(f"      Applied ffill for {col}.")
+                            interpolated_values = df_to_clean[col].interpolate(method='linear', limit_direction='both', limit_area='inside')
+                            df_to_clean[col] = interpolated_values
+                            interpolated_count = original_nan_count - df_to_clean[col].isnull().sum()
+                            # if interpolated_count > 0: print(f"      对 {col} 应用了线性插值，填充了 {interpolated_count} 个 NaN。") # 减少打印
+                        except Exception as e: print(f"      对 {col} 进行插值时出错: {e}")
+
+                    # 策略2: 前向/后向填充
+                    ffill_count = 0; bfill_count = 0
+                    if df_to_clean[col].isnull().any():
+                        filled_ffill = df_to_clean[col].ffill()
+                        ffill_count = df_to_clean[col].isnull().sum() - filled_ffill.isnull().sum()
+                        if ffill_count > 0: df_to_clean[col] = filled_ffill; # print(f"      对 {col} 应用了前向填充，填充了 {ffill_count} 个 NaN。") # 减少打印
                         
-                        filled_bfill = df[col].bfill()
-                        if not df[col].equals(filled_bfill):
-                             df[col] = filled_bfill
-                             print(f"      Applied bfill for {col}.")
+                        filled_bfill = df_to_clean[col].bfill()
+                        bfill_count = df_to_clean[col].isnull().sum() - filled_bfill.isnull().sum()
+                        if bfill_count > 0: df_to_clean[col] = filled_bfill; # print(f"      对 {col} 应用了后向填充，填充了 {bfill_count} 个 NaN。") # 减少打印
 
-                    # 策略3: 对剩余的NaN (插值和ffill/bfill无效)，使用0填充 (需要谨慎评估)
-                    if df[col].isnull().any():
-                        remaining_nan_count = df[col].isnull().sum()
-                        print(f"      Filling {remaining_nan_count} remaining NaNs in {col} with 0 (Review Recommended).")
-                        df[col] = df[col].fillna(0)
+                    # 策略3: 用 0 填充剩余 NaN 并记录警告
+                    if df_to_clean[col].isnull().any():
+                        remaining_nan_count = df_to_clean[col].isnull().sum()
+                        nan_indices_after = df_to_clean.index[df_to_clean[col].isnull()].tolist()
+                        nan_dates_after = df_to_clean.loc[nan_indices_after, 'end_date'].dt.strftime('%Y-%m-%d').tolist() if 'end_date' in df_to_clean.columns else ['N/A'] * remaining_nan_count
+                        warning_msg_fill_zero = f"在表 '{table_name}' 的列 '{col}' 中，有 {remaining_nan_count} 个 NaN 值（日期: {nan_dates_after}）在插值和填充后仍然存在，已用 0 填充。请注意这可能影响计算结果。"
+                        self.warnings.append(warning_msg_fill_zero); print(f"      警告: {warning_msg_fill_zero}")
+                        df_to_clean[col] = df_to_clean[col].fillna(0)
             
-            self.processed_data[table_name] = df
+            self.processed_data[table_name] = df_to_clean 
 
-        print("Data cleaning completed.")
-        return self.processed_data
+        print("数据清洗完成。")
 
-    def calculate_historical_ratios_and_turnovers(self) -> Dict[str, any]:
+    def _calculate_median_ratio_or_days(self, series1: pd.Series, series2: pd.Series, days_in_year=360) -> Optional['Decimal']:
+        """计算两个 Series 比率或周转天数的中位数，忽略无效值，返回 Decimal 类型。"""
+        from decimal import Decimal, InvalidOperation # 确保 Decimal 在此作用域可用
+        try:
+            # 确保输入 Series 中的数据是数值类型，并尝试转换为 Decimal
+            s1_decimal = series1.apply(lambda x: Decimal(str(x)) if pd.notna(x) else None)
+            s2_decimal = series2.apply(lambda x: Decimal(str(x)) if pd.notna(x) else None)
+
+            s1_aligned, s2_aligned = s1_decimal.align(s2_decimal, join='inner')
+            
+            # Check for non-positive values in denominator before masking
+            # 使用 Decimal(0) 进行比较
+            if (s2_aligned <= Decimal('0')).any():
+                 warning_msg_nonpos = f"计算比率/天数时 ({series1.name}/{series2.name})，分母包含零或负值。"
+                 if warning_msg_nonpos not in self.warnings: 
+                     self.warnings.append(warning_msg_nonpos)
+
+            s2_safe = s2_aligned.mask(s2_aligned <= Decimal('0'), None) # 使用 None 替换 np.nan 以便后续 Decimal 处理
+            valid_mask = s1_aligned.notna() & s2_safe.notna()
+            
+            if not valid_mask.any():
+                 warning_msg = f"计算中位数时，列 '{series1.name}' 和 '{series2.name}' 之间没有有效的配对数据点。"
+                 self.warnings.append(warning_msg);
+                 return None
+
+            s1_valid = s1_aligned[valid_mask]
+            s2_valid = s2_safe[valid_mask]
+
+            if days_in_year:
+                # Decimal 运算
+                turnover_days_series = (s1_valid * Decimal(days_in_year)) / s2_valid
+                # 过滤条件也使用 Decimal
+                turnover_days_filtered = turnover_days_series[(turnover_days_series >= Decimal('0')) & (turnover_days_series < Decimal(days_in_year * 10))] 
+                if turnover_days_filtered.empty:
+                     warning_msg = f"计算周转天数时 ({series1.name}/{series2.name})，所有有效值均被过滤。"
+                     self.warnings.append(warning_msg);
+                     return None
+                # Pandas median() 返回 float, 需要转回 Decimal
+                median_float = turnover_days_filtered.median()
+                result = Decimal(str(median_float)) if pd.notna(median_float) else None
+            else:
+                ratio_series = s1_valid / s2_valid
+                if ratio_series.empty:
+                     warning_msg = f"计算比率时 ({series1.name}/{series2.name})，没有有效的计算结果。"
+                     self.warnings.append(warning_msg);
+                     return None
+                median_float = ratio_series.median()
+                result = Decimal(str(median_float)) if pd.notna(median_float) else None
+            
+            return result
+        except InvalidOperation as ie: # 捕获 Decimal 转换错误
+            warning_msg = f"计算中位数比率/天数时发生 Decimal 转换错误 ({series1.name}/{series2.name}): {ie}"
+            self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            return None
+        except Exception as e:
+            warning_msg = f"计算中位数比率/天数时出错 ({series1.name}/{series2.name}): {e}"
+            self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            return None
+
+    def calculate_historical_ratios_and_turnovers(self) -> Dict[str, Any]:
         """
-        任务 1.2: 精确计算历史财务比率和周转天数
-        根据 PRD 6.1 历史数据处理部分
+        精确计算历史财务比率和周转天数的中位数。
+        使用 self.processed_data 中清洗后的数据。
         """
-        if not self.processed_data:
-            print("Error: Data not cleaned yet. Call clean_data() first.")
-            return {}
+        print("Calculating historical ratios and turnovers (using median)...")
+        self.historical_ratios = {} # 重置
 
         bs_df = self.processed_data.get('balance_sheet')
         is_df = self.processed_data.get('income_statement')
         cf_df = self.processed_data.get('cash_flow')
 
-        if bs_df is None or is_df is None or cf_df is None:
-            print("Error: Missing required dataframes (balance_sheet, income_statement, cash_flow).")
-            return {}
+        if bs_df is None or is_df is None or cf_df is None or bs_df.empty or is_df.empty or cf_df.empty:
+            warning_msg = "缺少必要的财务报表数据，无法计算历史比率。"; self.warnings.append(warning_msg); print(f"Error: {warning_msg}")
+            return self.historical_ratios
 
-        # 确保按报告期排序
-        bs_df = bs_df.sort_values(by='end_date')
-        is_df = is_df.sort_values(by='end_date')
-        cf_df = cf_df.sort_values(by='end_date')
-
-        # 销货成本占销售额比率 = oper_cost / total_revenue
-        self.historical_ratios['cogs_to_revenue_ratio'] = \
-            (is_df['oper_cost'] / is_df['total_revenue'].replace(0, np.nan)).mean() 
-
-        # 销售/管理/研发费用占销售额比率 = (sell_exp + admin_exp + rd_exp) / total_revenue
-        # 使用 .get(col, 0) 处理可能不存在的列
-        sga_rd_exp = (is_df.get('sell_exp', 0) + 
-                      is_df.get('admin_exp', 0) + 
-                      is_df.get('rd_exp', 0))
-        # 确保 sga_rd_exp 是 Series 或数值，如果列不存在，get 返回 0
-        if isinstance(sga_rd_exp, (int, float)) and sga_rd_exp == 0 and not ('sell_exp' in is_df or 'admin_exp' in is_df or 'rd_exp' in is_df):
-             self.historical_ratios['sga_rd_to_revenue_ratio'] = 0 # 如果所有列都不存在，比率为0
-        else:
-             self.historical_ratios['sga_rd_to_revenue_ratio'] = \
-                 (sga_rd_exp / is_df['total_revenue'].replace(0, np.nan)).mean()
-
-        if 'depreciation_and_amortization' in is_df.columns:
-            total_da = is_df.get('depreciation_and_amortization', pd.Series([0] * len(is_df), index=is_df.index))
-        elif all(c in cf_df.columns for c in ['depr_fa_coga_dpba', 'amort_intang_assets', 'lt_amort_deferred_exp']):
-            # 使用 .get 获取列，如果不存在则返回 Series of zeros
-            depr = cf_df.set_index('end_date').get('depr_fa_coga_dpba', pd.Series(0, index=cf_df.set_index('end_date').index))
-            amort_intan = cf_df.set_index('end_date').get('amort_intang_assets', pd.Series(0, index=cf_df.set_index('end_date').index))
-            amort_lt = cf_df.set_index('end_date').get('lt_amort_deferred_exp', pd.Series(0, index=cf_df.set_index('end_date').index))
-            cf_da_sum = (depr + amort_intan + amort_lt).fillna(0) # Sum and fill NaNs resulting from potential missing columns
-            temp_is_df = is_df.set_index('end_date').join(cf_da_sum.rename('total_da_cf'), how='left').reset_index()
-            total_da = temp_is_df['total_da_cf'].fillna(0)
-        else:
-            print("Warning: Depreciation and Amortization data not clearly available for ratio calculation.")
-            total_da = pd.Series([0] * len(is_df), index=is_df.index) # Ensure index alignment
+        # --- 利润表相关比率 ---
+        self.historical_ratios['cogs_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+            is_df.get('oper_cost', pd.Series()), is_df.get('total_revenue', pd.Series()), days_in_year=None
+        )
         
-        self.historical_ratios['da_to_revenue_ratio'] = \
-            (total_da / is_df['total_revenue'].replace(0, np.nan)).mean()
-
-        if 'c_pay_acq_const_fiolta' in cf_df.columns:
-            # Use .get for safety, although checked above
-            capex_series = cf_df.set_index('end_date').get('c_pay_acq_const_fiolta', pd.Series(0, index=cf_df.set_index('end_date').index))
-            temp_is_df_capex = is_df.set_index('end_date').join(capex_series, how='left').reset_index()
-            capex = temp_is_df_capex['c_pay_acq_const_fiolta'].fillna(0)
-            # CapEx 应该是负数，但比率计算时通常用其绝对值或根据上下文调整
-            self.historical_ratios['capex_to_revenue_ratio'] = \
-                (capex.abs() / is_df['total_revenue'].replace(0, np.nan)).mean() 
+        sga_rd_exp = (is_df.get('sell_exp', 0) + is_df.get('admin_exp', 0) + is_df.get('rd_exp', 0))
+        if isinstance(sga_rd_exp, (int, float)) and sga_rd_exp == 0 and not any(c in is_df for c in ['sell_exp', 'admin_exp', 'rd_exp']):
+             self.historical_ratios['sga_rd_to_revenue_ratio'] = 0.0
         else:
-            print("Warning: Capex data (c_pay_acq_const_fiolta) not found in cash_flow for ratio calculation.")
-            self.historical_ratios['capex_to_revenue_ratio'] = 0
-
-        ar_days_list = []
-        if 'accounts_receiv_bill' in bs_df.columns and 'revenue' in is_df.columns and len(bs_df) > 0 and len(is_df) > 0:
-            for i in range(len(is_df)):
-                current_is_date = is_df['end_date'].iloc[i]
-                current_revenue = is_df['revenue'].iloc[i]
-                current_ar, prev_ar = self._get_avg_bs_item(bs_df, 'accounts_receiv_bill', current_is_date)
-                
-                if current_revenue > 0: # 只有当收入大于0时才有意义
-                    if current_ar is not None and prev_ar is not None:
-                        avg_ar_val = (current_ar + prev_ar) / 2
-                        ar_days = avg_ar_val / (current_revenue / 360)
-                        ar_days_list.append(ar_days)
-                    elif current_ar is not None: # 只有当期数据
-                        ar_days = current_ar / (current_revenue / 360)
-                        ar_days_list.append(ar_days)
-            self.historical_ratios['accounts_receivable_days'] = pd.Series(ar_days_list).mean() if ar_days_list else 0
+             self.historical_ratios['sga_rd_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+                 sga_rd_exp, is_df.get('total_revenue', pd.Series()), days_in_year=None
+             )
+        
+        # 计算营业利润率中位数 (需要 EBIT 或 Operating Profit)
+        op_profit_col = 'operate_profit' if 'operate_profit' in is_df.columns else 'ebit' # 优先使用 operate_profit
+        if op_profit_col in is_df.columns:
+             self.historical_ratios['operating_margin_median'] = self._calculate_median_ratio_or_days(
+                 is_df[op_profit_col], is_df.get('total_revenue', pd.Series()), days_in_year=None
+             )
         else:
-            self.historical_ratios['accounts_receivable_days'] = 0
+             self.historical_ratios['operating_margin_median'] = None
+             warning_msg = f"缺少 '{op_profit_col}' 列，无法计算历史营业利润率中位数。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
 
-        inv_days_list = []
-        if 'inventories' in bs_df.columns and 'oper_cost' in is_df.columns and len(bs_df) > 0 and len(is_df) > 0:
-            for i in range(len(is_df)):
-                current_is_date = is_df['end_date'].iloc[i]
-                current_cogs = is_df['oper_cost'].iloc[i]
-                current_inv, prev_inv = self._get_avg_bs_item(bs_df, 'inventories', current_is_date)
 
-                if current_cogs > 0: # 只有当销货成本大于0时才有意义
-                    if current_inv is not None and prev_inv is not None:
-                        avg_inv_val = (current_inv + prev_inv) / 2
-                        inv_days = avg_inv_val / (current_cogs / 360)
-                        inv_days_list.append(inv_days)
-                    elif current_inv is not None:
-                        inv_days = current_inv / (current_cogs / 360)
-                        inv_days_list.append(inv_days)
-            self.historical_ratios['inventory_days'] = pd.Series(inv_days_list).mean() if inv_days_list else 0
+        # --- D&A 和 Capex 相关比率 ---
+        da_cols = ['depr_fa_coga_dpba', 'amort_intang_assets', 'use_right_asset_dep']
+        existing_da_cols = [col for col in da_cols if col in cf_df.columns]
+        total_da_series = pd.Series(0, index=is_df.index) # 初始化
+        if existing_da_cols:
+             cf_indexed = cf_df.set_index('end_date') if 'end_date' in cf_df.columns else cf_df
+             is_indexed = is_df.set_index('end_date') if 'end_date' in is_df.columns else is_df
+             cf_da = cf_indexed[existing_da_cols].sum(axis=1, skipna=True).rename('total_da')
+             is_df_merged = is_indexed.join(cf_da, how='left')
+             total_da_series = is_df_merged['total_da'].fillna(0)
         else:
-            self.historical_ratios['inventory_days'] = 0
+             warning_msg = "现金流量表中缺少足够的 D&A 相关列。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+             
+        self.historical_ratios['da_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+            total_da_series, is_df.get('total_revenue', pd.Series()), days_in_year=None
+        )
 
-        ap_days_list = []
-        if 'accounts_pay' in bs_df.columns and len(bs_df) > 0:
-            if 'c_paid_goods_s' in cf_df.columns and len(cf_df) > 0:
-                temp_cf_df = cf_df.set_index('end_date')
-                for i in range(len(temp_cf_df)): # Iterate based on cash flow periods
-                    current_cf_date = temp_cf_df.index[i]
-                    # c_paid_goods_s is usually negative, use absolute for denominator
-                    purchases_proxy = abs(temp_cf_df['c_paid_goods_s'].iloc[i]) 
-                    current_ap, prev_ap = self._get_avg_bs_item(bs_df, 'accounts_pay', current_cf_date)
-
-                    if purchases_proxy > 0:
-                        if current_ap is not None and prev_ap is not None:
-                            avg_ap_val = (current_ap + prev_ap) / 2
-                            ap_days = avg_ap_val / (purchases_proxy / 360)
-                            ap_days_list.append(ap_days)
-                        elif current_ap is not None:
-                             ap_days = current_ap / (purchases_proxy / 360)
-                             ap_days_list.append(ap_days)
-            elif 'oper_cost' in is_df.columns and 'inventories' in bs_df.columns and len(is_df) > 0:
-                for i in range(len(is_df)): # Iterate based on income statement periods
-                    current_is_date = is_df['end_date'].iloc[i]
-                    cogs = is_df['oper_cost'].iloc[i]
-                    current_inv, prev_inv = self._get_avg_bs_item(bs_df, 'inventories', current_is_date)
-                    current_ap, prev_ap = self._get_avg_bs_item(bs_df, 'accounts_pay', current_is_date)
-
-                    purchases_estimated = 0
-                    if current_inv is not None and prev_inv is not None:
-                        delta_inv = current_inv - prev_inv
-                        purchases_estimated = cogs + delta_inv
-                    elif cogs > 0 : # Fallback if inventory data is incomplete
-                        purchases_estimated = cogs
-                    
-                    if purchases_estimated > 0:
-                        if current_ap is not None and prev_ap is not None:
-                            avg_ap_val = (current_ap + prev_ap) / 2
-                            ap_days = avg_ap_val / (purchases_estimated / 360)
-                            ap_days_list.append(ap_days)
-                        elif current_ap is not None:
-                             ap_days = current_ap / (purchases_estimated / 360)
-                             ap_days_list.append(ap_days)
-            self.historical_ratios['accounts_payable_days'] = pd.Series(ap_days_list).mean() if ap_days_list else 0
+        if 'c_pay_acq_const_fiolta' in cf_df.columns and 'total_revenue' in is_df.columns:
+            cf_indexed = cf_df.set_index('end_date') if 'end_date' in cf_df.columns else cf_df
+            is_indexed = is_df.set_index('end_date') if 'end_date' in is_df.columns else is_df
+            capex_series = cf_indexed['c_pay_acq_const_fiolta'].abs()
+            is_df_merged_capex = is_indexed.join(capex_series.rename('capex_abs'), how='left')
+            capex_abs_aligned = is_df_merged_capex['capex_abs'].fillna(0)
+            total_revenue_aligned = is_df_merged_capex.get('total_revenue', pd.Series())
+            self.historical_ratios['capex_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+                capex_abs_aligned, total_revenue_aligned, days_in_year=None
+            )
         else:
-            self.historical_ratios['accounts_payable_days'] = 0
+            warning_msg = "缺少 Capex 或收入数据，无法计算 Capex/收入比率。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            self.historical_ratios['capex_to_revenue_ratio'] = None
 
-        if not bs_df.empty and not is_df.empty:
-            last_bs_row = bs_df.iloc[-1]
-            last_actual_nwc_val = 0
-            
-            last_ar, _ = self._get_avg_bs_item(bs_df, 'accounts_receiv_bill', last_bs_row['end_date'])
-            last_inv, _ = self._get_avg_bs_item(bs_df, 'inventories', last_bs_row['end_date'])
-            last_ap, _ = self._get_avg_bs_item(bs_df, 'accounts_pay', last_bs_row['end_date'])
-            
-            last_prepayment = last_bs_row.get('prepayment', 0)
-            last_oth_cur_assets = last_bs_row.get('oth_cur_assets', 0)
-            adv_receipts_col_last = 'contract_liab' if 'contract_liab' in last_bs_row else 'adv_receipts'
-            last_adv_receipts = last_bs_row.get(adv_receipts_col_last, 0)
-            last_payroll = last_bs_row.get('payroll_payable', 0)
-            last_taxes = last_bs_row.get('taxes_payable', 0)
-            last_oth_payable = last_bs_row.get('oth_payable', 0)
+        # --- 周转天数 (使用中位数) ---
+        if 'accounts_receiv_bill' in bs_df.columns and 'revenue' in is_df.columns:
+             bs_merged_ar = pd.merge(bs_df[['end_date', 'accounts_receiv_bill']], is_df[['end_date', 'revenue']], on='end_date', how='inner')
+             self.historical_ratios['accounts_receivable_days'] = self._calculate_median_ratio_or_days(
+                 bs_merged_ar['accounts_receiv_bill'], bs_merged_ar['revenue'], days_in_year=360
+             )
+        else: self.historical_ratios['accounts_receivable_days'] = None
 
-            last_other_ca = last_prepayment + last_oth_cur_assets
-            last_other_cl = last_adv_receipts + last_payroll + last_taxes + last_oth_payable
+        if 'inventories' in bs_df.columns and 'oper_cost' in is_df.columns:
+             bs_merged_inv = pd.merge(bs_df[['end_date', 'inventories']], is_df[['end_date', 'oper_cost']], on='end_date', how='inner')
+             self.historical_ratios['inventory_days'] = self._calculate_median_ratio_or_days(
+                 bs_merged_inv['inventories'], bs_merged_inv['oper_cost'], days_in_year=360
+             )
+        else: self.historical_ratios['inventory_days'] = None
 
-            last_ar = last_ar if last_ar is not None else 0
-            last_inv = last_inv if last_inv is not None else 0
-            last_ap = last_ap if last_ap is not None else 0
-            
-            last_actual_nwc_val = (last_ar + last_inv + last_other_ca) - (last_ap + last_other_cl)
-            self.historical_ratios['last_actual_nwc'] = last_actual_nwc_val
-            
-            if 'oper_cost' in is_df.columns:
-                 self.historical_ratios['last_actual_cogs'] = is_df['oper_cost'].iloc[-1] if not is_df.empty else 0
-            else:
-                 self.historical_ratios['last_actual_cogs'] = 0
+        if 'accounts_pay' in bs_df.columns and 'oper_cost' in is_df.columns:
+             bs_merged_ap = pd.merge(bs_df[['end_date', 'accounts_pay']], is_df[['end_date', 'oper_cost']], on='end_date', how='inner')
+             self.historical_ratios['accounts_payable_days'] = self._calculate_median_ratio_or_days(
+                 bs_merged_ap['accounts_pay'], bs_merged_ap['oper_cost'], days_in_year=360
+             )
+        else: self.historical_ratios['accounts_payable_days'] = None
+             
+        # --- 其他 NWC 相关比率 (中位数) ---
+        if 'total_revenue' in is_df.columns:
+            bs_merged_nwc_ratios = pd.merge(bs_df, is_df[['end_date', 'total_revenue']], on='end_date', how='inner')
+            if not bs_merged_nwc_ratios.empty:
+                 other_ca_items = ['prepayment', 'oth_cur_assets']
+                 existing_oca_items = [item for item in other_ca_items if item in bs_merged_nwc_ratios.columns]
+                 if existing_oca_items:
+                     bs_merged_nwc_ratios['calc_other_ca'] = bs_merged_nwc_ratios[existing_oca_items].sum(axis=1, skipna=True)
+                     self.historical_ratios['other_current_assets_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+                         bs_merged_nwc_ratios['calc_other_ca'], bs_merged_nwc_ratios['total_revenue'], days_in_year=None
+                     )
+                 else: self.historical_ratios['other_current_assets_to_revenue_ratio'] = None
 
-            nwc_list_ratio = []
-            revenue_list_ratio = []
-            for i in range(len(is_df)):
-                 current_is_date = is_df['end_date'].iloc[i]
-                 current_revenue = is_df['total_revenue'].iloc[i] # Use total_revenue for ratio consistency
-                 
-                 current_bs_row = bs_df[bs_df['end_date'] == current_is_date]
-                 if current_bs_row.empty: continue
+                 adv_receipts_col = 'contract_liab' if 'contract_liab' in bs_merged_nwc_ratios.columns else 'adv_receipts'
+                 other_cl_items_base = ['payroll_payable', 'taxes_payable', 'oth_payable']
+                 other_cl_items_to_sum = [adv_receipts_col] + other_cl_items_base
+                 existing_ocl_items = [item for item in other_cl_items_to_sum if item in bs_merged_nwc_ratios.columns]
+                 if existing_ocl_items:
+                     bs_merged_nwc_ratios['calc_other_cl'] = bs_merged_nwc_ratios[existing_ocl_items].sum(axis=1, skipna=True)
+                     self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+                         bs_merged_nwc_ratios['calc_other_cl'], bs_merged_nwc_ratios['total_revenue'], days_in_year=None
+                     )
+                 else: self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = None
+            else: # Merge result is empty
+                 self.historical_ratios['other_current_assets_to_revenue_ratio'] = None
+                 self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = None
+        else: # Missing total_revenue
+             self.historical_ratios['other_current_assets_to_revenue_ratio'] = None
+             self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = None
 
-                 cur_ar, _ = self._get_avg_bs_item(bs_df, 'accounts_receiv_bill', current_is_date)
-                 cur_inv, _ = self._get_avg_bs_item(bs_df, 'inventories', current_is_date)
-                 cur_ap, _ = self._get_avg_bs_item(bs_df, 'accounts_pay', current_is_date)
-                 
-                 cur_prepayment = current_bs_row['prepayment'].iloc[0] if 'prepayment' in current_bs_row else 0
-                 cur_oth_cur_assets = current_bs_row['oth_cur_assets'].iloc[0] if 'oth_cur_assets' in current_bs_row else 0
-                 adv_receipts_col_cur = 'contract_liab' if 'contract_liab' in current_bs_row else 'adv_receipts'
-                 cur_adv_receipts = current_bs_row[adv_receipts_col_cur].iloc[0] if adv_receipts_col_cur in current_bs_row else 0
-                 cur_payroll = current_bs_row['payroll_payable'].iloc[0] if 'payroll_payable' in current_bs_row else 0
-                 cur_taxes = current_bs_row['taxes_payable'].iloc[0] if 'taxes_payable' in current_bs_row else 0
-                 cur_oth_payable = current_bs_row['oth_payable'].iloc[0] if 'oth_payable' in current_bs_row else 0
 
-                 cur_other_ca = cur_prepayment + cur_oth_cur_assets
-                 cur_other_cl = cur_adv_receipts + cur_payroll + cur_taxes + cur_oth_payable
+        # --- NWC 计算 (使用 NwcCalculator) ---
+        nwc_calculator = NwcCalculator()
+        historical_bs_with_nwc = nwc_calculator.calculate_historical_nwc_and_delta(bs_df) # bs_df is already cleaned and sorted
+        self.processed_data['balance_sheet'] = historical_bs_with_nwc # Update with nwc columns
 
-                 cur_ar = cur_ar if cur_ar is not None else 0
-                 cur_inv = cur_inv if cur_inv is not None else 0
-                 cur_ap = cur_ap if cur_ap is not None else 0
+        if 'nwc' in historical_bs_with_nwc.columns and 'total_revenue' in is_df.columns:
+             bs_merged_nwc = pd.merge(historical_bs_with_nwc[['end_date', 'nwc']], is_df[['end_date', 'total_revenue']], on='end_date', how='inner')
+             self.historical_ratios['nwc_to_revenue_ratio'] = self._calculate_median_ratio_or_days(
+                 bs_merged_nwc['nwc'], bs_merged_nwc['total_revenue'], days_in_year=None
+             )
+        else: self.historical_ratios['nwc_to_revenue_ratio'] = None
 
-                 nwc_val = (cur_ar + cur_inv + cur_other_ca) - (cur_ap + cur_other_cl)
-                 if current_revenue > 0: # Only include if revenue is positive
-                    nwc_list_ratio.append(nwc_val)
-                    revenue_list_ratio.append(current_revenue)
+        if 'nwc' in historical_bs_with_nwc.columns and not historical_bs_with_nwc.empty:
+             self.historical_ratios['last_historical_nwc'] = historical_bs_with_nwc['nwc'].iloc[-1]
+        else: self.historical_ratios['last_historical_nwc'] = None
 
-            if revenue_list_ratio:
-                 self.historical_ratios['nwc_to_revenue_ratio'] = \
-                     (pd.Series(nwc_list_ratio) / pd.Series(revenue_list_ratio)).mean()
-            else:
-                 self.historical_ratios['nwc_to_revenue_ratio'] = 0.15 
-        else:
-            self.historical_ratios['last_actual_nwc'] = 0
-            self.historical_ratios['last_actual_cogs'] = 0
-            self.historical_ratios['nwc_to_revenue_ratio'] = 0.15
-
-        if not bs_df.empty and not is_df.empty:
-            bs_df_merged = pd.merge(bs_df, is_df[['end_date', 'total_revenue']], on='end_date', how='inner')
-            if not bs_df_merged.empty and bs_df_merged['total_revenue'].abs().sum() > 0:
-                other_ca_items = ['prepayment', 'oth_cur_assets']
-                # Check if all items exist, otherwise sum available ones
-                existing_oca_items = [item for item in other_ca_items if item in bs_df_merged.columns]
-                if existing_oca_items:
-                    bs_df_merged['calc_other_ca'] = bs_df_merged[existing_oca_items].sum(axis=1)
-                    self.historical_ratios['other_current_assets_to_revenue_ratio'] = \
-                        (bs_df_merged['calc_other_ca'] / bs_df_merged['total_revenue'].replace(0, np.nan)).mean()
-                else:
-                    self.historical_ratios['other_current_assets_to_revenue_ratio'] = 0.05 
-
-                adv_receipts_col = 'contract_liab' if 'contract_liab' in bs_df_merged.columns else 'adv_receipts'
-                other_cl_items_base = ['payroll_payable', 'taxes_payable', 'oth_payable']
-                other_cl_items_to_sum = [adv_receipts_col] + other_cl_items_base
-                existing_ocl_items = [item for item in other_cl_items_to_sum if item in bs_df_merged.columns]
-                
-                if existing_ocl_items:
-                    bs_df_merged['calc_other_cl'] = bs_df_merged[existing_ocl_items].sum(axis=1)
-                    self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = \
-                        (bs_df_merged['calc_other_cl'] / bs_df_merged['total_revenue'].replace(0, np.nan)).mean()
-                else:
-                    self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = 0.03
-            else: 
-                self.historical_ratios['other_current_assets_to_revenue_ratio'] = 0.05 
-                self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = 0.03
-        else: 
-            self.historical_ratios['other_current_assets_to_revenue_ratio'] = 0.05 
-            self.historical_ratios['other_current_liabilities_to_revenue_ratio'] = 0.03
-
+        # --- 有效税率中位数 ---
         if 'income_tax' in is_df.columns and 'total_profit' in is_df.columns:
-            valid_tax_calc = is_df[(is_df['total_profit'] > 0) & is_df['income_tax'].notna() & is_df['total_profit'].notna()]
-            if not valid_tax_calc.empty:
-                self.historical_ratios['effective_tax_rate'] = \
-                    (valid_tax_calc['income_tax'] / valid_tax_calc['total_profit']).mean()
+            is_df['calc_tax_rate'] = is_df['income_tax'] / is_df['total_profit'].replace(0, np.nan)
+            valid_tax_rates = is_df['calc_tax_rate'][(is_df['calc_tax_rate'] >= 0) & (is_df['calc_tax_rate'] <= 1)]
+            if not valid_tax_rates.empty:
+                 self.historical_ratios['effective_tax_rate'] = valid_tax_rates.median()
             else:
-                self.historical_ratios['effective_tax_rate'] = 0.25 
+                 self.historical_ratios['effective_tax_rate'] = None
+                 warning_msg = "无法计算有效的历史税率中位数。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
         else:
-            self.historical_ratios['effective_tax_rate'] = 0.25 
+            self.historical_ratios['effective_tax_rate'] = None
 
-        print("Historical ratios calculated:", {k: round(v, 4) if isinstance(v, float) else v for k, v in self.historical_ratios.items()})
+        # --- 计算历史 CAGR ---
+        if 'revenue' in is_df.columns and len(is_df) >= 4:
+            is_df_sorted = is_df.sort_values(by='end_date')
+            # Ensure we have at least 3 years difference for 3-year CAGR
+            if (is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[-4]).days > 365 * 2.5:
+                start_revenue = is_df_sorted['revenue'].iloc[-4]
+                end_revenue = is_df_sorted['revenue'].iloc[-1]
+                if pd.notna(start_revenue) and pd.notna(end_revenue) and start_revenue > 0 and end_revenue > 0:
+                    try:
+                        # Calculate exact years between the points for accuracy
+                        years_diff = (is_df_sorted['end_date'].iloc[-1] - is_df_sorted['end_date'].iloc[-4]).days / 365.25
+                        if years_diff > 0: # Avoid division by zero or negative exponent
+                            revenue_cagr_3y = ((end_revenue / start_revenue) ** (1/years_diff)) - 1
+                            self.historical_ratios['revenue_cagr_3y'] = revenue_cagr_3y * 100 # Store as percentage
+                        else: self.historical_ratios['revenue_cagr_3y'] = None
+                    except Exception as e:
+                        warning_msg_cagr_err = f"计算3年收入CAGR时出错: {e}"; self.warnings.append(warning_msg_cagr_err); print(warning_msg_cagr_err); self.historical_ratios['revenue_cagr_3y'] = None
+                else: self.historical_ratios['revenue_cagr_3y'] = None
+            else: 
+                 self.historical_ratios['revenue_cagr_3y'] = None
+                 warning_msg_cagr_span = "Warning: 数据点时间跨度不足3年，无法计算3年收入CAGR。"
+                 self.warnings.append(warning_msg_cagr_span); # Removed print(warning_msg_cagr_span)
+        else:
+            self.historical_ratios['revenue_cagr_3y'] = None
+            if len(is_df) < 4: 
+                 warning_msg_cagr_len = "Warning: 数据点少于4个，无法计算3年收入CAGR。"
+                 self.warnings.append(warning_msg_cagr_len); # Removed print(warning_msg_cagr_len)
+
+        # 清理结果中的 NaN 为 None
+        for key, value in self.historical_ratios.items():
+            if pd.isna(value): self.historical_ratios[key] = None
+
+        print("Historical ratios (median) and CAGR calculated:", {k: round(v, 4) if isinstance(v, (float, np.number)) and v is not None else v for k, v in self.historical_ratios.items()})
         return self.historical_ratios
 
     def get_processed_data(self) -> Dict[str, pd.DataFrame]:
+        """获取清洗和处理后的时间序列数据。"""
         return self.processed_data
 
-    def get_historical_ratios(self) -> Dict[str, any]:
+    def get_historical_ratios(self) -> Dict[str, Any]:
+        """获取计算出的历史比率/天数中位数。"""
         return self.historical_ratios
 
-    def _get_avg_bs_item(self, bs_df: pd.DataFrame, item_name: str, current_date: pd.Timestamp) -> Tuple[Union[float, None], Union[float, None]]:
-        """
-        辅助函数：获取指定日期和上一年度对应日期的资产负债表项目值。
-        返回 (当期值, 上期值)，如果找不到则为 None。
-        """
-        current_item = None
-        prev_item = None
+    def get_latest_metrics(self) -> Dict[str, Any]:
+        """获取最新的估值指标 (PE, PB)。"""
+        return self.latest_metrics
 
-        # 查找当期值
-        current_bs = bs_df[bs_df['end_date'] == current_date]
-        if not current_bs.empty and item_name in current_bs.columns:
-            current_item_val = current_bs[item_name].iloc[0]
-            if pd.notna(current_item_val):
-                current_item = float(current_item_val)
+    def get_basic_info(self) -> Dict[str, Any]:
+        """获取股票基本信息。"""
+        return self.basic_info
+    
+    def get_latest_balance_sheet(self) -> Optional[pd.Series]:
+        """获取最新的资产负债表 Series。"""
+        return self.latest_balance_sheet
 
-
-        # 查找上期值 (大约一年前)
-        prev_date_target = current_date - pd.DateOffset(years=1)
-        
-        # 优先查找与目标日期完全匹配的上一年度报告期 (例如，年报对年报)
-        prev_bs_exact_year_ago = bs_df[bs_df['end_date'] == prev_date_target]
-        if not prev_bs_exact_year_ago.empty and item_name in prev_bs_exact_year_ago.columns:
-            prev_item_val = prev_bs_exact_year_ago[item_name].iloc[0]
-            if pd.notna(prev_item_val):
-                 prev_item = float(prev_item_val)
-        
-        if prev_item is None: # 如果没有精确匹配的上一年度日期
-            # 在目标日期前后寻找最近的记录 (例如 +/- 45天)
-            prev_bs_candidates = bs_df[
-                (bs_df['end_date'] >= prev_date_target - pd.Timedelta(days=45)) &
-                (bs_df['end_date'] <= prev_date_target + pd.Timedelta(days=45)) &
-                (bs_df['end_date'] < current_date) # 确保是历史数据
-            ]
-            
-            if not prev_bs_candidates.empty and item_name in prev_bs_candidates.columns:
-                 prev_bs_candidates = prev_bs_candidates.copy() # 避免 SettingWithCopyWarning
-                 prev_bs_candidates.loc[:, 'date_diff'] = abs(prev_bs_candidates['end_date'] - prev_date_target)
-                 closest_prev_bs = prev_bs_candidates.sort_values('date_diff').iloc[0]
-                 prev_item_val = closest_prev_bs[item_name]
-                 if pd.notna(prev_item_val):
-                    prev_item = float(prev_item_val)
-            
-        if prev_item is None: # 如果还是找不到，尝试找严格小于当前日期的最近一期
-             prev_bs_strict = bs_df[bs_df['end_date'] < current_date].sort_values('end_date', ascending=False)
-             if not prev_bs_strict.empty and item_name in prev_bs_strict.columns:
-                  prev_item_val = prev_bs_strict[item_name].iloc[0]
-                  if pd.notna(prev_item_val):
-                    prev_item = float(prev_item_val)
-        
-        # 如果 current_item 是 None 但 prev_item 不是，这可能意味着当期数据缺失，不应返回 prev_item 作为当期
-        # 但对于计算平均值，如果 prev_item 存在，它仍然是有效的“上一期”数据
-
-        return current_item, prev_item
+# End of class DataProcessor

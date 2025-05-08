@@ -1,120 +1,132 @@
 from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional, List, Union
+from decimal import Decimal # Ensure Decimal is imported
 
 # --- Request Model ---
 
 class StockValuationRequest(BaseModel):
     """
-    Request model for stock valuation endpoint.
+    Request model for stock valuation endpoint (Revised for Streamlit & LLM).
     """
-    ts_code: str = Field(..., description="The stock ticker symbol (e.g., '600519.SH')")
-    # --- Optional parameters for valuation sensitivity ---
-    pe_multiples: Optional[List[float]] = Field(
-        default=[15, 20, 25],
-        description="PE multiples for relative valuation sensitivity analysis."
-    )
-    pb_multiples: Optional[List[float]] = Field(
-        default=[1.5, 2.0, 2.5],
-        description="PB multiples for relative valuation sensitivity analysis."
-    )
-    ev_ebitda_multiples: Optional[List[float]] = Field(
-        default=[8, 10, 12],
-        description="EV/EBITDA multiples for relative valuation sensitivity analysis (used in combo)."
-    )
-    # dcf_growth_cap removed, will be configured via .env
-    growth_rates: Optional[List[float]] = Field(
-        default=None, # Let calculator determine defaults based on history if None
-        description="Growth rates [low, mid, high] for DCF/DDM sensitivity. Overrides historical calculation if provided."
-    )
-    # discount_rates: Optional[List[float]] = Field(
-    #     default=None, # Let calculator determine defaults based on WACC/Ke if None
-    #     description="Discount rates [low, mid, high] for DCF/DDM sensitivity. Overrides WACC/Ke calculation if provided."
-    # ) # Let's rely on WACC/Ke based rates for now
+    ts_code: str = Field(..., description="股票代码 (例如 '600519.SH')")
+    market: Optional[str] = Field(default="A", description="市场标识 ('A', 'HK', etc.) - 用于数据获取")
+    valuation_date: Optional[str] = Field(None, description="估值基准日期 (YYYY-MM-DD)，默认为最新可用日期")
 
-    # --- Optional parameters for WACC calculation ---
-    target_debt_ratio: Optional[float] = Field(None, ge=0, le=1, description="Target Debt / Total Capital ratio for WACC calculation (e.g., 0.45 for 45%). Overrides calculation based on market values if provided.")
-    cost_of_debt: Optional[float] = Field(None, ge=0, description="Pre-tax Cost of Debt for WACC calculation (e.g., 0.05 for 5%). Overrides default if provided.")
-    tax_rate: Optional[float] = Field(None, ge=0, le=1, description="Effective Tax Rate for WACC calculation (e.g., 0.25 for 25%). Overrides default if provided.")
-    risk_free_rate: Optional[float] = Field(None, ge=0, description="Risk-Free Rate for Cost of Equity (Ke) calculation (e.g., 0.03 for 3%). Overrides default if provided.")
-    beta: Optional[float] = Field(None, description="Levered Beta for Cost of Equity (Ke) calculation. Overrides default if provided.")
-    market_risk_premium: Optional[float] = Field(None, ge=0, description="Market Risk Premium for Cost of Equity (Ke) calculation (e.g., 0.0611 for 6.11%). Overrides default if provided.")
-    size_premium: Optional[float] = Field(None, description="Size Premium for Cost of Equity (Ke) calculation (e.g., 0.0 for 0%). Overrides default if provided.")
+    # --- DCF 核心假设 ---
+    forecast_years: int = Field(default=5, ge=1, le=20, description="预测期年数")
+    # 收入预测
+    cagr_decay_rate: Optional[float] = Field(None, ge=0, le=1, description="历史 CAGR 年衰减率 (0到1之间)，留空则使用默认值")
+    # 利润率预测
+    op_margin_forecast_mode: str = Field(default='historical_median', description="营业利润率预测模式 ('historical_median' 或 'transition_to_target')")
+    target_operating_margin: Optional[float] = Field(None, description="目标营业利润率 (仅在 transition_to_target 模式下有效)")
+    op_margin_transition_years: Optional[int] = Field(None, ge=1, description="营业利润率过渡年数 (仅在 transition_to_target 模式下有效)")
+    # SGA & RD 预测
+    sga_rd_ratio_forecast_mode: str = Field(default='historical_median', description="SGA&RD 占收入比预测模式")
+    target_sga_rd_to_revenue_ratio: Optional[float] = Field(None, description="目标 SGA&RD 占收入比")
+    sga_rd_transition_years: Optional[int] = Field(None, ge=1, description="SGA&RD 比率过渡年数")
+    # D&A 预测
+    da_ratio_forecast_mode: str = Field(default='historical_median', description="D&A 占收入比预测模式")
+    target_da_to_revenue_ratio: Optional[float] = Field(None, description="目标 D&A 占收入比")
+    da_ratio_transition_years: Optional[int] = Field(None, ge=1, description="D&A 比率过渡年数")
+    # Capex 预测
+    capex_ratio_forecast_mode: str = Field(default='historical_median', description="Capex 占收入比预测模式")
+    target_capex_to_revenue_ratio: Optional[float] = Field(None, description="目标 Capex 占收入比")
+    capex_ratio_transition_years: Optional[int] = Field(None, ge=1, description="Capex 比率过渡年数")
+    # NWC 周转天数预测
+    nwc_days_forecast_mode: str = Field(default='historical_median', description="核心 NWC 周转天数预测模式")
+    target_accounts_receivable_days: Optional[float] = Field(None, ge=0, description="目标应收账款周转天数 (DSO)")
+    target_inventory_days: Optional[float] = Field(None, ge=0, description="目标存货周转天数 (DIO)")
+    target_accounts_payable_days: Optional[float] = Field(None, ge=0, description="目标应付账款周转天数 (DPO)")
+    nwc_days_transition_years: Optional[int] = Field(None, ge=1, description="NWC 周转天数过渡年数")
+    # 其他 NWC 比率预测
+    other_nwc_ratio_forecast_mode: str = Field(default='historical_median', description="其他 NWC 项目占收入比预测模式")
+    target_other_current_assets_to_revenue_ratio: Optional[float] = Field(None, description="目标其他流动资产占收入比")
+    target_other_current_liabilities_to_revenue_ratio: Optional[float] = Field(None, description="目标其他流动负债占收入比")
+    other_nwc_ratio_transition_years: Optional[int] = Field(None, ge=1, description="其他 NWC 比率过渡年数")
+    # 税率
+    target_effective_tax_rate: Optional[float] = Field(None, ge=0, le=1, description="目标有效所得税率，留空则使用默认值")
+
+    # --- WACC 计算参数 (保留，允许用户覆盖默认值) ---
+    target_debt_ratio: Optional[float] = Field(None, ge=0, le=1, description="目标资本结构中的债务比例 D/(D+E)")
+    cost_of_debt: Optional[float] = Field(None, ge=0, description="税前债务成本 (Rd)")
+    risk_free_rate: Optional[float] = Field(None, ge=0, description="无风险利率 (Rf)")
+    beta: Optional[float] = Field(None, description="贝塔系数 (Levered Beta)")
+    market_risk_premium: Optional[float] = Field(None, ge=0, description="市场风险溢价 (MRP)")
+    size_premium: Optional[float] = Field(None, description="规模溢价 (可选)")
+
+    # --- 终值计算参数 ---
+    terminal_value_method: str = Field(default='exit_multiple', description="终值计算方法 ('exit_multiple' 或 'perpetual_growth')")
+    exit_multiple: Optional[float] = Field(None, ge=0, description="退出乘数 (基于 EBITDA，仅在 exit_multiple 模式下有效)")
+    perpetual_growth_rate: Optional[float] = Field(None, description="永续增长率 (仅在 perpetual_growth 模式下有效)")
 
 
 # --- Response Models ---
 
-class ValuationResultItem(BaseModel):
-    """Represents a single valuation result from sensitivity analysis."""
-    growth_rate: Optional[float] = Field(None, description="Assumed growth rate for this valuation point.")
-    discount_rate: Optional[float] = Field(None, description="Assumed discount rate for this valuation point.")
-    value: Optional[float] = Field(None, description="Calculated value per share.")
-    premium: Optional[float] = Field(None, description="Premium/discount percentage compared to the latest price.")
+class StockBasicInfoModel(BaseModel):
+    """股票基本信息模型"""
+    ts_code: Optional[str] = None
+    name: Optional[str] = None
+    industry: Optional[str] = None
+    list_date: Optional[str] = None
+    exchange: Optional[str] = None
+    currency: Optional[str] = None
+    latest_pe_ttm: Optional[float] = None
+    latest_pb_mrq: Optional[float] = None
+    total_shares: Optional[float] = None # Store as float for JSON consistency
+    free_float_shares: Optional[float] = None # Store as float for JSON consistency
+    # Add any other fields that might be in the basic_info dict passed from DataProcessor
+    # For Pydantic V2, to handle extra fields in input dict if they are not strictly matching
+    class Config:
+        extra = "ignore"
 
-class ValuationMethodResult(BaseModel):
-    """Holds results for a specific valuation method (e.g., DCF, DDM)."""
-    results: Optional[List[ValuationResultItem]] = Field(None, description="List of valuation results from sensitivity analysis.")
-    error_message: Optional[str] = Field(None, description="Error message if this valuation method failed.")
-    # Optional summary fields can be added later if needed (min, max, avg)
 
 class DividendAnalysis(BaseModel):
-    """Details of dividend analysis."""
-    current_yield_pct: Optional[float] = Field(None, description="Latest dividend yield percentage.")
-    avg_dividend_3y: Optional[float] = Field(None, description="Average dividend per share over the last 3 years.")
-    payout_ratio_pct: Optional[float] = Field(None, description="Latest dividend payout ratio percentage.")
+    """股息分析详情。"""
+    current_yield_pct: Optional[float] = Field(None, description="最新股息率 (%)")
+    avg_dividend_3y: Optional[float] = Field(None, description="近三年平均每股股息")
+    payout_ratio_pct: Optional[float] = Field(None, description="最新股息支付率 (%)")
 
 class GrowthAnalysis(BaseModel):
-    """Details of growth analysis."""
-    net_income_cagr_3y: Optional[float] = Field(None, description="3-year Compound Annual Growth Rate (CAGR) for net income.")
-    revenue_cagr_3y: Optional[float] = Field(None, description="3-year Compound Annual Growth Rate (CAGR) for revenue.")
+    """增长分析详情。"""
+    net_income_cagr_3y: Optional[float] = Field(None, description="近三年净利润复合年增长率 (%)")
+    revenue_cagr_3y: Optional[float] = Field(None, description="近三年收入复合年增长率 (%)")
 
 class OtherAnalysis(BaseModel):
-    """Container for other analysis types."""
+    """其他分析容器。"""
     dividend_analysis: Optional[DividendAnalysis] = None
     growth_analysis: Optional[GrowthAnalysis] = None
 
-class InvestmentAdvice(BaseModel):
-    """Investment advice based on valuation."""
-    based_on: Optional[str] = Field(None, description="Valuation methods primarily used for this advice.")
-    advice: Optional[str] = Field(None, description="Investment suggestion (e.g., Buy, Sell, Hold).")
-    reason: Optional[str] = Field(None, description="Explanation for the advice.")
-    min_intrinsic_value: Optional[float] = Field(None, description="Estimated minimum intrinsic value per share.")
-    avg_intrinsic_value: Optional[float] = Field(None, description="Estimated average intrinsic value per share.")
-    max_intrinsic_value: Optional[float] = Field(None, description="Estimated maximum intrinsic value per share.")
-    safety_margin_pct: Optional[float] = Field(None, description="Calculated safety margin percentage based on minimum intrinsic value.")
-    reference_info: Optional[str] = Field(None, description="Reference information from other valuation methods.")
-
+class DcfForecastDetails(BaseModel):
+    """存储核心 DCF 计算结果的详细信息。"""
+    enterprise_value: Optional[float] = Field(None, description="企业价值 (EV)")
+    equity_value: Optional[float] = Field(None, description="股权价值")
+    value_per_share: Optional[float] = Field(None, description="每股价值")
+    net_debt: Optional[float] = Field(None, description="计算使用的净债务")
+    pv_forecast_ufcf: Optional[float] = Field(None, description="预测期 UFCF 现值合计")
+    pv_terminal_value: Optional[float] = Field(None, description="终值现值")
+    terminal_value: Optional[float] = Field(None, description="终值")
+    wacc_used: Optional[float] = Field(None, description="计算使用的 WACC")
+    cost_of_equity_used: Optional[float] = Field(None, description="计算使用的股权成本 (Ke)")
+    terminal_value_method_used: Optional[str] = Field(None, description="终值计算方法")
+    exit_multiple_used: Optional[float] = Field(None, description="使用的退出乘数")
+    perpetual_growth_rate_used: Optional[float] = Field(None, description="使用的永续增长率")
+    forecast_period_years: Optional[int] = Field(None, description="预测期年数")
 
 class ValuationResultsContainer(BaseModel):
-    """Container for all calculated valuation results."""
-    # Current Metrics & Context
-    latest_price: Optional[float] = Field(None, description="The latest stock price used for these calculations.")
-    current_pe: Optional[float] = Field(None, description="Current Price-to-Earnings ratio.")
-    current_pb: Optional[float] = Field(None, description="Current Price-to-Book ratio.")
-    current_ev_ebitda: Optional[float] = Field(None, description="Current Enterprise Value to EBITDA ratio.")
-    calculated_wacc_pct: Optional[float] = Field(None, description="Calculated Weighted Average Cost of Capital (WACC) percentage.")
-    calculated_cost_of_equity_pct: Optional[float] = Field(None, description="Calculated Cost of Equity (Ke) percentage.")
-
-    # Absolute Valuation Models
-    dcf_fcff_basic_capex: Optional[ValuationMethodResult] = Field(None, description="DCF valuation based on FCFF with basic capex.")
-    dcf_fcfe_basic_capex: Optional[ValuationMethodResult] = Field(None, description="DCF valuation based on FCFE with basic capex.")
-    dcf_fcff_full_capex: Optional[ValuationMethodResult] = Field(None, description="DCF valuation based on FCFF with full capex.")
-    dcf_fcfe_full_capex: Optional[ValuationMethodResult] = Field(None, description="DCF valuation based on FCFE with full capex.")
-    ddm: Optional[ValuationMethodResult] = Field(None, description="Dividend Discount Model (DDM) valuation.")
-
-    # Other Analysis
-    other_analysis: Optional[OtherAnalysis] = Field(None, description="Dividend and growth analysis.")
-
-    # Combo Valuations - Updated type hint for nested dict and description
-    combo_valuations: Optional[Dict[str, Optional[Dict[str, Optional[float]]]]] = Field(None, description="Combined valuation results using descriptive keys (e.g., FCFE_Basic, Avg_FCF_Basic, Composite_Valuation). Each key maps to a dict containing 'value' and 'safety_margin_pct', or null if calculation failed.")
-
-    # Investment Advice
-    investment_advice: Optional[InvestmentAdvice] = Field(None, description="Final investment advice based on analysis.")
-
+    """(修订版) 包含所有计算结果的容器。"""
+    latest_price: Optional[float] = Field(None, description="用于计算的最新股价")
+    current_pe: Optional[float] = Field(None, description="当前市盈率 (PE)")
+    current_pb: Optional[float] = Field(None, description="当前市净率 (PB)")
+    dcf_forecast_details: Optional[DcfForecastDetails] = Field(None, description="基于预测的核心 DCF 估值详情")
+    other_analysis: Optional[OtherAnalysis] = Field(None, description="股息和增长分析")
+    llm_analysis_summary: Optional[str] = Field(None, description="LLM 生成的投资分析摘要 (Markdown 格式)")
+    data_warnings: Optional[List[str]] = Field(None, description="数据处理过程中产生的警告信息列表")
+    detailed_forecast_table: Optional[List[Dict[str, Any]]] = Field(None, description="详细的逐年财务预测表格")
 
 class StockValuationResponse(BaseModel):
     """
-    Response model for stock valuation endpoint.
+    (修订版) 股票估值端点的响应模型。
     """
-    stock_info: Dict[str, Any] = Field(..., description="Basic information about the stock.")
-    valuation_results: ValuationResultsContainer = Field(..., description="Container for all calculated valuation results.")
-    error: Optional[str] = Field(default=None, description="Overall error message if calculation failed at a high level.")
+    stock_info: StockBasicInfoModel = Field(..., description="股票基本信息") # Changed to StockBasicInfoModel
+    valuation_results: ValuationResultsContainer = Field(..., description="包含所有计算结果的容器")
+    error: Optional[str] = Field(default=None, description="高级别错误信息 (例如，无法获取数据)")

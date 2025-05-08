@@ -1,32 +1,64 @@
-# 当前活动上下文：深度优化DCF估值逻辑 - 阶段一完成
+# 当前活动上下文：项目重大改版规划完成 - 转向 Streamlit 和 LLM 集成
 
-## 已完成工作
-1.  **需求理解与文档阅读**：已详细阅读并分析了 `wiki/DCF估值脚本PRD.md` 和 `wiki/数据库表文档.md`。
-2.  **初步评估与优化方向梳理**：对现有DCF估值逻辑进行了初步评估，并从数据获取、财务预测、WACC计算、终值计算、估值结果呈现、敏感性分析等多个维度提出了详细的优化建议。
-3.  **开发方案确认**：用户提供了模块化的Python脚本开发方案 (`database_manager.py`, `data_processor.py`, `financial_forecaster.py`, `working_capital_calculator.py`, `fcf_calculator.py`, `wacc_calculator.py`, `terminal_value_calculator.py`, `valuation_model.py`, `main.py`)，并已将其作为后续开发的基础蓝图。
-4.  **优化优先级确定**：与用户达成一致，当前阶段的优化重点是**提升预测的精细度**。
-5.  **阶段一实施计划制定**：共同制定了针对“提升预测精细度”的阶段一实施计划。
-6.  **阶段一编码实现**：
-    *   模块化重构：创建了 `data_processor.py` 和 `financial_forecaster.py`。
-    *   数据处理增强 (`data_processor.py`)：实现了数据清洗和历史财务比率/周转天数计算。
-    *   财务预测增强 (`financial_forecaster.py`)：实现了多阶段销售额预测、基于历史比率的利润表项目预测、营运资本预测和EBITDA计算。
-    *   DCF计算更新 (`valuation_calculator.py`)：添加了基于新预测数据的DCF计算方法，并重构了组合估值逻辑。
-    *   主流程集成 (`main.py`)：集成了新的数据处理、预测和DCF计算流程，并更新了命令行参数。
-    *   报告生成器重构 (`report_generator.py` 及子模块)：调整了报告生成器结构。
-    *   数据模型更新 (`models/stock_data.py`)：更新了 `StockData`。
-    *   测试文件创建与初步修复：创建并初步修复了 `tests/test_data_processor.py`, `tests/test_financial_forecaster.py`, `tests/api/test_main.py`。
-7.  **阶段一测试与修复**：
-    *   多次运行 `pytest tests` 并根据失败结果修复了 `tests/api/test_main.py`, `financial_forecaster.py`, `valuation_calculator.py`, `api/main.py` 中的多个问题。
-    *   所有测试用例（20个）均已通过。
+## 背景
+在完成 DCF 估值逻辑优化第一阶段（提升预测精细度）后，与用户进行了深入讨论，确定了项目新的发展方向和技术栈。
+
+## 新的核心决策 (已确认)
+1.  **业务逻辑聚焦:**
+    *   以 `wiki/` 目录下文档定义的最新 DCF 估值逻辑为绝对核心。
+    *   删除旧的 DCF 估值逻辑和估值组合逻辑 (`get_combo_valuations` 方法将移除或重构)。
+    *   PE、PB 等其他估值方法仅作为辅助参考信息展示。
+    *   最终的投资建议将利用大语言模型 (LLM) 对各项结果进行综合分析后生成。
+2.  **技术栈调整:**
+    *   **前端:** 废弃并删除原有的 Next.js 前端 (`frontend/` 目录)。采用 **Streamlit** 构建新的 GUI。
+    *   **后端:** 保留 FastAPI 后端，继续提供 JSON 数据接口，但需重构和增强。
+    *   **报告:** 移除旧的非 JSON 报告生成器 (`generators/` 目录)。所有结果通过 Streamlit 展示。
+3.  **LLM 集成:**
+    *   后端 API 负责收集数据、构建 Prompt (模板来自配置文件)、调用外部 LLM 服务（支持 Gemini, OpenAI, Anthropic, DeepSeek，通过 `.env` 配置），并将分析摘要返回。
+4.  **代码结构优化:**
+    *   后端 DCF 核心计算逻辑将从 `valuation_calculator.py` 拆分到更小、职责更单一的模块 (`wacc_calculator.py`, `terminal_value_calculator.py`, `present_value_calculator.py`, `equity_bridge_calculator.py`, `fcf_calculator.py`, `nwc_calculator.py`)。
+5.  **预测逻辑简化:**
+    *   用户在界面上主要选择预测模式（使用历史中位数 vs. 过渡到目标值），而非强制输入所有目标值。系统自动计算历史中位数。
+6.  **数据处理:**
+    *   `DataProcessor` 负责计算历史中位数，处理缺失值 (NULL->0, 跳过无效期, 记录警告)，提取基本信息和最新 PE/PB。
 
 ## 当前状态
--   **阶段一：提升预测精细度** 的测试与修复工作已**完成**。
--   所有单元测试和 API 测试均已通过 `pytest` 检查。
--   代码库处于一个经过重构、增强和测试的稳定状态。
+-   项目处于**执行模式 (ACT MODE)**。
+-   已完成新方向的规划和任务梳理。
+-   已完成**阶段一：清理与准备** (删除 `frontend/` 和 `generators/` 目录)。
+-   已完成**阶段二：后端重构与增强**：
+    *   DCF 计算逻辑模块化完成。
+    *   `DataProcessor` 和 `FinancialForecaster` 功能增强完成（包括历史中位数、CAGR、预测模式等）。
+    *   API 接口 (`api/main.py`, `api/models.py`) 已更新，调用新模块，调整响应结构（包含详细预测表），并集成了 LLM 调用逻辑（当前配置为 DeepSeek）。
+    *   依赖 (`requirements.txt`) 和配置 (`.env.example`, `config/llm_prompt_template.md`) 已更新。
+-   已完成**阶段三：Streamlit UI 开发与调试**：
+    *   创建了 `streamlit_app.py`，包含输入控件、API 调用逻辑和结果展示区（包括基本信息、DCF结果、详细预测表、LLM摘要）。
+    *   解决了 Streamlit 布局错误 (`StreamlitAPIException`)，实现了两列布局。
+    *   添加了投资建议引导说明和情景分析占位符。
+-   已完成**阶段一：清理与准备**：删除了旧的前端和报告生成器代码，以及部分重构后不再需要的 Python 文件。
+-   **调试:**
+    *   解决了多轮测试中发现的 `TypeError` (float/Decimal), `AttributeError`, `IndentationError`, `KeyError` 等问题。
+    *   解决了总股本单位错误，使每股价值计算合理。
+    *   确认 PE/PB 数据源为 `valuation_metrics` 表，并更新了 `DataFetcher`。
+    *   确认 LLM (DeepSeek) API 调用成功。
+-   **单元测试修复 (当前工作):**
+    *   系统地运行了 `pytest` 并识别出重构后各模块（API, DataProcessor, Calculators）中的 20 个单元测试失败。
+    *   逐一分析并修复了所有失败的测试用例，主要涉及：
+        *   类型错误 (`Decimal` vs `float`, `numpy.int64` vs `Decimal`)。
+        *   `pytest.approx` 与 `Decimal` 的兼容性问题。
+        *   `NaN` 值处理逻辑。
+        *   异常处理逻辑（确保 `try-except` 块覆盖范围正确）。
+        *   测试断言与代码实际输出（包括错误消息、计算结果）的不匹配。
+        *   测试 fixture 或测试用例本身逻辑与被测代码不一致。
+    *   修改的文件包括所有 `tests/test_*.py` 文件以及对应的计算器模块 (`equity_bridge_calculator.py`, `fcf_calculator.py`, `financial_forecaster.py`, `present_value_calculator.py`, `terminal_value_calculator.py`, `wacc_calculator.py`)。
+    *   最终运行 `pytest` 确认所有 85 个测试全部通过。
+-   **应用状态:** 当前应用可以完成端到端计算并显示结果，单元测试全部通过。存在已知的数据警告（如 D&A/Revenue 配对问题）。
 
 ## 当前目标
--   根据项目计划，准备进入后续任务，例如：
-    *   为 `ValuationCalculator` 编写更详细的单元测试。
-    *   执行完整的端到端测试。
-    *   代码审查和清理。
-    *   进入 DCF 优化的下一阶段。
+-   **更新记忆库:** 根据已完成的单元测试修复工作，更新 `cline_docs/`。
+
+## 后续步骤 (优先级排序)
+1.  **完善 Streamlit UI:** (可选，可放入新任务) 根据测试结果和用户反馈，优化布局（特别是右侧LLM区域）、交互和错误处理。
+2.  **优化投资建议呈现:** (可选，可放入新任务) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
+3.  **实现情景分析功能:** (未来功能)
+4.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。

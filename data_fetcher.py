@@ -26,9 +26,20 @@ class BaseDataFetcher(ABC):
         db_name = os.getenv('DB_NAME', 'postgres')
 
         if db_user == 'default_user' or db_password == 'default_password':
-             print("警告：未能从环境变量加载数据库用户名或密码。请确保已创建并正确配置 .env 文件。")
+            print("警告：未能从环境变量加载数据库用户名或密码。请确保已创建并正确配置 .env 文件。")
+              
+        engine = create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+         
+        # 添加连接测试 (整体修正缩进)
+        try:
+            with engine.connect() as connection:
+                print("数据库连接测试成功！")
+        except Exception as e:
+            print(f"数据库连接测试失败: {e}")
+            # 可以在这里决定是否抛出异常，或者仅打印错误让后续逻辑处理
+            # raise e # 如果希望连接失败时阻止程序继续
 
-        return create_engine(f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}')
+        return engine
 
     @abstractmethod
     def get_stock_info(self) -> Dict[str, Any]:
@@ -91,6 +102,10 @@ class AshareDataFetcher(BaseDataFetcher):
         
         self.dividend_table = 'dividend'
         self.dividend_fields = ['ts_code', 'end_date', 'cash_div_tax', 'ann_date', 'div_proc']
+        
+        # 移除 valuation_metrics 相关定义，改用 specific 方法
+        # self.valuation_metrics_table = 'valuation_metrics' 
+        # self.valuation_metrics_fields = [...] 
     
     def get_stock_info(self):
         """获取股票基本信息"""
@@ -205,6 +220,177 @@ class AshareDataFetcher(BaseDataFetcher):
                 # 将现金分红转为浮点数
                 df['cash_div_tax'] = df['cash_div_tax'].astype(float)
             return df
+
+    def get_latest_valuation_metrics(self, valuation_date: Optional[str] = None) -> Optional[pd.DataFrame]:
+        """
+        获取指定日期或之前的最新估值指标。
+        Args:
+            valuation_date (Optional[str]): 估值基准日期 (YYYY-MM-DD)。如果为 None，则获取最新日期。
+        Returns:
+            Optional[pd.DataFrame]: 包含最新估值指标的 DataFrame，如果找不到则返回 None。
+        """
+        print(f"Fetching latest valuation metrics for {self.ts_code} up to {valuation_date or 'latest'}...")
+        with self.engine.connect() as conn:
+            fields_str = ', '.join(self.valuation_metrics_fields)
+            # 构建查询，如果提供了日期，则筛选该日期或之前的最新数据
+            date_condition = ""
+            params = {'ts_code': self.ts_code}
+            if valuation_date:
+                date_condition = "AND trade_date <= :valuation_date"
+                params['valuation_date'] = valuation_date
+            
+            # 假设 valuation_metrics 表存在且包含所需字段
+            # 如果没有 valuation_metrics 表，可能需要从 financial_indicators 或 daily_quotes 获取并计算
+            # 这里假设 valuation_metrics 表是主要的来源
+            query = text(f"""
+                SELECT {fields_str} 
+                FROM {self.valuation_metrics_table} 
+                WHERE ts_code = :ts_code {date_condition}
+                ORDER BY trade_date DESC 
+                LIMIT 1
+            """)
+            
+            try:
+                result = conn.execute(query, params)
+                row = result.fetchone()
+                if row is not None:
+                    df = pd.DataFrame([row._asdict()])
+                    # 确保数据类型正确
+                    for col in ['close', 'pe', 'pb', 'total_share', 'total_mv', 'circ_mv']:
+                        if col in df.columns:
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                    if 'trade_date' in df.columns:
+                         df['trade_date'] = pd.to_datetime(df['trade_date'])
+                    print(f"  Found latest valuation metrics: {df.iloc[0].to_dict()}")
+                    return df
+                else:
+                    print(f"  No valuation metrics found for {self.ts_code} up to {valuation_date or 'latest'}.")
+                    return None
+            except Exception as e:
+                 # 处理可能的表不存在或字段不存在错误
+                 print(f"Error fetching from {self.valuation_metrics_table}: {e}. Trying fallback (e.g., daily_quotes)...")
+                 # Fallback: 尝试从 daily_quotes 获取最新价格和日期
+                 try:
+                     dq_fields = ['ts_code', 'trade_date', 'close']
+                     dq_fields_str = ', '.join(dq_fields)
+                     dq_query = text(f"""
+                         SELECT {dq_fields_str} 
+                         FROM {self.daily_quotes_table} 
+                         WHERE ts_code = :ts_code {date_condition}
+                         ORDER BY trade_date DESC 
+                         LIMIT 1
+                     """)
+                     dq_result = conn.execute(dq_query, params)
+                     dq_row = dq_result.fetchone()
+                     if dq_row:
+                         # 创建一个只包含基本信息的 DataFrame
+                         fallback_data = dq_row._asdict()
+                         df = pd.DataFrame([fallback_data])
+                         df['close'] = pd.to_numeric(df['close'], errors='coerce')
+                         df['trade_date'] = pd.to_datetime(df['trade_date'])
+                         print(f"  Using fallback data from daily_quotes: {df.iloc[0].to_dict()}")
+                         # 其他指标 (pe, pb, total_share等) 将为 None 或需要进一步获取
+                         return df
+                     else:
+                          print(f"  Fallback failed: No data found in daily_quotes either.")
+                          return None
+                 except Exception as fallback_e:
+                      print(f"Error during fallback fetch from daily_quotes: {fallback_e}")
+                      return None
+                      
+    def get_latest_pe_pb(self, valuation_date: Optional[str] = None) -> Dict[str, Optional[float]]:
+        """
+        (修订) 获取指定日期或之前的最新 PE 和 PB。
+        从 valuation_metrics 表获取。
+        Args:
+            valuation_date (Optional[str]): 估值基准日期 (YYYY-MM-DD)。如果为 None，则获取最新日期。
+        Returns:
+            Dict[str, Optional[float]]: 包含 'pe' 和 'pb' 的字典。
+        """
+        print(f"Fetching latest PE/PB for {self.ts_code} up to {valuation_date or 'latest'}...")
+        pe_pb_data = {'pe': None, 'pb': None}
+        with self.engine.connect() as conn:
+            # valuation_metrics 按 trade_date 记录
+            date_condition = ""
+            params = {'ts_code': self.ts_code}
+            if valuation_date:
+                date_condition = "AND trade_date <= :valuation_date"
+                params['valuation_date'] = valuation_date
+
+            # 从 valuation_metrics 获取 PE 和 PB
+            query = text(f"""
+                SELECT pe, pb 
+                FROM valuation_metrics 
+                WHERE ts_code = :ts_code {date_condition}
+                ORDER BY trade_date DESC 
+                LIMIT 1
+            """)
+            try:
+                result = conn.execute(query, params)
+                row = result.fetchone()
+                if row is not None:
+                    row_dict = row._asdict()
+                    pe_pb_data['pe'] = pd.to_numeric(row_dict.get('pe'), errors='coerce')
+                    pe_pb_data['pb'] = pd.to_numeric(row_dict.get('pb'), errors='coerce')
+                    print(f"  Found latest PE: {pe_pb_data['pe']}, PB: {pe_pb_data['pb']} from valuation_metrics")
+                else:
+                    print(f"  No PE/PB data found in valuation_metrics for {self.ts_code} up to {valuation_date or 'latest'}.")
+            except Exception as e:
+                print(f"Error fetching PE/PB from valuation_metrics: {e}")
+                # 保留返回 None 的默认行为
+        
+        # 清理 NaN 值为 None
+        if pd.isna(pe_pb_data['pe']): pe_pb_data['pe'] = None
+        if pd.isna(pe_pb_data['pb']): pe_pb_data['pb'] = None
+            
+        return pe_pb_data
+
+    def get_latest_total_shares(self, valuation_date: Optional[str] = None) -> Optional[float]:
+        """
+        获取指定日期或之前的最新总股本。
+        从 valuation_metrics 表获取。
+        Args:
+            valuation_date (Optional[str]): 估值基准日期 (YYYY-MM-DD)。如果为 None，则获取最新日期。
+        Returns:
+            Optional[float]: 总股本，如果找不到则返回 None。
+        """
+        print(f"Fetching latest total shares for {self.ts_code} up to {valuation_date or 'latest'}...")
+        total_shares = None
+        with self.engine.connect() as conn:
+            date_condition = ""
+            params = {'ts_code': self.ts_code}
+            if valuation_date:
+                date_condition = "AND trade_date <= :valuation_date"
+                params['valuation_date'] = valuation_date
+
+            # 从 valuation_metrics 获取 total_share
+            query = text(f"""
+                SELECT total_share 
+                FROM valuation_metrics 
+                WHERE ts_code = :ts_code {date_condition}
+                ORDER BY trade_date DESC 
+                LIMIT 1
+            """)
+            try:
+                result = conn.execute(query, params)
+                row = result.fetchone()
+                if row is not None:
+                    total_shares = pd.to_numeric(row._asdict().get('total_share'), errors='coerce')
+                    # 确保 total_shares 是正数
+                    if total_shares is not None and total_shares <= 0:
+                         print(f"Warning: Fetched total_shares ({total_shares}) is not positive. Setting to None.")
+                         total_shares = None
+                    print(f"  Found latest total shares: {total_shares} from valuation_metrics")
+                else:
+                    print(f"  No total shares data found in valuation_metrics for {self.ts_code} up to {valuation_date or 'latest'}.")
+            except Exception as e:
+                print(f"Error fetching total shares from valuation_metrics: {e}")
+        
+        if pd.isna(total_shares):
+            total_shares = None
+            
+        return total_shares
+
 
     def get_raw_financial_data(self, years: int = 5) -> Dict[str, pd.DataFrame]:
         """
