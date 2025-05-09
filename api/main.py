@@ -18,7 +18,7 @@ from api.models import (
 )
 # 导入敏感性分析模型
 # 使用绝对导入
-from api.sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult, SensitivityAxisInput # 修正导入名称
+from api.sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult, SensitivityAxisInput, MetricType # 修正导入名称, 添加 MetricType
 
 # 导入数据获取器和所有新的计算器模块
 # 这些在根目录，保持不变
@@ -390,7 +390,7 @@ def format_llm_input_data(
 
     cleaned_key_assumptions = clean_dict(key_assumptions)
 
-    dcf_results_dict = dcf_details.dict(exclude_none=True) if dcf_details else {}
+    dcf_results_dict = dcf_details.model_dump(exclude_none=True) if dcf_details else {} # Changed .dict() to .model_dump()
     dcf_results_dict["key_assumptions"] = cleaned_key_assumptions
 
     data_dict = {
@@ -613,7 +613,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
 
         # --- Run Base Case Valuation ---
         logger.info("Running base case valuation...")
-        base_request_dict = request.dict() # Get base assumptions
+        base_request_dict = request.model_dump() # Get base assumptions, updated from .dict()
         base_dcf_details, base_forecast_df, base_run_warnings = _run_single_valuation(
             processed_data_container=processed_data_container,
             request_dict=base_request_dict,
@@ -652,37 +652,72 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             actual_row_values = row_values # Default to request values
             actual_col_values = col_values # Default to request values
             
-            wacc_used_from_base_calc = base_dcf_details.wacc_used if base_dcf_details else None
+            # Regenerate axis values if step and points are provided
+            def regenerate_axis_if_needed(axis_input: SensitivityAxisInput, base_details: Optional[DcfForecastDetails], param_name: str, is_row_axis: bool, base_req_dict: Dict[str, Any]) -> List[float]:
+                current_values = axis_input.values
+                should_regenerate = False
+                center_val = None
 
-            if wacc_used_from_base_calc is not None:
-                if row_param == "wacc":
-                    if sa_request.row_axis.step is not None and sa_request.row_axis.points is not None:
-                        logger.info(f"Regenerating WACC row axis around base WACC: {wacc_used_from_base_calc:.4f}, Step: {sa_request.row_axis.step}, Points: {sa_request.row_axis.points}")
-                        actual_row_values = generate_axis_values_backend(
-                            center=float(wacc_used_from_base_calc),
-                            step=float(sa_request.row_axis.step),
-                            points=int(sa_request.row_axis.points)
-                        )
-                    else:
-                        logger.warning("WACC is row axis, but step or points not provided in request. Using original values.")
-                        sensitivity_warnings.append("WACC为行轴，但未提供步长或点数，使用前端原始值列表。")
+                # For WACC, always try to regenerate if step/points are given, using base_wacc as center
+                if param_name == MetricType.WACC.value:
+                    if axis_input.step is not None and axis_input.points is not None:
+                        center_val = base_details.wacc_used if base_details else None
+                        if center_val is None: # Fallback to request input for WACC if base_details.wacc_used is None
+                            center_val = base_req_dict.get('wacc') # Assuming 'wacc' might be a direct param or calculated
+                            if center_val is None: # Try to get from wacc_calculator if not directly in request
+                                # This part is tricky as wacc_calculator is outside this direct scope
+                                # For now, rely on base_details.wacc_used or a clear request param
+                                pass 
+                        
+                        if center_val is not None:
+                            should_regenerate = True
+                        else:
+                            logger.warning(f"Cannot regenerate WACC axis for {'row' if is_row_axis else 'column'} due to missing base WACC and no fallback in request. Using original values if provided, else empty.")
+                            sensitivity_warnings.append(f"WACC轴无法重新生成（缺少基础WACC且请求中无回退值），将使用请求中提供的原始值（如果存在）。")
                 
-                if col_param == "wacc":
-                    if sa_request.column_axis.step is not None and sa_request.column_axis.points is not None:
-                        logger.info(f"Regenerating WACC column axis around base WACC: {wacc_used_from_base_calc:.4f}, Step: {sa_request.column_axis.step}, Points: {sa_request.column_axis.points}")
-                        actual_col_values = generate_axis_values_backend(
-                            center=float(wacc_used_from_base_calc),
-                            step=float(sa_request.column_axis.step),
-                            points=int(sa_request.column_axis.points)
-                        )
+                # For other params, regenerate only if values list is empty AND step/points are given
+                elif not current_values and axis_input.step is not None and axis_input.points is not None:
+                    if param_name == MetricType.TERMINAL_GROWTH_RATE.value:
+                        center_val = base_details.perpetual_growth_rate_used if base_details else None
+                        if center_val is None: # Fallback to request input
+                            center_val = base_req_dict.get('perpetual_growth_rate')
+                    elif param_name == MetricType.TERMINAL_EBITDA_MULTIPLE.value: # "exit_multiple"
+                        center_val = base_details.exit_multiple_used if base_details else None
+                        if center_val is None: # Fallback to request input
+                            center_val = base_req_dict.get('exit_multiple')
+                        if center_val is None: # Further fallback to a hardcoded default if still None
+                            center_val = 8.0 # Default exit multiple
+                            logger.info(f"Using hardcoded default center value {center_val} for {param_name} axis for {'row' if is_row_axis else 'column'}.")
+                            sensitivity_warnings.append(f"{param_name}轴缺少基准值和请求值，使用默认中心值 {center_val}。")
+                    
+                    if center_val is not None:
+                        try:
+                            # Ensure center_val is float for generate_axis_values_backend
+                            center_val = float(center_val)
+                            should_regenerate = True
+                        except (ValueError, TypeError):
+                            logger.warning(f"Cannot convert center_val '{center_val}' to float for {param_name} axis for {'row' if is_row_axis else 'column'}. Using original (empty) values.")
+                            sensitivity_warnings.append(f"{param_name}轴的中心值 '{center_val}' 无法转换为浮点数，将使用空的原始值列表。")
+                            should_regenerate = False # Prevent regeneration if conversion fails
                     else:
-                        logger.warning("WACC is column axis, but step or points not provided in request. Using original values.")
-                        sensitivity_warnings.append("WACC为列轴，但未提供步长或点数，使用前端原始值列表。")
-            else:
-                logger.warning("Base WACC not available, cannot regenerate WACC axis if selected. Using original values.")
-                if row_param == "wacc" or col_param == "wacc":
-                    sensitivity_warnings.append("基础WACC计算失败，无法重新生成WACC敏感性轴，使用前端原始值列表。")
+                        # This case should ideally not be reached if we have a hardcoded default for exit_multiple
+                        logger.warning(f"Cannot regenerate {param_name} axis for {'row' if is_row_axis else 'column'} due to missing base value and no fallback in request (even after default). Using original (empty) values.")
+                        sensitivity_warnings.append(f"{param_name}轴无法重新生成（所有回退机制均失败），将使用空的原始值列表。")
+                
+                if should_regenerate and center_val is not None: # center_val already converted to float or regeneration is skipped
+                    logger.info(f"Regenerating {'row' if is_row_axis else 'column'} axis for {param_name} around center value: {center_val:.4f}, Step: {axis_input.step}, Points: {axis_input.points}")
+                    return generate_axis_values_backend(
+                        center=float(center_val),
+                        step=float(axis_input.step),
+                        points=int(axis_input.points)
+                    )
+                
+                # If not regenerated, return the original values from the request
+                # If original values were empty and regeneration didn't happen (e.g. missing center_val for non-WACC), it will return empty.
+                return current_values
 
+            actual_row_values = regenerate_axis_if_needed(sa_request.row_axis, base_dcf_details, row_param, True, base_request_dict)
+            actual_col_values = regenerate_axis_if_needed(sa_request.column_axis, base_dcf_details, col_param, False, base_request_dict)
 
             # Initialize result tables for all supported metrics using actual axis dimensions
             from api.sensitivity_models import SUPPORTED_SENSITIVITY_OUTPUT_METRICS # Import the Literal type
@@ -744,6 +779,10 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         else:
                             result_tables["tv_ev_ratio"][i][j] = None
                         
+                        # DCF Implied PE
+                        result_tables["dcf_implied_pe"][i][j] = dcf_details_sens.dcf_implied_diluted_pe
+                        logger.debug(f"DEBUG api/main: Populating dcf_implied_pe table at [{i}][{j}] with value: {dcf_details_sens.dcf_implied_diluted_pe} (Type: {type(dcf_details_sens.dcf_implied_diluted_pe)})")
+
                         # EV/EBITDA (using base year's actual EBITDA)
                         base_actual_ebitda = base_latest_metrics.get('latest_actual_ebitda')
                         if base_actual_ebitda is not None and isinstance(base_actual_ebitda, Decimal) and base_actual_ebitda > Decimal('0'):

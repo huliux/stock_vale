@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Dict, Any, Optional, List, Union
 from decimal import Decimal # Ensure Decimal is imported
 from .sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult # Import new models
@@ -81,8 +81,7 @@ class StockBasicInfoModel(BaseModel):
     free_float_shares: Optional[float] = None # Store as float for JSON consistency
     # Add any other fields that might be in the basic_info dict passed from DataProcessor
     # For Pydantic V2, to handle extra fields in input dict if they are not strictly matching
-    class Config:
-        extra = "ignore"
+    model_config = ConfigDict(extra="ignore")
 
 
 class DividendAnalysis(BaseModel):

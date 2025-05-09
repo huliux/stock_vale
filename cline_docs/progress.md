@@ -120,6 +120,12 @@
     - [x] **敏感性分析功能测试 (EV/EBITDA 指标修正):** 用户手动测试 UI 交互、计算流程和结果展示，确认 EV/EBITDA 指标计算正确。
     - [x] **敏感性分析功能测试 (DCF 隐含 PE 指标显示):** DCF 隐含 PE 指标已在 Streamlit UI 中正确显示和计算。前端代码 (`streamlit_app.py`) 中的重复函数定义问题已解决。
     - [ ] **添加敏感性分析测试:** (当前任务) 补充后端单元测试和 API 集成测试，覆盖敏感性分析逻辑（特别是 WACC 轴重新生成、EV/EBITDA 计算和 DCF 隐含 PE 计算）。
+        *   修复了 `api/main.py` 中 `regenerate_axis_if_needed` 函数的逻辑及 `MetricType` 导入问题。
+        *   更新了 `api/sensitivity_models.py` 中的 `SUPPORTED_SENSITIVITY_OUTPUT_METRICS` 以包含 `dcf_implied_pe`。
+        *   移除了 `tests/api/test_sensitivity.py` 中不必要的 `call_count` 断言。
+        *   修正了 `tests/api/test_sensitivity.py` 中对 `base_valuation_summary` 的引用。
+        *   统一并修正了所有 `side_effect` 函数中的 `StockValuationRequest` 对象获取逻辑。
+        *   修正了测试中 `get_latest_metrics` 的 mock 数据。
     - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式和敏感性分析的特定测试）
         *   修复了 `tests/api/test_main.py` 中的类型和断言错误 (先前任务)。
         *   修复了 `tests/test_data_processor.py` 中的 NaN 处理、fixture 和警告断言错误 (先前任务)。

@@ -50,9 +50,17 @@
         *   `api/main.py` 已更新，计算此隐含 PE 并加入响应。
         *   `streamlit_app.py` 已更新，在 UI 中展示此隐含 PE。前端代码中的重复函数定义问题已解决，确保了指标的正确渲染，相关调试代码已移除。
         *   **DCF 隐含稀释 PE 指标已在 Streamlit UI 中正确显示。**
+    *   修复了 `api/main.py` 中 `regenerate_axis_if_needed` 函数的逻辑，以正确处理 WACC 轴和其他类型轴（如 `exit_multiple`）的值生成，特别是当输入 `values` 列表为空但提供了 `step` 和 `points` 时。
+    *   修复了 `api/main.py` 中 `regenerate_axis_if_needed` 函数内部因未导入 `MetricType` 而导致的 `NameError`。
+    *   更新了 `api/sensitivity_models.py` 中的 `SUPPORTED_SENSITIVITY_OUTPUT_METRICS`，添加了 `"dcf_implied_pe"`。
+    *   移除了 `tests/api/test_sensitivity.py` 中 `test_sensitivity_api_dcf_implied_pe_calculation` 测试里对 `get_latest_diluted_eps.call_count` 的不必要断言。
+    *   修正了 `tests/api/test_sensitivity.py` 中 `test_sensitivity_api_overall_flow` 测试里对 `base_valuation_summary` 的引用，改为 `dcf_forecast_details`，并修正了其内部 `side_effect_overall_flow` 函数中对 `stock_valuation_request_obj` 的引用。
+    *   所有三个 `side_effect` 函数 (`side_effect_ev_ebitda`, `side_effect_dcf_pe`, `side_effect_overall_flow`) 中的 `StockValuationRequest` 对象获取逻辑已统一并修正。
+    *   在 `test_sensitivity_api_ev_ebitda_calculation` 和 `test_sensitivity_api_dcf_implied_pe_calculation` 以及 `test_sensitivity_api_overall_flow` 中添加/修正了对 `MockDataProcessor.return_value.get_latest_metrics.return_value` 的 mock，以确保提供正确的 `latest_annual_diluted_eps` 和 `latest_actual_ebitda`。
 -   **应用状态:** 后端 API 服务可正常运行。Streamlit 应用可运行。敏感性分析的核心功能及各项指标计算逻辑已按要求实现。DCF 隐含 PE 指标显示问题已解决。
 
 ## 当前目标
+-   运行 `pytest tests/api/test_sensitivity.py`，目标是让所有12个测试用例通过。
 -   **添加测试:** 为敏感性分析相关逻辑（特别是后端 WACC 轴重新生成逻辑、EV/EBITDA 计算逻辑、DCF 隐含 PE 计算逻辑和整体敏感性分析流程）补充单元测试和集成测试。
 
 ## 后续步骤 (优先级排序)
