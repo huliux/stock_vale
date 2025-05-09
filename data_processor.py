@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Union, List, Optional, Any
+from decimal import Decimal, InvalidOperation # Import Decimal and InvalidOperation
 
 # 假设 NwcCalculator 类在 nwc_calculator.py 中定义
 from nwc_calculator import NwcCalculator
@@ -54,6 +55,42 @@ class DataProcessor:
         else:
              print(f"  Using provided latest PE: {self.latest_metrics['pe']}, PB: {self.latest_metrics['pb']}")
         
+        # 提取最近年报的 diluted_eps
+        self.latest_metrics['latest_annual_diluted_eps'] = None
+        df_is = self.input_data.get('income_statement')
+        if df_is is not None and not df_is.empty and 'end_date' in df_is.columns and 'diluted_eps' in df_is.columns:
+            try:
+                df_is_copy = df_is.copy() # 操作副本
+                df_is_copy['end_date'] = pd.to_datetime(df_is_copy['end_date'])
+                # 筛选年报：假设年报的月份是12月，或者 end_type 明确标识 (需要确认 end_type 的含义)
+                # 优先使用 end_type (如果存在且含义明确)，否则使用月份判断
+                annual_reports = None
+                if 'end_type' in df_is_copy.columns: # 假设 '1231' 或类似表示年报
+                    # 根据实际 end_type 值调整，这里假设 '4' 代表年报 (Q4累计即全年) 或 '1231'
+                    # 如果 end_type 不可靠，则回退到月份判断
+                    # 查阅数据库文档，end_type 的含义是报告期类型，但具体值代表年报的约定未知，先用月份
+                    annual_reports = df_is_copy[df_is_copy['end_date'].dt.month == 12]
+                else: # 如果没有 end_type，则按月份筛选
+                    annual_reports = df_is_copy[df_is_copy['end_date'].dt.month == 12]
+
+                if not annual_reports.empty:
+                    latest_annual_report = annual_reports.sort_values(by='end_date', ascending=False).iloc[0]
+                    if pd.notna(latest_annual_report['diluted_eps']):
+                        self.latest_metrics['latest_annual_diluted_eps'] = Decimal(str(latest_annual_report['diluted_eps']))
+                        print(f"  Extracted latest annual diluted_eps: {self.latest_metrics['latest_annual_diluted_eps']} for year ending {latest_annual_report['end_date'].year}")
+                    else:
+                        warning_msg_eps = f"最新年报 ({latest_annual_report['end_date'].year}) 的 diluted_eps 为空。"
+                        self.warnings.append(warning_msg_eps); print(f"Warning: {warning_msg_eps}")
+                else:
+                    warning_msg_eps = "未找到年报数据以提取 diluted_eps。"
+                    self.warnings.append(warning_msg_eps); print(f"Warning: {warning_msg_eps}")
+            except Exception as e:
+                warning_msg_eps = f"提取最新年报 diluted_eps 时出错: {e}"
+                self.warnings.append(warning_msg_eps); print(f"Warning: {warning_msg_eps}")
+        else:
+            warning_msg_eps = "利润表数据不完整，无法提取 diluted_eps。"
+            self.warnings.append(warning_msg_eps); print(f"Warning: {warning_msg_eps}")
+
         # 移除从 valuation_metrics DataFrame 获取 PE/PB 的旧逻辑
         # df_vm = self.input_data.get('valuation_metrics') ... (旧代码移除)
 
@@ -178,9 +215,9 @@ class DataProcessor:
 
         print("数据清洗完成。")
 
-    def _calculate_median_ratio_or_days(self, series1: pd.Series, series2: pd.Series, days_in_year=360) -> Optional['Decimal']:
+    def _calculate_median_ratio_or_days(self, series1: pd.Series, series2: pd.Series, days_in_year=360) -> Optional[Decimal]: # Use imported Decimal
         """计算两个 Series 比率或周转天数的中位数，忽略无效值，返回 Decimal 类型。"""
-        from decimal import Decimal, InvalidOperation # 确保 Decimal 在此作用域可用
+        # from decimal import Decimal, InvalidOperation # No longer needed here as it's imported at the top
         try:
             # 确保输入 Series 中的数据是数值类型，并尝试转换为 Decimal
             s1_decimal = series1.apply(lambda x: Decimal(str(x)) if pd.notna(x) else None)
@@ -391,7 +428,7 @@ class DataProcessor:
             self.historical_ratios['effective_tax_rate'] = None
 
         # --- 计算历史收入 CAGR (优先3年，失败则尝试所有年份) ---
-        from decimal import Decimal, InvalidOperation # 确保 Decimal 可用
+        # from decimal import Decimal, InvalidOperation # No longer needed here
         self.historical_ratios['historical_revenue_cagr'] = None # 初始化为 None
         revenue_col = 'total_revenue' # 确认使用 total_revenue
         
@@ -490,5 +527,91 @@ class DataProcessor:
     def get_latest_balance_sheet(self) -> Optional[pd.Series]:
         """获取最新的资产负债表 Series。"""
         return self.latest_balance_sheet
+
+    def get_latest_actual_ebitda(self) -> Optional[Decimal]:
+        """获取最近一个完整财年的实际EBITDA。"""
+        is_df = self.processed_data.get('income_statement')
+        cf_df = self.processed_data.get('cash_flow')
+
+        if is_df is None or is_df.empty or cf_df is None or cf_df.empty:
+            self.warnings.append("无法获取最新实际EBITDA：缺少利润表或现金流量表数据。")
+            return None
+
+        try:
+            # 确保已排序且日期已转换 (假设 end_date 是 datetime 对象)
+            is_df_sorted = is_df.sort_values(by='end_date', ascending=False)
+            cf_df_sorted = cf_df.sort_values(by='end_date', ascending=False)
+
+            if is_df_sorted.empty:
+                self.warnings.append("无法获取最新实际EBITDA：排序后的利润表为空。")
+                return None
+                
+            latest_is_report = is_df_sorted.iloc[0]
+            latest_is_date = latest_is_report['end_date']
+
+            ebit_col_name = 'operate_profit' if 'operate_profit' in latest_is_report.index else 'ebit'
+            if ebit_col_name not in latest_is_report.index or pd.isna(latest_is_report[ebit_col_name]):
+                # 尝试从第二新的报告中获取 EBIT，以防最新的是季度报告且 EBIT 为空
+                if len(is_df_sorted) > 1:
+                    second_latest_is_report = is_df_sorted.iloc[1]
+                    if ebit_col_name in second_latest_is_report.index and pd.notna(second_latest_is_report[ebit_col_name]):
+                        latest_ebit = Decimal(str(second_latest_is_report[ebit_col_name]))
+                        latest_is_date = second_latest_is_report['end_date'] # 更新基准日期
+                        self.warnings.append(f"最新的利润表报告期 {latest_is_report['end_date'].year} 的 '{ebit_col_name}' 为空, 使用了次新报告期 {latest_is_date.year} 的数据。")
+                    else:
+                        self.warnings.append(f"无法获取最新实际EBITDA：利润表中缺少 '{ebit_col_name}' 或其值为NaN（已尝试两个最新报告期）。")
+                        return None
+                else:
+                    self.warnings.append(f"无法获取最新实际EBITDA：利润表中缺少 '{ebit_col_name}' 或其值为NaN。")
+                    return None
+            else:
+                latest_ebit = Decimal(str(latest_is_report[ebit_col_name]))
+
+
+            da_cols = ['depr_fa_coga_dpba', 'amort_intang_assets', 'use_right_asset_dep'] # 根据实际数据列名调整
+            existing_da_cols = [col for col in da_cols if col in cf_df_sorted.columns]
+            latest_da = Decimal('0')
+
+            if existing_da_cols:
+                # 查找与更新后的 latest_is_date 同年份的现金流量表记录
+                # 确保 cf_df_sorted['end_date'] 是 datetime 类型
+                if not pd.api.types.is_datetime64_any_dtype(cf_df_sorted['end_date']):
+                    cf_df_sorted['end_date'] = pd.to_datetime(cf_df_sorted['end_date'])
+
+                cf_df_latest_year = cf_df_sorted[cf_df_sorted['end_date'].dt.year == latest_is_date.year]
+                
+                if not cf_df_latest_year.empty:
+                    # 如果一年有多条记录（例如季度），通常年报的 D&A 是累计值，或者需要加总
+                    # 简单起见，如果有多条，取最新的那条记录的 D&A 值（假设它是年报或累计值）
+                    # 更准确的做法是识别年报，或加总四个季度（如果数据是单季）
+                    latest_cf_for_year = cf_df_latest_year.iloc[0] # 取该年最新的记录
+                    
+                    da_values_for_latest_year = []
+                    for col in existing_da_cols:
+                        if col in latest_cf_for_year.index and pd.notna(latest_cf_for_year[col]):
+                            da_values_for_latest_year.append(Decimal(str(latest_cf_for_year[col])))
+                        else:
+                            # 如果某个D&A分项缺失，可以当作0处理或记录警告
+                            # self.warnings.append(f"D&A分项 '{col}' 在 {latest_is_date.year} 年的现金流量表中缺失或为NaN。")
+                            pass # 暂时忽略单个缺失的D&A分项
+
+                    if da_values_for_latest_year:
+                        latest_da = sum(da_values_for_latest_year)
+                    else:
+                        self.warnings.append(f"无法从现金流量表获取 {latest_is_date.year} 年的有效D&A数据。")
+                else:
+                    self.warnings.append(f"现金流量表中未找到与利润表年份 {latest_is_date.year} 匹配的D&A数据。")
+            else:
+                self.warnings.append("现金流量表中缺少足够的D&A相关列来计算最新EBITDA。")
+            
+            latest_ebitda = latest_ebit + latest_da
+            print(f"  Calculated latest actual EBITDA for year ending {latest_is_date.strftime('%Y-%m-%d')}: {latest_ebitda}")
+            self.latest_metrics['latest_actual_ebitda'] = latest_ebitda # 存储到 latest_metrics
+            return latest_ebitda
+
+        except Exception as e:
+            self.warnings.append(f"计算最新实际EBITDA时出错: {e}")
+            print(f"Error calculating latest actual EBITDA: {e} \n{traceback.format_exc()}")
+            return None
 
 # End of class DataProcessor

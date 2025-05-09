@@ -1,32 +1,29 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Union, Dict, Any
 
-class SensitivityAxis(BaseModel):
-    """定义敏感性分析的一个轴"""
-    parameter_name: str = Field(..., description="要变化的参数名 (例如 'wacc', 'exit_multiple', 'perpetual_growth_rate')")
-    values: List[float] = Field(..., description="该参数要测试的值列表")
-
 from typing import List, Optional, Union, Dict, Any, Literal
 
 # --- Sensitivity Analysis Models ---
 
 SUPPORTED_SENSITIVITY_OUTPUT_METRICS = Literal[
-    "value_per_share", 
-    "enterprise_value", 
-    "equity_value", 
+    "value_per_share",
+    "enterprise_value",
+    "equity_value",
     "ev_ebitda", # 注意: EBITDA 可能需要确认是末期预测值还是 LTM
     "tv_ev_ratio" # 终值占企业价值比例
 ]
 
-class SensitivityAxis(BaseModel):
-    """定义敏感性分析的一个轴"""
+class SensitivityAxisInput(BaseModel): # 重命名以区分，并对应计划
+    """定义敏感性分析的一个轴的输入配置"""
     parameter_name: str = Field(..., description="要变化的参数名 (例如 'wacc', 'exit_multiple', 'perpetual_growth_rate')")
-    values: List[float] = Field(..., description="该参数要测试的值列表")
+    values: List[float] = Field(..., description="该参数要测试的值列表 (对于非WACC轴，或WACC轴的初始列表)")
+    step: Optional[float] = Field(None, description="该轴的步长 (主要用于WACC轴的后端重新生成)")
+    points: Optional[int] = Field(None, description="该轴的点数 (主要用于WACC轴的后端重新生成)")
 
 class SensitivityAnalysisRequest(BaseModel):
     """敏感性分析的请求配置"""
-    row_axis: SensitivityAxis = Field(..., description="定义行轴的参数和值")
-    column_axis: SensitivityAxis = Field(..., description="定义列轴的参数和值")
+    row_axis: SensitivityAxisInput = Field(..., description="定义行轴的参数和值")
+    column_axis: SensitivityAxisInput = Field(..., description="定义列轴的参数和值")
     # output_metric 字段移除，后端将计算所有支持的指标
 
 class SensitivityAnalysisResult(BaseModel):

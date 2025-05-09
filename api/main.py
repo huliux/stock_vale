@@ -18,7 +18,7 @@ from api.models import (
 )
 # 导入敏感性分析模型
 # 使用绝对导入
-from api.sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult, SensitivityAxis
+from api.sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult, SensitivityAxisInput # 修正导入名称
 
 # 导入数据获取器和所有新的计算器模块
 # 这些在根目录，保持不变
@@ -151,6 +151,31 @@ def decimal_default(obj):
     # If no specific handler, raise TypeError with more info
     raise TypeError(f"Object of type {type(obj).__name__} with value '{str(obj)}' is not JSON serializable")
 
+# --- Backend Axis Generation Helper ---
+def generate_axis_values_backend(center: float, step: float, points: int) -> List[float]:
+    """
+    Generates a list of axis values based on center, step, and points.
+    Ensures points is an odd number >= 1 (typically >=3 for meaningful analysis).
+    """
+    if not isinstance(points, int) or points < 1:
+        logger.warning(f"Invalid points value {points}, defaulting to 3.")
+        points = 3
+    elif points % 2 == 0:
+        logger.warning(f"Points value {points} is even, incrementing to {points + 1}.")
+        points += 1
+    
+    if not (isinstance(center, (float, int, Decimal)) and isinstance(step, (float, int, Decimal))):
+        logger.error(f"Invalid center ({center}) or step ({step}) for axis generation.")
+        # Depending on strictness, could raise error or return default list
+        return [float(center)] if isinstance(center, (float, int, Decimal)) else [0.0]
+
+
+    center = float(center)
+    step = float(step)
+    
+    offset = (points - 1) // 2
+    return [center + step * (i - offset) for i in range(points)]
+
 # --- Core Valuation Logic Helper ---
 
 def _run_single_valuation(
@@ -277,6 +302,11 @@ def _run_single_valuation(
 
         # 8. 构建 DCF 结果对象
         logger.debug("  Running single valuation: Step 8 - Building DCF results object...")
+        
+        # 计算 DCF 隐含稀释 PE (在 _run_single_valuation 外部，因为它依赖于 base_latest_metrics)
+        # 这个逻辑应该在 calculate_valuation_endpoint_v2 中，当 base_dcf_details 和 base_latest_metrics 可用时
+        # 因此，dcf_implied_diluted_pe 将在构建最终的 base_dcf_details 时添加
+
         dcf_details = DcfForecastDetails(
             enterprise_value=enterprise_value, equity_value=equity_value, value_per_share=value_per_share,
             net_debt=net_debt, pv_forecast_ufcf=pv_forecast_ufcf, pv_terminal_value=pv_terminal_value,
@@ -285,6 +315,7 @@ def _run_single_valuation(
             exit_multiple_used=exit_multiple_to_use if tv_method == 'exit_multiple' else None,
             perpetual_growth_rate_used=perpetual_growth_rate_to_use if tv_method == 'perpetual_growth' else None,
             forecast_period_years=request_dict.get('forecast_years', 5) # Get from dict
+            # dcf_implied_diluted_pe 将在主函数中计算并添加到基础 DcfForecastDetails
         )
         logger.debug("  Single valuation run completed successfully.")
         return dcf_details, final_forecast_df, local_warnings
@@ -558,10 +589,16 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # Get processed data needed for valuation runs
         base_basic_info = processed_data_container.get_basic_info() # Use this for final response
         base_latest_metrics = processed_data_container.get_latest_metrics()
+        # Explicitly call get_latest_actual_ebitda to ensure it's calculated and stored in latest_metrics
+        _ = processed_data_container.get_latest_actual_ebitda() # The result is stored in self.latest_metrics
+        base_latest_metrics = processed_data_container.get_latest_metrics() # Re-fetch to include latest_actual_ebitda
+        
         base_historical_ratios = processed_data_container.get_historical_ratios()
         base_data_warnings = processed_data_container.get_warnings() # Initial warnings
         base_latest_metrics['latest_price'] = latest_price
         logger.info(f"  Data processing complete. Initial Warnings: {len(base_data_warnings)}")
+        logger.info(f"  Base latest metrics including actual EBITDA: {base_latest_metrics}")
+
 
         # --- Initialize WACC Calculator (Common) ---
         market_cap_est = None
@@ -599,27 +636,65 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             row_values = sa_request.row_axis.values
             col_values = sa_request.column_axis.values
             # output_metric is no longer in the request, we calculate all supported metrics
-            # output_metric = sa_request.output_metric 
+            # output_metric = sa_request.output_metric
 
             if row_param == col_param:
                 raise HTTPException(status_code=422, detail="敏感性分析的行轴和列轴不能使用相同的参数。")
-            
+
             # Validate supported parameters (extend this list as needed)
             supported_params = ["wacc", "exit_multiple", "perpetual_growth_rate"]
             if row_param not in supported_params or col_param not in supported_params:
                  raise HTTPException(status_code=422, detail=f"敏感性分析仅支持以下参数: {', '.join(supported_params)}")
 
-            # Initialize result tables for all supported metrics
+            sensitivity_warnings = [] # Initialize warnings for sensitivity analysis part
+
+            # --- WACC-specific axis regeneration ---
+            actual_row_values = row_values # Default to request values
+            actual_col_values = col_values # Default to request values
+            
+            wacc_used_from_base_calc = base_dcf_details.wacc_used if base_dcf_details else None
+
+            if wacc_used_from_base_calc is not None:
+                if row_param == "wacc":
+                    if sa_request.row_axis.step is not None and sa_request.row_axis.points is not None:
+                        logger.info(f"Regenerating WACC row axis around base WACC: {wacc_used_from_base_calc:.4f}, Step: {sa_request.row_axis.step}, Points: {sa_request.row_axis.points}")
+                        actual_row_values = generate_axis_values_backend(
+                            center=float(wacc_used_from_base_calc),
+                            step=float(sa_request.row_axis.step),
+                            points=int(sa_request.row_axis.points)
+                        )
+                    else:
+                        logger.warning("WACC is row axis, but step or points not provided in request. Using original values.")
+                        sensitivity_warnings.append("WACC为行轴，但未提供步长或点数，使用前端原始值列表。")
+                
+                if col_param == "wacc":
+                    if sa_request.column_axis.step is not None and sa_request.column_axis.points is not None:
+                        logger.info(f"Regenerating WACC column axis around base WACC: {wacc_used_from_base_calc:.4f}, Step: {sa_request.column_axis.step}, Points: {sa_request.column_axis.points}")
+                        actual_col_values = generate_axis_values_backend(
+                            center=float(wacc_used_from_base_calc),
+                            step=float(sa_request.column_axis.step),
+                            points=int(sa_request.column_axis.points)
+                        )
+                    else:
+                        logger.warning("WACC is column axis, but step or points not provided in request. Using original values.")
+                        sensitivity_warnings.append("WACC为列轴，但未提供步长或点数，使用前端原始值列表。")
+            else:
+                logger.warning("Base WACC not available, cannot regenerate WACC axis if selected. Using original values.")
+                if row_param == "wacc" or col_param == "wacc":
+                    sensitivity_warnings.append("基础WACC计算失败，无法重新生成WACC敏感性轴，使用前端原始值列表。")
+
+
+            # Initialize result tables for all supported metrics using actual axis dimensions
             from api.sensitivity_models import SUPPORTED_SENSITIVITY_OUTPUT_METRICS # Import the Literal type
             output_metrics_to_calculate = list(SUPPORTED_SENSITIVITY_OUTPUT_METRICS.__args__)
             result_tables: Dict[str, List[List[Optional[float]]]] = {
-                metric: [[None for _ in col_values] for _ in row_values] 
+                metric: [[None for _ in actual_col_values] for _ in actual_row_values]
                 for metric in output_metrics_to_calculate
             }
-            sensitivity_warnings = []
+            # sensitivity_warnings already initialized
 
-            for i, row_val in enumerate(row_values):
-                for j, col_val in enumerate(col_values):
+            for i, row_val in enumerate(actual_row_values): # Use actual_row_values
+                for j, col_val in enumerate(actual_col_values): # Use actual_col_values
                     logger.debug(f"  Running sensitivity case: {row_param}={row_val}, {col_param}={col_val}")
                     temp_request_dict = base_request_dict.copy()
                     override_wacc = None
@@ -663,20 +738,30 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         result_tables["enterprise_value"][i][j] = dcf_details_sens.enterprise_value
                         # Equity Value
                         result_tables["equity_value"][i][j] = dcf_details_sens.equity_value
-                        # TV/EV Ratio
+                        # TV/EV Ratio (using PV of Terminal Value)
                         if dcf_details_sens.enterprise_value and dcf_details_sens.enterprise_value != 0:
-                            result_tables["tv_ev_ratio"][i][j] = (dcf_details_sens.terminal_value or 0) / dcf_details_sens.enterprise_value
+                            result_tables["tv_ev_ratio"][i][j] = (dcf_details_sens.pv_terminal_value or 0) / dcf_details_sens.enterprise_value
                         else:
                             result_tables["tv_ev_ratio"][i][j] = None
-                        # EV/EBITDA (using last forecast year EBITDA)
-                        if forecast_df_sens is not None and not forecast_df_sens.empty and 'ebitda' in forecast_df_sens.columns:
-                            last_ebitda = forecast_df_sens['ebitda'].iloc[-1]
-                            if pd.notna(last_ebitda) and last_ebitda != 0 and dcf_details_sens.enterprise_value is not None:
-                                result_tables["ev_ebitda"][i][j] = dcf_details_sens.enterprise_value / last_ebitda
+                        
+                        # EV/EBITDA (using base year's actual EBITDA)
+                        base_actual_ebitda = base_latest_metrics.get('latest_actual_ebitda')
+                        if base_actual_ebitda is not None and isinstance(base_actual_ebitda, Decimal) and base_actual_ebitda > Decimal('0'):
+                            if dcf_details_sens.enterprise_value is not None:
+                                try:
+                                    result_tables["ev_ebitda"][i][j] = float(Decimal(str(dcf_details_sens.enterprise_value)) / base_actual_ebitda)
+                                except (InvalidOperation, TypeError, ZeroDivisionError) as e_calc:
+                                    logger.warning(f"Error calculating EV/EBITDA for sensitivity: EV={dcf_details_sens.enterprise_value}, BaseEBITDA={base_actual_ebitda}. Error: {e_calc}")
+                                    result_tables["ev_ebitda"][i][j] = None
                             else:
                                 result_tables["ev_ebitda"][i][j] = None
                         else:
                             result_tables["ev_ebitda"][i][j] = None
+                            if base_actual_ebitda is None:
+                                sensitivity_warnings.append("无法获取基准年实际EBITDA，EV/EBITDA敏感性分析结果可能不准确或为空。")
+                            elif not (isinstance(base_actual_ebitda, Decimal) and base_actual_ebitda > Decimal('0')):
+                                 sensitivity_warnings.append(f"基准年实际EBITDA无效 ({base_actual_ebitda})，EV/EBITDA敏感性分析结果可能不准确或为空。")
+                                 
                     else:
                         # If dcf_details_sens is None, all metrics for this combo are None (already initialized)
                         logger.warning(f"  Sensitivity case failed for {row_param}={row_val}, {col_param}={col_val}")
@@ -684,8 +769,8 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             sensitivity_result_obj = SensitivityAnalysisResult(
                 row_parameter=row_param,
                 column_parameter=col_param,
-                row_values=row_values,
-                column_values=col_values,
+                row_values=actual_row_values, # Return the actual values used
+                column_values=actual_col_values, # Return the actual values used
                 result_tables=result_tables # Pass the dictionary of tables
             )
             all_warnings.extend(sensitivity_warnings) # Add warnings from sensitivity runs
@@ -718,11 +803,37 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
 
         # --- Build Final Response ---
         logger.info("Step 10: Building final response...")
+
+        # 计算并添加到基础 DCF 详情中
+        dcf_implied_diluted_pe_value = None
+        if base_dcf_details and base_dcf_details.value_per_share is not None:
+            latest_annual_eps = base_latest_metrics.get('latest_annual_diluted_eps')
+            logger.info(f"Calculating DCF Implied PE: ValuePerShare={base_dcf_details.value_per_share}, LatestAnnualDilutedEPS={latest_annual_eps}")
+            if latest_annual_eps is not None and isinstance(latest_annual_eps, Decimal) and latest_annual_eps > Decimal('0'):
+                try:
+                    dcf_implied_diluted_pe_value = float(Decimal(str(base_dcf_details.value_per_share)) / latest_annual_eps)
+                    logger.info(f"Calculated DCF Implied PE Value: {dcf_implied_diluted_pe_value}")
+                except (InvalidOperation, TypeError, ZeroDivisionError) as e_pe_calc:
+                    logger.warning(f"Error calculating DCF implied diluted PE: VPS={base_dcf_details.value_per_share}, EPS={latest_annual_eps}. Error: {e_pe_calc}")
+                    all_warnings.append(f"计算DCF隐含PE时出错: {e_pe_calc}")
+            elif latest_annual_eps is not None: # EPS is zero or negative
+                 logger.warning(f"Latest annual diluted EPS ({latest_annual_eps}) is zero or negative. Cannot calculate DCF implied PE.")
+                 all_warnings.append(f"最近年报稀释EPS ({latest_annual_eps}) 为零或负数，无法计算DCF隐含PE。")
+            else: # EPS is None
+                 logger.warning("Latest annual diluted EPS is None. Cannot calculate DCF implied PE.")
+                 all_warnings.append("无法获取最近年报稀释EPS，无法计算DCF隐含PE。")
+        else:
+            logger.warning("Base DCF details or value_per_share is None. Cannot calculate DCF implied PE.")
+        
+        if base_dcf_details: # 确保 base_dcf_details 不是 None
+            base_dcf_details.dcf_implied_diluted_pe = dcf_implied_diluted_pe_value
+            logger.info(f"Assigned dcf_implied_diluted_pe to base_dcf_details: {base_dcf_details.dcf_implied_diluted_pe}")
+
         results_container = ValuationResultsContainer(
             latest_price=latest_price,
             current_pe=base_latest_metrics.get('pe'),
             current_pb=base_latest_metrics.get('pb'),
-            dcf_forecast_details=base_dcf_details, # Use base case details for main display
+            dcf_forecast_details=base_dcf_details, # Use base case details for main display (now includes PE)
             llm_analysis_summary=llm_summary,
             data_warnings=list(set(all_warnings)) if all_warnings else None, # Remove duplicate warnings
             detailed_forecast_table=base_forecast_df.to_dict(orient='records') if base_forecast_df is not None and not base_forecast_df.empty else None, # Use base forecast table

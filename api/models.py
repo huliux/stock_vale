@@ -116,6 +116,7 @@ class DcfForecastDetails(BaseModel):
     exit_multiple_used: Optional[float] = Field(None, description="使用的退出乘数")
     perpetual_growth_rate_used: Optional[float] = Field(None, description="使用的永续增长率")
     forecast_period_years: Optional[int] = Field(None, description="预测期年数")
+    dcf_implied_diluted_pe: Optional[float] = Field(None, description="DCF估值对应的稀释市盈率(基于最近年报EPS)")
 
 class ValuationResultsContainer(BaseModel):
     """(修订版) 包含所有计算结果的容器。"""
