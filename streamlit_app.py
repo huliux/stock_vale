@@ -221,23 +221,30 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 dividend_yield_value = stock_info.get('dividend_yield') # API返回的是Decimal或None
                 ttm_dps_value = stock_info.get('ttm_dps') # API返回的是Decimal或None
 
-                div_col1, div_col2, _, _ = st.columns(4) # 复用之前的列定义数量，只用前两个
-                
-                if dividend_yield_value is not None:
-                    div_col1.metric("TTM 股息率", f"{float(dividend_yield_value) * 100:.2f}%")
-                else:
-                    div_col1.metric("TTM 股息率", "N/A")
-                
-                if ttm_dps_value is not None:
-                    # 根据数值大小调整小数位数，例如保留2-4位
-                    dps_display_val = float(ttm_dps_value)
-                    if abs(dps_display_val) < 0.01 and dps_display_val != 0:
-                        dps_format_str = ".4f"
+                # 第一行：TTM股息率, TTM每股股息
+                item_col1, item_col2 = st.columns(2)
+                with item_col1:
+                    if dividend_yield_value is not None:
+                        st.metric("TTM 股息率", f"{float(dividend_yield_value) * 100:.2f}%")
                     else:
-                        dps_format_str = ".2f"
-                    div_col2.metric("TTM 每股股息", f"{dps_display_val:{dps_format_str}}")
-                else:
-                    div_col2.metric("TTM 每股股息", "N/A")
+                        st.metric("TTM 股息率", "N/A")
+                with item_col2:
+                    if ttm_dps_value is not None:
+                        dps_display_val = float(ttm_dps_value)
+                        if abs(dps_display_val) < 0.01 and dps_display_val != 0:
+                            dps_format_str = ".4f"
+                        else:
+                            dps_format_str = ".2f"
+                        st.metric("TTM 每股股息", f"{dps_display_val:{dps_format_str}}")
+                    else:
+                        st.metric("TTM 每股股息", "N/A")
+
+                # 第二行：实际控制人, 控制人企业性质
+                item_col3, item_col4 = st.columns(2)
+                with item_col3:
+                    st.metric("实际控制人", stock_info.get("act_name", "未知"))
+                with item_col4:
+                    st.metric("控制人企业性质", stock_info.get("act_ent_type", "民营企业"))
                 
                 st.subheader("核心 DCF 估值结果")
                 col1_dcf, col2_dcf, col3_dcf, col4_dcf = st.columns(4)
@@ -272,7 +279,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                     elif dcf_details.get('terminal_value_method_used') == 'perpetual_growth':
                         st.caption(f"永续增长率: {dcf_details.get('perpetual_growth_rate_used', 'N/A') * 100:.2f}%")
 
-                st.subheader("预测期详细数据")
+                st.subheader("预测数据")
                 detailed_forecast_table_data = valuation_results.get("detailed_forecast_table")
                 if detailed_forecast_table_data:
                     try:
@@ -293,7 +300,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 sensitivity_enabled_for_this_run = payload_filtered.get("sensitivity_analysis") is not None
                 
                 if sensitivity_data and sensitivity_enabled_for_this_run: 
-                    st.subheader("🔬 敏感性分析结果")
+                    st.subheader("🔬 敏感性分析")
                     try:
                         row_param = sensitivity_data['row_parameter']
                         col_param = sensitivity_data['column_parameter']

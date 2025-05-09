@@ -74,7 +74,7 @@ class AshareDataFetcher(BaseDataFetcher):
         # Ashare specific table and field configurations
         self.stock_basic_table = 'stock_basic'
         # Note: get_stock_info needs 'industry' field, ensure it's included or handled separately in query
-        self.stock_basic_fields = ['ts_code', 'name', 'industry'] 
+        self.stock_basic_fields = ['ts_code', 'name', 'industry', 'act_name', 'act_ent_type', 'list_date', 'exchange', 'curr_type'] 
         
         self.daily_quotes_table = 'daily_quotes'
         self.daily_quotes_fields = ['ts_code', 'close', 'trade_date']
@@ -110,25 +110,44 @@ class AshareDataFetcher(BaseDataFetcher):
     def get_stock_info(self):
         """获取股票基本信息"""
         with self.engine.connect() as conn:
-            # 确保查询包含所有必要字段
-            required_fields = ['ts_code', 'name', 'industry']
-            fields_str = ', '.join(set(self.stock_basic_fields + required_fields))
-            query = text(f"SELECT {fields_str} FROM {self.stock_basic_table} WHERE ts_code = :ts_code")
+            # 确保查询包含所有必要字段，包括新增的 act_name 和 act_ent_type
+            # list_date, exchange, curr_type 也是 StockBasicInfoModel 中有的，一并获取
+            required_fields = ['ts_code', 'name', 'industry', 'act_name', 'act_ent_type', 'list_date', 'exchange', 'curr_type']
+            
+            # 使用 self.stock_basic_fields 已包含所有需要的字段
+            fields_str = ', '.join(self.stock_basic_fields)
+            query = text(f"SELECT {fields_str} FROM {self.stock_basic_table} WHERE ts_code = :ts_code LIMIT 1") # 添加 LIMIT 1 确保只取一条
             result = conn.execute(query, {'ts_code': self.ts_code})
             row = result.fetchone()
+            
             if row is not None:
                 info = row._asdict()
-                # 确保所有必要字段都有值
+                # DataProcessor 将处理 None 值和默认值，这里只需确保字段存在或为 None
                 for field in required_fields:
-                    if field not in info or info[field] is None:
-                        info[field] = '未知' if field == 'industry' else self.ts_code if field == 'ts_code' else '未知名称'
+                    if field not in info:
+                        info[field] = None # 如果数据库中没有该列，则设为 None
+                # 对于日期类型，如果非空则转换为字符串 YYYY-MM-DD
+                if 'list_date' in info and pd.notna(info['list_date']):
+                    try:
+                        info['list_date'] = pd.to_datetime(info['list_date']).strftime('%Y-%m-%d')
+                    except:
+                        info['list_date'] = None # 转换失败则设为 None
+                elif 'list_date' in info: # 如果是 None 或 NaT
+                     info['list_date'] = None
+
                 return info
             else:
-                # 返回包含必要字段的默认值
+                # 如果查询不到任何信息，返回一个包含所有必需字段且值为 None (或特定默认值) 的字典
+                # DataProcessor 会进一步处理这些 None 值
                 return {
                     'ts_code': self.ts_code,
-                    'name': '未知名称',
-                    'industry': '未知'
+                    'name': None, # '未知名称' 将由 DataProcessor 处理
+                    'industry': None, # '未知' 将由 DataProcessor 处理
+                    'act_name': None,
+                    'act_ent_type': None,
+                    'list_date': None,
+                    'exchange': None,
+                    'curr_type': None
                 }
     
     def get_latest_price(self):

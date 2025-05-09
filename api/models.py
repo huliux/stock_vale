@@ -84,6 +84,8 @@ class StockBasicInfoModel(BaseModel):
     free_float_shares: Optional[float] = None # Store as float for JSON consistency
     ttm_dps: Optional[Decimal] = Field(None, description="过去十二个月每股股息 (TTM DPS)")
     dividend_yield: Optional[Decimal] = Field(None, description="股息率 (基于TTM DPS和最新股价)")
+    act_name: Optional[str] = Field(None, description="实际控制人名称")
+    act_ent_type: Optional[str] = Field(None, description="实际控制人企业性质")
     # Add any other fields that might be in the basic_info dict passed from DataProcessor
     # For Pydantic V2, to handle extra fields in input dict if they are not strictly matching
     model_config = ConfigDict(extra="ignore")
