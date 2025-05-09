@@ -78,6 +78,7 @@ class StockBasicInfoModel(BaseModel):
     list_date: Optional[str] = None
     exchange: Optional[str] = None
     currency: Optional[str] = None
+    market: Optional[str] = Field(None, description="市场类型") # 新增 market
     latest_pe_ttm: Optional[float] = None
     latest_pb_mrq: Optional[float] = None
     total_shares: Optional[float] = None # Store as float for JSON consistency
@@ -86,6 +87,7 @@ class StockBasicInfoModel(BaseModel):
     dividend_yield: Optional[Decimal] = Field(None, description="股息率 (基于TTM DPS和最新股价)")
     act_name: Optional[str] = Field(None, description="实际控制人名称")
     act_ent_type: Optional[str] = Field(None, description="实际控制人企业性质")
+    latest_annual_diluted_eps: Optional[Decimal] = Field(None, description="最新年报稀释每股收益") # 新增 eps
     # Add any other fields that might be in the basic_info dict passed from DataProcessor
     # For Pydantic V2, to handle extra fields in input dict if they are not strictly matching
     model_config = ConfigDict(extra="ignore")
@@ -123,6 +125,7 @@ class DcfForecastDetails(BaseModel):
     perpetual_growth_rate_used: Optional[float] = Field(None, description="使用的永续增长率")
     forecast_period_years: Optional[int] = Field(None, description="预测期年数")
     dcf_implied_diluted_pe: Optional[float] = Field(None, description="DCF估值对应的稀释市盈率(基于最近年报EPS)")
+    base_ev_ebitda: Optional[float] = Field(None, description="基于基础估值的EV/EBITDA") # 新增 EV/EBITDA
 
 class ValuationResultsContainer(BaseModel):
     """(修订版) 包含所有计算结果的容器。"""

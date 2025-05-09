@@ -886,6 +886,23 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             base_dcf_details.dcf_implied_diluted_pe = dcf_implied_diluted_pe_value
             logger.info(f"Assigned dcf_implied_diluted_pe to base_dcf_details: {base_dcf_details.dcf_implied_diluted_pe}")
 
+            # 计算并添加基础 EV/EBITDA
+            base_ev_ebitda_value = None
+            latest_actual_ebitda = base_latest_metrics.get('latest_actual_ebitda')
+            if base_dcf_details.enterprise_value is not None and latest_actual_ebitda is not None and isinstance(latest_actual_ebitda, Decimal) and latest_actual_ebitda > Decimal('0'):
+                try:
+                    base_ev_ebitda_value = float(Decimal(str(base_dcf_details.enterprise_value)) / latest_actual_ebitda)
+                    logger.info(f"Calculated Base EV/EBITDA: {base_ev_ebitda_value}")
+                except (InvalidOperation, TypeError, ZeroDivisionError) as e_ev_ebitda_calc:
+                    logger.warning(f"Error calculating Base EV/EBITDA: EV={base_dcf_details.enterprise_value}, EBITDA={latest_actual_ebitda}. Error: {e_ev_ebitda_calc}")
+                    all_warnings.append(f"计算基础EV/EBITDA时出错: {e_ev_ebitda_calc}")
+            elif latest_actual_ebitda is None or not (isinstance(latest_actual_ebitda, Decimal) and latest_actual_ebitda > Decimal('0')):
+                logger.warning(f"Cannot calculate Base EV/EBITDA due to invalid latest_actual_ebitda: {latest_actual_ebitda}")
+                all_warnings.append(f"无法计算基础EV/EBITDA，因为最新实际EBITDA无效: {latest_actual_ebitda}")
+            
+            base_dcf_details.base_ev_ebitda = base_ev_ebitda_value
+            logger.info(f"Assigned base_ev_ebitda to base_dcf_details: {base_dcf_details.base_ev_ebitda}")
+
         results_container = ValuationResultsContainer(
             latest_price=latest_price,
             current_pe=base_latest_metrics.get('pe'),
@@ -902,6 +919,10 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # 从 base_latest_metrics 获取 TTM DPS 和股息率 (DataProcessor 初始化时已计算并存储)
         final_stock_info_data['ttm_dps'] = base_latest_metrics.get('ttm_dps')
         final_stock_info_data['dividend_yield'] = base_latest_metrics.get('dividend_yield')
+        # 新增：从 base_basic_info 获取 market (DataProcessor 已处理默认值)
+        final_stock_info_data['market'] = base_basic_info.get('market')
+        # 新增：从 base_latest_metrics 获取 latest_annual_diluted_eps
+        final_stock_info_data['latest_annual_diluted_eps'] = base_latest_metrics.get('latest_annual_diluted_eps')
         
         final_stock_info = StockBasicInfoModel(**final_stock_info_data)
         return StockValuationResponse(

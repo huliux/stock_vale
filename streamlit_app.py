@@ -12,6 +12,16 @@ API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8124/api/v1/valuation
 # --- 页面配置 ---
 st.set_page_config(page_title="股票估值分析工具", layout="wide")
 
+custom_css = """
+<style>
+    /* 减小 st.metric 中数值的字体大小 */
+    div[data-testid="stMetricValue"] {
+        font-size: 24px !important; /* 例如 24px，可以根据需要调整 */
+    }
+</style>
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
+
 st.title("📈 稳如狗估值服务")
 st.caption("炒股风险高，投资需谨慎。梭哈要安全，远离割韭菜。")
 
@@ -85,6 +95,62 @@ def highlight_center_cell_apply(df, center_row_idx, center_col_idx, color='backg
             style_df.iloc[center_row_idx, center_col_idx] = color
     return style_df
 
+# Helper function to generate unique formatted labels for sensitivity table axes
+def get_unique_formatted_labels(original_float_values, param_type_key):
+    is_percent_type = param_type_key in ["wacc", "perpetual_growth_rate"]
+    
+    precisions = [2, 3, 4, 5, 6] if is_percent_type else [1, 2, 3, 4] # Decimal places to try
+    suffix = "%" if is_percent_type else "x"
+
+    for p_val in precisions:
+        current_labels = []
+        for val in original_float_values:
+            if pd.isna(val):
+                current_labels.append("-") # Placeholder for NaNs
+            else:
+                if is_percent_type:
+                    current_labels.append(f"{val * 100:.{p_val}f}{suffix}") # Multiply by 100 for %
+                else:
+                    current_labels.append(f"{val:.{p_val}f}{suffix}")
+        
+        # Check uniqueness among non-"-" labels
+        actual_labels_to_check = [lbl for lbl in current_labels if lbl != "-"]
+        if len(set(actual_labels_to_check)) == len(actual_labels_to_check):
+            return current_labels # Return as soon as unique labels are found
+            
+    # Last resort: if increasing precision didn't help, append index to duplicates
+    # This uses the highest precision from the loop for the base string formatting
+    final_labels_with_highest_precision = []
+    highest_p = precisions[-1]
+    for val in original_float_values:
+        if pd.isna(val):
+            final_labels_with_highest_precision.append("-")
+        else:
+            if is_percent_type:
+                final_labels_with_highest_precision.append(f"{val * 100:.{highest_p}f}{suffix}")
+            else:
+                final_labels_with_highest_precision.append(f"{val:.{highest_p}f}{suffix}")
+
+    # Make unique by appending counter to duplicates
+    unique_final_labels = []
+    counts = {}
+    for lbl in final_labels_with_highest_precision:
+        # Handle NaNs: they don't need unique counters among themselves for this purpose,
+        # but Styler might still have issues if the placeholder "-" is considered non-unique 
+        # in a list of all "-", though that's unlikely to be the source of the error here.
+        # The main goal is to make actual data point labels unique.
+        if lbl == "-": 
+            unique_final_labels.append("-") 
+            continue
+
+        if lbl in counts:
+            counts[lbl] += 1
+            unique_final_labels.append(f"{lbl} ({counts[lbl]})") # e.g., "2.50% (1)"
+        else:
+            counts[lbl] = 0 # Initialize count for this label
+            unique_final_labels.append(lbl)
+    return unique_final_labels
+
 # --- 回调函数：更新敏感性分析UI元素 ---
 def update_sensitivity_ui_elements():
     # 1. 获取基础假设值 (使用 .get 避免 KeyError)
@@ -147,9 +213,34 @@ def update_sensitivity_ui_elements():
         st.session_state.sens_row_center_value = st.session_state.get('sens_row_center_value', 0.0) 
         st.session_state.sens_col_center_value = st.session_state.get('sens_col_center_value', 0.0)
 
-    row_step_val = st.session_state.get("sens_row_step", 0.005 if current_row_param_key in ["wacc", "perpetual_growth_rate"] else 0.5)
+    # Update row step if parameter type (percent vs multiple) changed
+    _prev_row_param_key_tracker = st.session_state.get('sens_row_param_key_tracker') 
+    new_row_is_percent_type = current_row_param_key in ["wacc", "perpetual_growth_rate"]
+    old_row_is_percent_type = _prev_row_param_key_tracker in ["wacc", "perpetual_growth_rate"] if _prev_row_param_key_tracker is not None else new_row_is_percent_type
+
+    if _prev_row_param_key_tracker != current_row_param_key: 
+        if new_row_is_percent_type != old_row_is_percent_type or _prev_row_param_key_tracker is None: 
+            st.session_state.sens_row_step = 0.005 if new_row_is_percent_type else 0.5
+    st.session_state.sens_row_param_key_tracker = current_row_param_key
+
+    # Update col step if parameter type (percent vs multiple) changed
+    _prev_col_param_key_tracker = st.session_state.get('sens_col_param_key_tracker')
+    new_col_is_percent_type = current_col_param_key in ["wacc", "perpetual_growth_rate"]
+    old_col_is_percent_type = _prev_col_param_key_tracker in ["wacc", "perpetual_growth_rate"] if _prev_col_param_key_tracker is not None else new_col_is_percent_type
+
+    if _prev_col_param_key_tracker != current_col_param_key:
+        if new_col_is_percent_type != old_col_is_percent_type or _prev_col_param_key_tracker is None:
+            st.session_state.sens_col_step = 0.005 if new_col_is_percent_type else 0.5
+    st.session_state.sens_col_param_key_tracker = current_col_param_key
+    
+    row_step_val = st.session_state.sens_row_step 
+    col_step_val = st.session_state.sens_col_step 
+    
+    # Fallback if step values are somehow None after logic (should not happen with proper init and callback logic)
+    if row_step_val is None: row_step_val = 0.005 if new_row_is_percent_type else 0.5
+    if col_step_val is None: col_step_val = 0.005 if new_col_is_percent_type else 0.5
+
     row_points_val = st.session_state.get("sens_row_points", 5)
-    col_step_val = st.session_state.get("sens_col_step", 0.005 if current_col_param_key in ["wacc", "perpetual_growth_rate"] else 0.5)
     col_points_val = st.session_state.get("sens_col_points", 5)
 
     final_row_values = generate_axis_values(st.session_state.get('sens_row_center_value', 0.0), row_step_val, row_points_val)
@@ -172,7 +263,13 @@ if 'sensitivity_initialized' not in st.session_state:
     _initial_col_param_key = supported_axis_params.get(st.session_state.sens_col_param, "exit_multiple")
     st.session_state.sens_row_step = st.session_state.get('sens_row_step', 0.005 if _initial_row_param_key in ["wacc", "perpetual_growth_rate"] else 0.5)
     st.session_state.sens_row_points = st.session_state.get('sens_row_points', 5)
-    st.session_state.sens_col_step = st.session_state.get('sens_col_step', 0.005 if _initial_col_param_key in ["wacc", "perpetual_growth_rate"] else 0.5)
+    # Initialize steps based on these initial keys
+    st.session_state.sens_row_step = 0.005 if _initial_row_param_key in ["wacc", "perpetual_growth_rate"] else 0.5
+    st.session_state.sens_col_step = 0.005 if _initial_col_param_key in ["wacc", "perpetual_growth_rate"] else 0.5
+    
+    st.session_state.sens_row_param_key_tracker = _initial_row_param_key # Initialize tracker
+    st.session_state.sens_col_param_key_tracker = _initial_col_param_key # Initialize tracker
+
     st.session_state.sens_col_points = st.session_state.get('sens_col_points', 5)
     st.session_state.sens_row_center_value = 0.0 
     st.session_state.sens_col_center_value = 0.0 
@@ -210,74 +307,142 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                         for warning in data_warnings:
                             st.warning(warning)
 
-                st.subheader(f"📊 {stock_info.get('name', 'N/A')} ({stock_info.get('ts_code', 'N/A')}) - 基本信息")
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("最新价格", f"{valuation_results.get('latest_price', 'N/A'):.2f}" if valuation_results.get('latest_price') else "N/A")
-                col2.metric("当前 PE", f"{valuation_results.get('current_pe', 'N/A'):.2f}" if valuation_results.get('current_pe') else "N/A")
-                col3.metric("当前 PB", f"{valuation_results.get('current_pb', 'N/A'):.2f}" if valuation_results.get('current_pb') else "N/A")
-                col4.metric("所属行业", stock_info.get("industry", "N/A"))
+                st.subheader(f"基本信息")
+                
+                # 基本信息 - 第 1 行
+                basic_info_row1_cols = st.columns(6)
+                with basic_info_row1_cols[0]:
+                    with st.container():
+                        st.metric("股票代码", stock_info.get('ts_code', "N/A"))
+                with basic_info_row1_cols[1]:
+                    with st.container():
+                        st.metric("股票名称", stock_info.get('name', "N/A"))
+                with basic_info_row1_cols[2]:
+                    with st.container():
+                        st.metric("所属行业", stock_info.get('industry', "N/A"))
+                with basic_info_row1_cols[3]:
+                    with st.container():
+                        st.metric("市场类型", stock_info.get('market', "未知"))
+                with basic_info_row1_cols[4]:
+                    with st.container():
+                        st.metric("实控人名称", stock_info.get('act_name', "未知"))
+                with basic_info_row1_cols[5]:
+                    with st.container():
+                        st.metric("实控人企业性质", stock_info.get('act_ent_type', "民营企业"))
 
-                # 新增：显示股息率和TTM DPS
-                dividend_yield_value = stock_info.get('dividend_yield') # API返回的是Decimal或None
-                ttm_dps_value = stock_info.get('ttm_dps') # API返回的是Decimal或None
+                # 基本信息 - 第 2 行
+                basic_info_row2_cols = st.columns(6)
+                latest_price_val = valuation_results.get('latest_price')
+                current_pe_val = valuation_results.get('current_pe')
+                current_pb_val = valuation_results.get('current_pb')
+                latest_annual_eps_val = stock_info.get('latest_annual_diluted_eps') # 从 stock_info 获取
+                dividend_yield_val = stock_info.get('dividend_yield')
+                ttm_dps_val = stock_info.get('ttm_dps')
 
-                # 第一行：TTM股息率, TTM每股股息
-                item_col1, item_col2 = st.columns(2)
-                with item_col1:
-                    if dividend_yield_value is not None:
-                        st.metric("TTM 股息率", f"{float(dividend_yield_value) * 100:.2f}%")
-                    else:
-                        st.metric("TTM 股息率", "N/A")
-                with item_col2:
-                    if ttm_dps_value is not None:
-                        dps_display_val = float(ttm_dps_value)
-                        if abs(dps_display_val) < 0.01 and dps_display_val != 0:
-                            dps_format_str = ".4f"
+                with basic_info_row2_cols[0]:
+                    with st.container():
+                        st.metric("最新价格", f"{float(latest_price_val):.2f}" if latest_price_val is not None else "N/A")
+                with basic_info_row2_cols[1]:
+                    with st.container():
+                        st.metric("当前PE", f"{float(current_pe_val):.2f}" if current_pe_val is not None else "N/A")
+                with basic_info_row2_cols[2]:
+                    with st.container():
+                        st.metric("当前PB", f"{float(current_pb_val):.2f}" if current_pb_val is not None else "N/A")
+                with basic_info_row2_cols[3]:
+                    with st.container():
+                        st.metric("每股收益", f"{float(latest_annual_eps_val):.2f}" if latest_annual_eps_val is not None else "N/A")
+                
+                with basic_info_row2_cols[4]:
+                    with st.container():
+                        if dividend_yield_val is not None:
+                            st.metric("TTM股息率", f"{float(dividend_yield_val) * 100:.2f}%")
                         else:
-                            dps_format_str = ".2f"
-                        st.metric("TTM 每股股息", f"{dps_display_val:{dps_format_str}}")
-                    else:
-                        st.metric("TTM 每股股息", "N/A")
-
-                # 第二行：实际控制人, 控制人企业性质
-                item_col3, item_col4 = st.columns(2)
-                with item_col3:
-                    st.metric("实际控制人", stock_info.get("act_name", "未知"))
-                with item_col4:
-                    st.metric("控制人企业性质", stock_info.get("act_ent_type", "民营企业"))
+                            st.metric("TTM股息率", "N/A")
                 
-                st.subheader("核心 DCF 估值结果")
-                col1_dcf, col2_dcf, col3_dcf, col4_dcf = st.columns(4)
-                dcf_value = dcf_details.get('value_per_share')
-                latest_price = valuation_results.get('latest_price')
-                safety_margin = ((dcf_value / latest_price) - 1) * 100 if dcf_value is not None and latest_price is not None and latest_price > 0 else None
+                with basic_info_row2_cols[5]:
+                    with st.container():
+                        if ttm_dps_val is not None:
+                            dps_display_val = float(ttm_dps_val)
+                            dps_format_str = ".4f" if abs(dps_display_val) < 0.01 and dps_display_val != 0 else ".2f"
+                            st.metric("TTM每股股息", f"{dps_display_val:{dps_format_str}}")
+                        else:
+                            st.metric("TTM每股股息", "N/A")
+
+                st.subheader("估值结果")
+
+                # 估值结果 - 第 1 行
+                valuation_results_row1_cols = st.columns(6)
+                dcf_value_per_share = dcf_details.get('value_per_share')
+                latest_price_for_sm = valuation_results.get('latest_price')
+                safety_margin = ((dcf_value_per_share / latest_price_for_sm) - 1) * 100 if dcf_value_per_share is not None and latest_price_for_sm is not None and latest_price_for_sm > 0 else None
+                dcf_implied_pe_val = dcf_details.get('dcf_implied_diluted_pe')
+                base_ev_ebitda_val = dcf_details.get('base_ev_ebitda')
+                wacc_used_val = dcf_details.get('wacc_used')
+                cost_of_equity_used_val = dcf_details.get('cost_of_equity_used')
+
+                with valuation_results_row1_cols[0]:
+                    with st.container():
+                        st.metric("每股价值 (DCF)", f"{float(dcf_value_per_share):.2f}" if dcf_value_per_share is not None else "N/A")
+                with valuation_results_row1_cols[1]:
+                    with st.container():
+                        st.metric("安全边际", f"{safety_margin:.1f}%" if safety_margin is not None else "N/A", delta=f"{safety_margin:.1f}%" if safety_margin is not None else None, delta_color="normal")
+                with valuation_results_row1_cols[2]:
+                    with st.container():
+                        st.metric("隐含PE倍数", f"{float(dcf_implied_pe_val):.2f}x" if dcf_implied_pe_val is not None else "N/A")
+                with valuation_results_row1_cols[3]:
+                    with st.container():
+                        st.metric("隐含 EV/EBITDA", f"{float(base_ev_ebitda_val):.2f}x" if base_ev_ebitda_val is not None else "N/A")
+                with valuation_results_row1_cols[4]:
+                    with st.container():
+                        st.metric("WACC", f"{float(wacc_used_val) * 100:.2f}%" if wacc_used_val is not None else "N/A")
+                with valuation_results_row1_cols[5]:
+                    with st.container():
+                        st.metric("Ke (股权成本)", f"{float(cost_of_equity_used_val) * 100:.2f}%" if cost_of_equity_used_val is not None else "N/A")
+
+                # 估值结果 - 第 2 行
+                valuation_results_row2_cols = st.columns(6)
+                enterprise_value_val = dcf_details.get('enterprise_value')
+                equity_value_val = dcf_details.get('equity_value')
+                pv_forecast_ufcf_val = dcf_details.get('pv_forecast_ufcf')
+                pv_terminal_value_val = dcf_details.get('pv_terminal_value')
+                terminal_value_val = dcf_details.get('terminal_value')
+                net_debt_val = dcf_details.get('net_debt')
+
+                with valuation_results_row2_cols[0]:
+                    with st.container():
+                        st.metric("企业价值 (EV)", f"{float(enterprise_value_val) / 1e8:.2f} 亿" if enterprise_value_val is not None else "N/A")
+                with valuation_results_row2_cols[1]:
+                    with st.container():
+                        st.metric("股权价值", f"{float(equity_value_val) / 1e8:.2f} 亿" if equity_value_val is not None else "N/A")
+                with valuation_results_row2_cols[2]:
+                    with st.container():
+                        st.metric("UFCF现值", f"{float(pv_forecast_ufcf_val) / 1e8:.2f} 亿" if pv_forecast_ufcf_val is not None else "N/A")
+                with valuation_results_row2_cols[3]:
+                    with st.container():
+                        st.metric("终值现值", f"{float(pv_terminal_value_val) / 1e8:.2f} 亿" if pv_terminal_value_val is not None else "N/A")
+                with valuation_results_row2_cols[4]:
+                    with st.container():
+                        st.metric("终值", f"{float(terminal_value_val) / 1e8:.2f} 亿" if terminal_value_val is not None else "N/A")
+                with valuation_results_row2_cols[5]:
+                    with st.container():
+                        st.metric("净债务", f"{float(net_debt_val) / 1e8:.2f} 亿" if net_debt_val is not None else "N/A")
                 
-                col1_dcf.metric("每股价值 (DCF)", f"{dcf_value:.2f}" if dcf_value is not None else "N/A")
-                col2_dcf.metric("安全边际", f"{safety_margin:.1f}%" if safety_margin is not None else "N/A", delta=f"{safety_margin:.1f}%" if safety_margin is not None else None, delta_color="normal")
-                col3_dcf.metric("WACC", f"{dcf_details.get('wacc_used', 'N/A') * 100:.2f}%" if dcf_details.get('wacc_used') is not None else "N/A")
-                col4_dcf.metric("Ke (股权成本)", f"{dcf_details.get('cost_of_equity_used', 'N/A') * 100:.2f}%" if dcf_details.get('cost_of_equity_used') is not None else "N/A")
+                st.markdown("---") # Keep the separator before the expander
 
-                st.markdown("---") 
-                col_pe1, col_pe2 = st.columns(2)
-                dcf_implied_pe = dcf_details.get('dcf_implied_diluted_pe')
-                current_market_pe = valuation_results.get('current_pe')
-                col_pe1.metric("DCF隐含PE倍数指标", f"{dcf_implied_pe:.2f}x" if dcf_implied_pe is not None else "N/A")
-                col_pe2.metric("当前市场 PE", f"{current_market_pe:.2f}x" if current_market_pe is not None else "N/A")
-                st.markdown("---") 
-
-                with st.expander("查看 DCF 详细构成"):
-                    col1_detail, col2_detail = st.columns(2) 
-                    col1_detail.metric("企业价值 (EV)", f"{dcf_details.get('enterprise_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('enterprise_value') is not None else "N/A")
-                    col1_detail.metric("预测期 UFCF 现值", f"{dcf_details.get('pv_forecast_ufcf', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_forecast_ufcf') is not None else "N/A")
-                    col1_detail.metric("终值 (TV)", f"{dcf_details.get('terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('terminal_value') is not None else "N/A")
-                    col2_detail.metric("股权价值", f"{dcf_details.get('equity_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('equity_value') is not None else "N/A")
-                    col2_detail.metric("终值现值 (PV of TV)", f"{dcf_details.get('pv_terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_terminal_value') is not None else "N/A")
-                    col2_detail.metric("净债务", f"{dcf_details.get('net_debt', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('net_debt') is not None else "N/A")
-                    st.caption(f"终值计算方法: {dcf_details.get('terminal_value_method_used', 'N/A')}")
-                    if dcf_details.get('terminal_value_method_used') == 'exit_multiple':
-                        st.caption(f"退出乘数: {dcf_details.get('exit_multiple_used', 'N/A')}")
-                    elif dcf_details.get('terminal_value_method_used') == 'perpetual_growth':
-                        st.caption(f"永续增长率: {dcf_details.get('perpetual_growth_rate_used', 'N/A') * 100:.2f}%")
+                # Removed "查看 DCF 详细构成" expander
+                # st.expander("查看 DCF 详细构成"):
+                #     col1_detail, col2_detail = st.columns(2) 
+                #     col1_detail.metric("企业价值 (EV)", f"{dcf_details.get('enterprise_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('enterprise_value') is not None else "N/A")
+                #     col1_detail.metric("预测期 UFCF 现值", f"{dcf_details.get('pv_forecast_ufcf', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_forecast_ufcf') is not None else "N/A")
+                #     col1_detail.metric("终值 (TV)", f"{dcf_details.get('terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('terminal_value') is not None else "N/A")
+                #     col2_detail.metric("股权价值", f"{dcf_details.get('equity_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('equity_value') is not None else "N/A")
+                #     col2_detail.metric("终值现值 (PV of TV)", f"{dcf_details.get('pv_terminal_value', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('pv_terminal_value') is not None else "N/A")
+                #     col2_detail.metric("净债务", f"{dcf_details.get('net_debt', 'N/A') / 1e8:.2f} 亿" if dcf_details.get('net_debt') is not None else "N/A")
+                #     st.caption(f"终值计算方法: {dcf_details.get('terminal_value_method_used', 'N/A')}")
+                #     if dcf_details.get('terminal_value_method_used') == 'exit_multiple':
+                #         st.caption(f"退出乘数: {dcf_details.get('exit_multiple_used', 'N/A')}")
+                #     elif dcf_details.get('terminal_value_method_used') == 'perpetual_growth':
+                #         st.caption(f"永续增长率: {dcf_details.get('perpetual_growth_rate_used', 'N/A') * 100:.2f}%")
 
                 st.subheader("预测数据")
                 detailed_forecast_table_data = valuation_results.get("detailed_forecast_table")
@@ -290,7 +455,17 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                             format_dict['growth_rate'] = "{:.2%}" 
                         display_columns = ['year', 'revenue', 'growth_rate', 'ebit', 'nopat', 'd_a', 'capex', 'delta_nwc', 'ufcf', 'ebitda']
                         existing_display_columns = [col for col in display_columns if col in df_forecast.columns]
-                        st.dataframe(df_forecast[existing_display_columns].style.format(format_dict, na_rep='-'), use_container_width=True)
+                        
+                        df_display_source = df_forecast[existing_display_columns].copy() # Use .copy() to avoid SettingWithCopyWarning
+                        
+                        # Set 'year' as index if it exists, to mimic sensitivity table display
+                        if 'year' in df_display_source.columns:
+                            df_display_source.set_index('year', inplace=True)
+                        
+                        styler = df_display_source.style.format(format_dict, na_rep='-')
+                        # Now 'year' is the index, st.dataframe should display it as row headers
+                        # No explicit hide_index or styler.hide_index() should be needed if 'year' is the desired index display
+                        st.dataframe(styler, use_container_width=True)
                     except Exception as e:
                         st.error(f"无法显示预测表格: {e}")
                 else:
@@ -318,6 +493,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                         elif col_param == 'exit_multiple': center_col_val = base_assumptions.get('exit_multiple')
                         elif col_param == 'perpetual_growth_rate': center_col_val = base_assumptions.get('perpetual_growth_rate')
 
+                        # find_closest_index uses the original float values from API response
                         center_row_idx = find_closest_index(row_vals, center_row_val)
                         center_col_idx = find_closest_index(col_vals, center_col_val)
 
@@ -326,21 +502,31 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                                 table_data = result_tables[metric_key]
                                 metric_display_name = next((k for k, v in supported_output_metrics.items() if v == metric_key), metric_key)
                                 st.markdown(f"**指标: {metric_display_name}**") 
-                                df_sensitivity = pd.DataFrame(table_data, index=row_vals, columns=col_vals)
-                                row_format = "{:.2%}" if row_param == "wacc" or row_param == "perpetual_growth_rate" else "{:.1f}x"
-                                col_format = "{:.2%}" if col_param == "wacc" or col_param == "perpetual_growth_rate" else "{:.1f}x"
+                                
+                                # Create DataFrame with unique formatted string labels for index and columns
+                                df_sensitivity = pd.DataFrame(
+                                    table_data, 
+                                    index=get_unique_formatted_labels(row_vals, row_param), 
+                                    columns=get_unique_formatted_labels(col_vals, col_param)
+                                )
+                                
+                                # Define cell format based on metric key
                                 if metric_key == "value_per_share": cell_format = "{:,.2f}"
                                 elif metric_key == "enterprise_value" or metric_key == "equity_value": cell_format = lambda x: f"{x/1e8:,.2f} 亿" if pd.notna(x) else "N/A"
                                 elif metric_key == "ev_ebitda": cell_format = "{:.1f}x"
-                                elif metric_key == "tv_ev_ratio": cell_format = "{:.1%}"
+                                elif metric_key == "tv_ev_ratio": cell_format = "{:.1%}" # Ensure this is handled as percentage
                                 else: cell_format = "{:,.2f}"
-                                df_sensitivity.index = df_sensitivity.index.map(lambda x: row_format.format(x) if pd.notna(x) else '-')
-                                df_sensitivity.columns = df_sensitivity.columns.map(lambda x: col_format.format(x) if pd.notna(x) else '-')
+                                
                                 styled_df = df_sensitivity.style
-                                if isinstance(cell_format, str): styled_df = styled_df.format(cell_format, na_rep='N/A')
-                                else: styled_df = styled_df.format(cell_format, na_rep='N/A')
+                                if isinstance(cell_format, str): 
+                                    styled_df = styled_df.format(cell_format, na_rep='N/A')
+                                else: # For lambda functions (e.g., for亿 formatting)
+                                    styled_df = styled_df.format(cell_format, na_rep='N/A')
+                                
                                 styled_df = styled_df.highlight_null(color='lightgrey')
+                                # Apply works on the DataFrame with potentially stringified (but unique) index/columns
                                 styled_df = styled_df.apply(highlight_center_cell_apply, center_row_idx=center_row_idx, center_col_idx=center_col_idx, axis=None) 
+                                
                                 st.dataframe(styled_df, use_container_width=True)
                                 st.divider() 
                             else:
@@ -452,7 +638,7 @@ with st.sidebar:
                  st.session_state.sens_ui_initialized_run = True
     st.divider()
     st.subheader("⚙️ 其他选项")
-    llm_toggle_value = st.checkbox("启用 LLM 分析总结", value=True, key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。")
+    llm_toggle_value = st.checkbox("启用 LLM 分析总结", value=False, key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。") # Default to False
     st.divider()
     st.caption("未来功能：情景分析")
     st.info("未来版本将支持对关键假设进行情景分析。")

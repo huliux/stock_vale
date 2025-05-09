@@ -64,6 +64,13 @@ class DataProcessor:
                  self.basic_info['act_name'] = "未知"
             if 'act_ent_type' not in self.basic_info:
                  self.basic_info['act_ent_type'] = "民营企业"
+            
+            # 处理 market 字段的默认值
+            market_val = self.basic_info.get('market')
+            if market_val is None or (isinstance(market_val, str) and not market_val.strip()):
+                self.basic_info['market'] = "未知"
+            if 'market' not in self.basic_info: # 确保字段存在
+                self.basic_info['market'] = "未知"
 
         else:
             self.warnings.append("输入数据中缺少 'stock_basic' 表或该表为空。")
@@ -73,7 +80,8 @@ class DataProcessor:
                 'name': '未知名称', # 保留原有默认
                 'industry': '未知', # 保留原有默认
                 'act_name': '未知',
-                'act_ent_type': '民营企业'
+                'act_ent_type': '民营企业',
+                'market': '未知' # 新增 market 的默认值
             }
 
 
