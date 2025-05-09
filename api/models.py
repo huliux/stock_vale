@@ -64,6 +64,9 @@ class StockValuationRequest(BaseModel):
     # --- Sensitivity Analysis ---
     sensitivity_analysis: Optional[SensitivityAnalysisRequest] = Field(None, description="敏感性分析配置 (可选)")
 
+    # --- LLM Control ---
+    request_llm_summary: Optional[bool] = Field(True, description="是否请求 LLM 分析总结")
+
 
 # --- Response Models ---
 
@@ -79,6 +82,8 @@ class StockBasicInfoModel(BaseModel):
     latest_pb_mrq: Optional[float] = None
     total_shares: Optional[float] = None # Store as float for JSON consistency
     free_float_shares: Optional[float] = None # Store as float for JSON consistency
+    ttm_dps: Optional[Decimal] = Field(None, description="过去十二个月每股股息 (TTM DPS)")
+    dividend_yield: Optional[Decimal] = Field(None, description="股息率 (基于TTM DPS和最新股价)")
     # Add any other fields that might be in the basic_info dict passed from DataProcessor
     # For Pydantic V2, to handle extra fields in input dict if they are not strictly matching
     model_config = ConfigDict(extra="ignore")

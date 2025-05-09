@@ -569,6 +569,14 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         latest_pe_pb = fetcher.get_latest_pe_pb(request.valuation_date) # 获取最新 PE/PB (dict)
         total_shares = fetcher.get_latest_total_shares(request.valuation_date) # 获取最新总股本 (float or None)
         total_shares_actual = total_shares * 100000000 if total_shares is not None and total_shares > 0 else None
+        
+        # 获取TTM股息数据
+        valuation_date_to_use_for_ttm = request.valuation_date
+        if not valuation_date_to_use_for_ttm:
+            valuation_date_to_use_for_ttm = pd.Timestamp.now().strftime('%Y-%m-%d')
+        ttm_dividends_df = fetcher.get_dividends_ttm(valuation_date_to_use_for_ttm)
+        logger.info(f"  Fetched TTM dividends count: {len(ttm_dividends_df) if ttm_dividends_df is not None else 'None'}")
+
         logger.info(f"  Fetched base info: {base_stock_info_dict.get('name')}, Latest Price: {latest_price}, Latest PE/PB: {latest_pe_pb}, Total Shares: {total_shares}")
         hist_years_needed = max(request.forecast_years + 3, 5)
         raw_financial_data = fetcher.get_raw_financial_data(years=hist_years_needed)
@@ -585,7 +593,12 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         logger.info("  Data check passed.")
 
         logger.info("Step 2: Processing data...")
-        processed_data_container = DataProcessor(all_data, latest_pe_pb=latest_pe_pb)
+        processed_data_container = DataProcessor(
+            all_data, 
+            latest_pe_pb=latest_pe_pb,
+            ttm_dividends_df=ttm_dividends_df, # 传递TTM股息数据
+            latest_price=latest_price # 传递最新价格
+        )
         # Get processed data needed for valuation runs
         base_basic_info = processed_data_container.get_basic_info() # Use this for final response
         base_latest_metrics = processed_data_container.get_latest_metrics()
@@ -818,7 +831,9 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # --- LLM Analysis (Based on Base Case) ---
         logger.info("Step 9: Preparing LLM input and calling API (based on base case)...")
         llm_summary = None
-        if base_dcf_details: # Only run if base case was successful
+        # Check if LLM summary is requested and base DCF calculation was successful
+        if request.request_llm_summary and base_dcf_details:
+            logger.info("LLM summary requested. Proceeding with LLM call.")
             prompt_template = load_prompt_template()
             llm_input_json_str = format_llm_input_data(
                 basic_info=base_basic_info, # Use base info
@@ -835,7 +850,10 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                 logger.error(f"Error during LLM call: {llm_exc}")
                 llm_summary = f"Error in LLM analysis: {str(llm_exc)}"
                 all_warnings.append(f"LLM 分析失败: {str(llm_exc)}")
-        else:
+        elif not request.request_llm_summary:
+            logger.info("LLM summary not requested by client. Skipping LLM call.")
+            llm_summary = None # Or an empty string, or a specific message like "LLM analysis not requested."
+        else: # This case means base_dcf_details is None
              logger.warning("Skipping LLM analysis because base valuation failed.")
              llm_summary = "基础估值计算失败，无法进行 LLM 分析。"
 
@@ -880,7 +898,12 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         )
         logger.info("Valuation request processed successfully.")
         # Use StockBasicInfoModel for stock_info
-        final_stock_info = StockBasicInfoModel(**base_basic_info) if base_basic_info else StockBasicInfoModel()
+        final_stock_info_data = base_basic_info.copy() if base_basic_info else {}
+        # 从 base_latest_metrics 获取 TTM DPS 和股息率 (DataProcessor 初始化时已计算并存储)
+        final_stock_info_data['ttm_dps'] = base_latest_metrics.get('ttm_dps')
+        final_stock_info_data['dividend_yield'] = base_latest_metrics.get('dividend_yield')
+        
+        final_stock_info = StockBasicInfoModel(**final_stock_info_data)
         return StockValuationResponse(
             stock_info=final_stock_info,
             valuation_results=results_container

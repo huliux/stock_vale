@@ -119,14 +119,15 @@
     - [x] **敏感性分析功能测试 (WACC轴后端中心化):** 用户手动测试 UI 交互、计算流程和结果展示，确认功能正常。
     - [x] **敏感性分析功能测试 (EV/EBITDA 指标修正):** 用户手动测试 UI 交互、计算流程和结果展示，确认 EV/EBITDA 指标计算正确。
     - [x] **敏感性分析功能测试 (DCF 隐含 PE 指标显示):** DCF 隐含 PE 指标已在 Streamlit UI 中正确显示和计算。前端代码 (`streamlit_app.py`) 中的重复函数定义问题已解决。
-    - [ ] **添加敏感性分析测试:** (当前任务) 补充后端单元测试和 API 集成测试，覆盖敏感性分析逻辑（特别是 WACC 轴重新生成、EV/EBITDA 计算和 DCF 隐含 PE 计算）。
-        *   修复了 `api/main.py` 中 `regenerate_axis_if_needed` 函数的逻辑及 `MetricType` 导入问题。
-        *   更新了 `api/sensitivity_models.py` 中的 `SUPPORTED_SENSITIVITY_OUTPUT_METRICS` 以包含 `dcf_implied_pe`。
-        *   移除了 `tests/api/test_sensitivity.py` 中不必要的 `call_count` 断言。
-        *   修正了 `tests/api/test_sensitivity.py` 中对 `base_valuation_summary` 的引用。
-        *   统一并修正了所有 `side_effect` 函数中的 `StockValuationRequest` 对象获取逻辑。
-        *   修正了测试中 `get_latest_metrics` 的 mock 数据。
-    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式和敏感性分析的特定测试）
+    - [x] **添加敏感性分析测试 (`tests/api/test_sensitivity.py`):** (已完成) 补充并修复了 `tests/api/test_sensitivity.py` 中的后端单元测试和 API 集成测试，覆盖敏感性分析逻辑。
+        *   [x] 修复了 `api/main.py` 中 `regenerate_axis_if_needed` 函数的逻辑及 `MetricType` 导入问题。
+        *   [x] 更新了 `api/sensitivity_models.py` 中的 `SUPPORTED_SENSITIVITY_OUTPUT_METRICS` 以包含 `dcf_implied_pe`。
+        *   [x] 移除了 `tests/api/test_sensitivity.py` 中不必要的 `call_count` 断言。
+        *   [x] 修正了 `tests/api/test_sensitivity.py` 中对 `base_valuation_summary` 的引用。
+        *   [x] 统一并修正了所有 `side_effect` 函数中的 `StockValuationRequest` 对象获取逻辑。
+        *   [x] 修正了测试中 `get_latest_metrics` 的 mock 数据。
+        *   [x] 解决了 `tests/api/test_sensitivity.py` 中的 `IndentationError` 和后续的断言错误，所有12个测试用例均通过。
+    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式的特定测试，但 `test_sensitivity.py` 已覆盖部分敏感性分析场景）。
         *   修复了 `tests/api/test_main.py` 中的类型和断言错误 (先前任务)。
         *   修复了 `tests/test_data_processor.py` 中的 NaN 处理、fixture 和警告断言错误 (先前任务)。
         *   修复了 `tests/test_equity_bridge_calculator.py` 中的 NaN 处理和异常捕获逻辑。
@@ -146,12 +147,13 @@
 - 后端 API 和 Streamlit 前端的主要功能已实现，包括 DCF 计算流程、LLM 集成（配置为 DeepSeek）和结果展示。
 - 敏感性分析功能（包括 WACC 轴后端中心化处理、EV/EBITDA 指标修正和 DCF 隐含 PE 指标添加）已实现。
 - 后端 API 服务可在端口 8125 正常运行。
+- `tests/api/test_sensitivity.py` 中的所有12个测试用例均已通过。
 - 存在已知的数据警告（如 D&A/Revenue 配对问题），这是由数据源限制引起的，已有降级处理逻辑。
 
 ## 已知问题
 - **数据警告:** 计算历史中位数时，某些指标（如 D&A/Revenue）可能因数据不足或不匹配而无法计算，程序会记录警告并使用默认值。
 - **UI 样式:** (暂时搁置) 右侧 LLM 摘要列的显示效果有待优化。
-- **测试覆盖:** 敏感性分析和 WACC 权重模式的单元/集成测试尚未添加。
+- **测试覆盖:** (部分解决) `tests/api/test_sensitivity.py` 已覆盖部分敏感性分析场景。WACC 权重模式的特定单元/集成测试以及其他可能的敏感性分析场景测试可能仍需补充。
 
 ## 决策演变
 - (保持不变) ...

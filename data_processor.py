@@ -12,16 +12,22 @@ class DataProcessor:
     """
     def __init__(self, 
                  input_data: Dict[str, pd.DataFrame], 
-                 latest_pe_pb: Optional[Dict[str, Any]] = None): # 添加 latest_pe_pb 参数
+                 latest_pe_pb: Optional[Dict[str, Any]] = None,
+                 ttm_dividends_df: Optional[pd.DataFrame] = None, # 新增 TTM 股息数据
+                 latest_price: Optional[float] = None): # 新增最新价格
         """
         初始化 DataProcessor。
         Args:
             input_data (Dict[str, pd.DataFrame]): 包含原始数据的字典，
                 预期键: 'balance_sheet', 'income_statement', 'cash_flow', 'stock_basic'。
             latest_pe_pb (Optional[Dict[str, Any]]): 包含最新 'pe' 和 'pb' 的字典。
+            ttm_dividends_df (Optional[pd.DataFrame]): 包含过去12个月股息数据的DataFrame。
+            latest_price (Optional[float]): 最新股价。
         """
         self.input_data = input_data
         self.input_latest_pe_pb = latest_pe_pb or {} # 存储传入的 PE/PB
+        self.ttm_dividends_df = ttm_dividends_df # 存储 TTM 股息数据
+        self.latest_price_for_yield = latest_price # 存储最新价格，用于股息率计算
         self.processed_data: Dict[str, pd.DataFrame] = {}
         self.historical_ratios: Dict[str, Any] = {}
         self.latest_metrics: Dict[str, Any] = {}
@@ -32,6 +38,7 @@ class DataProcessor:
         self._process_input_data()
         self.clean_data()
         self.calculate_historical_ratios_and_turnovers() # 初始化时即计算
+        self._calculate_and_store_ttm_dividend_yield() # 初始化时计算股息率
 
     def _process_input_data(self):
         """提取非时间序列信息和最新数据点。"""
@@ -613,5 +620,57 @@ class DataProcessor:
             self.warnings.append(f"计算最新实际EBITDA时出错: {e}")
             print(f"Error calculating latest actual EBITDA: {e} \n{traceback.format_exc()}")
             return None
+
+    def _calculate_and_store_ttm_dividend_yield(self):
+        """
+        计算TTM每股股息 (DPS) 和股息率，并存储到 self.latest_metrics。
+        使用 self.ttm_dividends_df 和 self.latest_price_for_yield。
+        """
+        print("Calculating TTM Dividend Yield...")
+        ttm_dps = None
+        dividend_yield = None
+
+        if self.ttm_dividends_df is not None and not self.ttm_dividends_df.empty:
+            if 'cash_div_tax' in self.ttm_dividends_df.columns:
+                # 确保 cash_div_tax 是数值类型
+                self.ttm_dividends_df['cash_div_tax'] = pd.to_numeric(self.ttm_dividends_df['cash_div_tax'], errors='coerce')
+                # 过滤掉可能的 NaN 值后再求和
+                valid_dividends = self.ttm_dividends_df['cash_div_tax'].dropna()
+                if not valid_dividends.empty:
+                    ttm_dps_float = valid_dividends.sum()
+                    ttm_dps = Decimal(str(ttm_dps_float))
+                    print(f"  Calculated TTM DPS: {ttm_dps}")
+                else:
+                    warning_msg = "TTM股息数据中 'cash_div_tax' 列不包含有效数值。"
+                    self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            else:
+                warning_msg = "TTM股息数据中缺少 'cash_div_tax' 列。"
+                self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+        else:
+            warning_msg = "未提供TTM股息数据或数据为空。"
+            # 不一定是警告，可能就是没有分红
+            # self.warnings.append(warning_msg); 
+            print(f"Info: {warning_msg}")
+
+        if ttm_dps is not None and self.latest_price_for_yield is not None:
+            try:
+                latest_price_decimal = Decimal(str(self.latest_price_for_yield))
+                if latest_price_decimal > Decimal('0'):
+                    dividend_yield_calc = (ttm_dps / latest_price_decimal)
+                    dividend_yield = dividend_yield_calc # 已经是 Decimal
+                    print(f"  Calculated Dividend Yield: {dividend_yield:.4%}")
+                else:
+                    warning_msg = "最新股价为0或无效，无法计算股息率。"
+                    self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+            except InvalidOperation:
+                warning_msg = f"最新股价 '{self.latest_price_for_yield}' 无法转换为Decimal，无法计算股息率。"
+                self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+        elif ttm_dps is not None and self.latest_price_for_yield is None:
+            warning_msg = "缺少最新股价，无法计算股息率。"
+            self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
+        
+        self.latest_metrics['ttm_dps'] = ttm_dps
+        self.latest_metrics['dividend_yield'] = dividend_yield
+        print("TTM Dividend Yield calculation finished.")
 
 # End of class DataProcessor

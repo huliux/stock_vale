@@ -216,6 +216,28 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 col2.metric("当前 PE", f"{valuation_results.get('current_pe', 'N/A'):.2f}" if valuation_results.get('current_pe') else "N/A")
                 col3.metric("当前 PB", f"{valuation_results.get('current_pb', 'N/A'):.2f}" if valuation_results.get('current_pb') else "N/A")
                 col4.metric("所属行业", stock_info.get("industry", "N/A"))
+
+                # 新增：显示股息率和TTM DPS
+                dividend_yield_value = stock_info.get('dividend_yield') # API返回的是Decimal或None
+                ttm_dps_value = stock_info.get('ttm_dps') # API返回的是Decimal或None
+
+                div_col1, div_col2, _, _ = st.columns(4) # 复用之前的列定义数量，只用前两个
+                
+                if dividend_yield_value is not None:
+                    div_col1.metric("TTM 股息率", f"{float(dividend_yield_value) * 100:.2f}%")
+                else:
+                    div_col1.metric("TTM 股息率", "N/A")
+                
+                if ttm_dps_value is not None:
+                    # 根据数值大小调整小数位数，例如保留2-4位
+                    dps_display_val = float(ttm_dps_value)
+                    if abs(dps_display_val) < 0.01 and dps_display_val != 0:
+                        dps_format_str = ".4f"
+                    else:
+                        dps_format_str = ".2f"
+                    div_col2.metric("TTM 每股股息", f"{dps_display_val:{dps_format_str}}")
+                else:
+                    div_col2.metric("TTM 每股股息", "N/A")
                 
                 st.subheader("核心 DCF 估值结果")
                 col1_dcf, col2_dcf, col3_dcf, col4_dcf = st.columns(4)
@@ -261,7 +283,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                             format_dict['growth_rate'] = "{:.2%}" 
                         display_columns = ['year', 'revenue', 'growth_rate', 'ebit', 'nopat', 'd_a', 'capex', 'delta_nwc', 'ufcf', 'ebitda']
                         existing_display_columns = [col for col in display_columns if col in df_forecast.columns]
-                        st.dataframe(df_forecast[existing_display_columns].style.format(format_dict, na_rep='-'))
+                        st.dataframe(df_forecast[existing_display_columns].style.format(format_dict, na_rep='-'), use_container_width=True)
                     except Exception as e:
                         st.error(f"无法显示预测表格: {e}")
                 else:
@@ -312,19 +334,25 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                                 else: styled_df = styled_df.format(cell_format, na_rep='N/A')
                                 styled_df = styled_df.highlight_null(color='lightgrey')
                                 styled_df = styled_df.apply(highlight_center_cell_apply, center_row_idx=center_row_idx, center_col_idx=center_col_idx, axis=None) 
-                                st.dataframe(styled_df)
+                                st.dataframe(styled_df, use_container_width=True)
                                 st.divider() 
                             else:
                                 st.warning(f"未找到指标 '{metric_key}' 的敏感性分析结果。")
                     except Exception as e:
                         st.error(f"无法显示敏感性分析表格: {e}")
 
-                st.subheader("🤖 LLM 分析与投资建议摘要")
-                st.caption("请结合以下分析判断投资价值。") 
-                if llm_summary:
-                    st.markdown(llm_summary)
-                else:
-                    st.warning("未能获取 LLM 分析结果。")
+                # Only display LLM section if toggle is on and summary is available
+                if st.session_state.get("llm_toggle", True): # Default to True if key not found, matching toggle default
+                    st.subheader("🤖 LLM 分析与投资建议摘要")
+                    st.caption("请结合以下分析判断投资价值。") 
+                    if llm_summary:
+                        st.markdown(llm_summary)
+                    else:
+                        # Display a different message if LLM was not requested vs. if it failed
+                        if payload_filtered.get("request_llm_summary", True): # Check if it was actually requested
+                            st.warning("未能获取 LLM 分析结果。")
+                        else:
+                            st.info("LLM 分析未启用。")
         else:
              st.error(f"API 请求失败，状态码: {response.status_code}")
              try:
@@ -414,7 +442,10 @@ with st.sidebar:
         if 'sensitivity_initialized' in st.session_state and st.session_state.sensitivity_initialized:
              if 'sens_ui_initialized_run' not in st.session_state:
                  update_sensitivity_ui_elements()
-                 st.session_state.sens_ui_initialized_run = True 
+                 st.session_state.sens_ui_initialized_run = True
+    st.divider()
+    st.subheader("⚙️ 其他选项")
+    llm_toggle_value = st.checkbox("启用 LLM 分析总结", value=True, key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。")
     st.divider()
     st.caption("未来功能：情景分析")
     st.info("未来版本将支持对关键假设进行情景分析。")
@@ -456,6 +487,7 @@ if st.button("🚀 开始估值计算", key="start_valuation_button"):
         "terminal_value_method": terminal_value_method,
         "exit_multiple": exit_multiple,
         "perpetual_growth_rate": perpetual_growth_rate,
+        "request_llm_summary": llm_toggle_value, # Add the toggle state to the payload
     }
     sensitivity_payload = None
     if enable_sensitivity: 

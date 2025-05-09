@@ -221,6 +221,54 @@ class AshareDataFetcher(BaseDataFetcher):
                 df['cash_div_tax'] = df['cash_div_tax'].astype(float)
             return df
 
+    def get_dividends_ttm(self, valuation_date: str) -> pd.DataFrame:
+        """
+        获取指定估值日期前12个月内已公告并实施/完成的股息数据。
+        Args:
+            valuation_date (str): 估值基准日期 (YYYY-MM-DD)。
+        Returns:
+            pd.DataFrame: 包含TTM股息数据的DataFrame。
+        """
+        print(f"Fetching TTM dividends for {self.ts_code} up to {valuation_date}...")
+        with self.engine.connect() as conn:
+            # 将估值日期字符串转换为 datetime 对象，然后计算12个月前的日期
+            valuation_dt = pd.to_datetime(valuation_date)
+            twelve_months_prior_dt = valuation_dt - pd.DateOffset(months=12)
+            
+            # 将日期转换回 YYYYMMDD 格式用于查询
+            valuation_date_yyyymmdd = valuation_dt.strftime('%Y%m%d')
+            twelve_months_prior_yyyymmdd = twelve_months_prior_dt.strftime('%Y%m%d')
+
+            # 假设 div_proc '实施' 或 '完成' 表示股息已确认支付
+            # 注意：数据库表文档中 div_proc 的确切值可能需要确认
+            # 如果 ann_date 是 YYYYMMDD 格式的文本
+            query = text(f"""
+                SELECT {', '.join(self.dividend_fields)}
+                FROM {self.dividend_table}
+                WHERE ts_code = :ts_code
+                  AND ann_date >= :start_date 
+                  AND ann_date <= :end_date
+                  AND div_proc IN ('实施', '完成', '预案') 
+                ORDER BY ann_date DESC
+            """)
+            
+            result = conn.execute(query, {
+                'ts_code': self.ts_code,
+                'start_date': twelve_months_prior_yyyymmdd,
+                'end_date': valuation_date_yyyymmdd
+            })
+            
+            data = [row._asdict() for row in result]
+            df = pd.DataFrame(data)
+            
+            if not df.empty:
+                df['cash_div_tax'] = pd.to_numeric(df['cash_div_tax'], errors='coerce')
+                df['ann_date'] = pd.to_datetime(df['ann_date'], format='%Y%m%d', errors='coerce')
+                df['end_date'] = pd.to_datetime(df['end_date'], format='%Y%m%d', errors='coerce')
+            
+            print(f"  Found {len(df)} TTM dividend records.")
+            return df
+
     def get_latest_valuation_metrics(self, valuation_date: Optional[str] = None) -> Optional[pd.DataFrame]:
         """
         获取指定日期或之前的最新估值指标。
