@@ -623,7 +623,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         base_data_warnings = processed_data_container.get_warnings() # Initial warnings
         base_latest_metrics['latest_price'] = latest_price
         logger.info(f"  Data processing complete. Initial Warnings: {len(base_data_warnings)}")
-        logger.info(f"  Base latest metrics including actual EBITDA: {base_latest_metrics}")
+        logger.debug(f"  Base latest metrics including actual EBITDA: {base_latest_metrics}") # Changed to debug
 
 
         # --- Initialize WACC Calculator (Common) ---
@@ -874,6 +874,63 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # --- Build Final Response ---
         logger.info("Step 10: Building final response...")
 
+        # --- Logic for Special Industry Warning ---
+        special_warning_text: Optional[str] = None
+        comp_type_value: Optional[str] = None
+        
+        if processed_data_container and processed_data_container.processed_data and \
+           'balance_sheet' in processed_data_container.processed_data and \
+           not processed_data_container.processed_data['balance_sheet'].empty and \
+           'comp_type' in processed_data_container.processed_data['balance_sheet'].columns:
+            
+            try:
+                bs_df_for_comp_type = processed_data_container.processed_data['balance_sheet'].copy()
+                # Ensure 'end_date' is index for proper sorting to get latest
+                # DataProcessor should ideally provide data with 'end_date' as sorted datetime index
+                if 'end_date' in bs_df_for_comp_type.columns and not isinstance(bs_df_for_comp_type.index, pd.DatetimeIndex):
+                    bs_df_for_comp_type['end_date'] = pd.to_datetime(bs_df_for_comp_type['end_date'])
+                    bs_df_for_comp_type = bs_df_for_comp_type.set_index('end_date')
+                
+                if isinstance(bs_df_for_comp_type.index, pd.DatetimeIndex):
+                    bs_df_for_comp_type = bs_df_for_comp_type.sort_index(ascending=False)
+                
+                if not bs_df_for_comp_type.empty:
+                    comp_type_value_raw = bs_df_for_comp_type['comp_type'].iloc[0]
+                    if pd.notna(comp_type_value_raw):
+                        comp_type_value = str(comp_type_value_raw).strip()
+                    else:
+                        comp_type_value = None
+                        logger.info("Latest comp_type value is NaN.")
+                else:
+                    logger.info("Balance sheet DataFrame for comp_type is empty after processing.")
+            except Exception as e_ct:
+                logger.warning(f"Could not reliably extract comp_type from balance_sheet: {e_ct}")
+
+        if comp_type_value:
+            FINANCIAL_COMP_TYPES_STR = ["2", "3", "4"] # 银行, 保险, 证券
+            is_financial_stock = comp_type_value in FINANCIAL_COMP_TYPES_STR
+            
+            has_significant_warnings = False
+            if all_warnings: # all_warnings is a list of strings
+                # Check if there are more than 2 warnings OR specific keywords are present
+                if len(all_warnings) > 2:
+                    has_significant_warnings = True
+                else:
+                    for warn_msg in all_warnings:
+                        if any(keyword in warn_msg for keyword in ["NWC", "营运资本", "流动资产", "流动负债", "周转天数", "cogs_to_revenue", "inventories/oper_cost", "accounts_receiv_bill/revenue", "accounts_pay/oper_cost"]):
+                            has_significant_warnings = True
+                            break
+            
+            if is_financial_stock and has_significant_warnings:
+                special_warning_text = (
+                    "您选择的股票属于金融行业。当前通用DCF估值模型可能不完全适用于此类公司，"
+                    "且由于其财务数据结构的特殊性，部分关键财务数据可能缺失或已采用默认值处理。"
+                    "这可能导致估值结果与实际情况存在较大偏差，请谨慎参考并结合其他分析方法。"
+                )
+                logger.info(f"Identified financial stock (comp_type: {comp_type_value}) with significant warnings. Setting special_industry_warning.")
+        else:
+            logger.info(f"Comp_type not found or not applicable for special industry warning. comp_type_value: {comp_type_value}")
+
         # --- Prepare historical_ratios_summary ---
         historical_ratios_summary_data = []
         if base_historical_ratios:
@@ -919,9 +976,9 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                 
                 # Debug log for balance sheet - this block should be at the same indent level as the next 'if'
                 if report_type == "balance_sheet" and df is not None: 
-                    logger.info(f"DEBUG_BS: Balance Sheet columns from DataProcessor: {df.columns.tolist()}")
-                    logger.info(f"DEBUG_BS: Balance Sheet head (from DataProcessor):\n{df.head().to_string()}")
-                    logger.info(f"DEBUG_BS: Balance Sheet index name from DataProcessor: {df.index.name}")
+                    logger.debug(f"DEBUG_BS: Balance Sheet columns from DataProcessor: {df.columns.tolist()}") # Changed to debug
+                    logger.debug(f"DEBUG_BS: Balance Sheet head (from DataProcessor):\n{df.head().to_string()}") # Changed to debug
+                    logger.debug(f"DEBUG_BS: Balance Sheet index name from DataProcessor: {df.index.name}") # Changed to debug
 
                 if df is not None and not df.empty: # MODIFIED CONDITION: Only check if df is valid
                     df_for_years = df.copy()
@@ -938,8 +995,8 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
 
                     # This debug log is correctly indented relative to its purpose
                     if report_type == "balance_sheet":
-                        logger.info(f"DEBUG_BS: df_for_years head (after indexing and sorting):\n{df_for_years.head().to_string()}")
-                        logger.info(f"DEBUG_BS: df_for_years index name: {df_for_years.index.name}")
+                        logger.debug(f"DEBUG_BS: df_for_years head (after indexing and sorting):\n{df_for_years.head().to_string()}") # Changed to debug
+                        logger.debug(f"DEBUG_BS: df_for_years index name: {df_for_years.index.name}") # Changed to debug
 
                     annual_report_dates = sorted(
                         [date for date in df_for_years.index.unique() if date.month == 12],
@@ -953,7 +1010,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         display_dates = annual_report_dates[:num_years_to_display]
 
                     if report_type == "balance_sheet":
-                        logger.info(f"DEBUG_BS: Display dates: {display_dates}")
+                        logger.debug(f"DEBUG_BS: Display dates: {display_dates}") # Changed to debug
 
                     display_years_str = [date.strftime('%Y') for date in display_dates]
 
@@ -961,7 +1018,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         item_data = {"科目": display_name, "报表类型": report_type.replace("_", " ").title()}
                         
                         if report_type == "balance_sheet":
-                             logger.info(f"DEBUG_BS: --- Processing Item: {display_name} (maps to: {actual_col_name}) ---")
+                             logger.debug(f"DEBUG_BS: --- Processing Item: {display_name} (maps to: {actual_col_name}) ---") # Changed to debug
 
                         # Special handling for Gross Profit
                         if report_type == "income_statement" and actual_col_name == "gross_profit":
@@ -983,7 +1040,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         
                         elif actual_col_name in df_for_years.columns:
                             if report_type == "balance_sheet": 
-                                logger.info(f"DEBUG_BS: Item: '{display_name}' (col: '{actual_col_name}') - FOUND in df_for_years.columns.")
+                                logger.debug(f"DEBUG_BS: Item: '{display_name}' (col: '{actual_col_name}') - FOUND in df_for_years.columns.") # Changed to debug
                             for i, date_obj in enumerate(display_dates):
                                 year_str = display_years_str[i]
                                 row = df_for_years[df_for_years.index == date_obj]
@@ -992,7 +1049,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                                         value_to_add = float(Decimal(str(row[actual_col_name].iloc[0])))
                                         item_data[year_str] = value_to_add
                                         if report_type == "balance_sheet":
-                                            logger.info(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, Raw Value: {row[actual_col_name].iloc[0]}, Added Value: {value_to_add}")
+                                            logger.debug(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, Raw Value: {row[actual_col_name].iloc[0]}, Added Value: {value_to_add}") # Changed to debug
                                     except InvalidOperation:
                                         item_data[year_str] = None 
                                         if report_type == "balance_sheet":
@@ -1000,7 +1057,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                                 else:
                                     item_data[year_str] = None 
                                     if report_type == "balance_sheet":
-                                        logger.info(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, Value: None (Reason: row empty? {row.empty}; col in row? {actual_col_name in row.columns if not row.empty else 'N/A'}; val notna? {pd.notna(row[actual_col_name].iloc[0]) if not row.empty and actual_col_name in row.columns else 'N/A'})")
+                                        logger.debug(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, Value: None (Reason: row empty? {row.empty}; col in row? {actual_col_name in row.columns if not row.empty else 'N/A'}; val notna? {pd.notna(row[actual_col_name].iloc[0]) if not row.empty and actual_col_name in row.columns else 'N/A'})") # Changed to debug
                         else: # Column not found in this df
                             if report_type == "balance_sheet": 
                                 logger.warning(f"DEBUG_BS: Item: '{display_name}' (col: '{actual_col_name}') - NOT FOUND in df_for_years.columns. Available: {df_for_years.columns.tolist()}")
@@ -1008,7 +1065,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         
                         historical_financial_summary_data.append(item_data)
             if historical_financial_summary_data: 
-                logger.info(f"DEBUG: Final historical_financial_summary_data (first 5 items): {json.dumps(historical_financial_summary_data[:5], ensure_ascii=False, default=str)}")
+                logger.debug(f"DEBUG: Final historical_financial_summary_data (first 5 items): {json.dumps(historical_financial_summary_data[:5], ensure_ascii=False, default=str)}") # Changed to debug
 
         # 计算并添加到基础 DCF 详情中
         dcf_implied_diluted_pe_value = None
@@ -1093,7 +1150,8 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             detailed_forecast_table=base_forecast_df.to_dict(orient='records') if base_forecast_df is not None and not base_forecast_df.empty else None, # Use base forecast table
             sensitivity_analysis_result=sensitivity_result_obj, # Add sensitivity results if available
             historical_financial_summary=historical_financial_summary_data if historical_financial_summary_data else None,
-            historical_ratios_summary=historical_ratios_summary_data if historical_ratios_summary_data else None
+            historical_ratios_summary=historical_ratios_summary_data if historical_ratios_summary_data else None,
+            special_industry_warning=special_warning_text # Add the new field here
         )
         logger.info("Valuation request processed successfully.")
         # Use StockBasicInfoModel for stock_info

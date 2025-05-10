@@ -307,6 +307,11 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                         for warning in data_warnings:
                             st.warning(warning)
 
+                # --- Display Special Industry Warning ---
+                special_industry_warning_text = valuation_results.get("special_industry_warning")
+                if special_industry_warning_text:
+                    st.error(f"⚠️ **行业特别提示：** {special_industry_warning_text}")
+
                 st.subheader(f"📋 基本信息")
                 base_report_date_str = stock_info.get('base_report_date')
                 if base_report_date_str:
