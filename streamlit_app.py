@@ -279,7 +279,7 @@ if 'sensitivity_initialized' not in st.session_state:
 
 # --- 函数：渲染估值结果 ---
 def render_valuation_results(payload_filtered, current_ts_code, base_assumptions, selected_output_metric_keys_from_ui):
-    st.header("估值结果")
+    # st.header("估值结果")
     st.info(f"正在为 {current_ts_code} 请求估值...")
 
     try:
@@ -308,6 +308,13 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                             st.warning(warning)
 
                 st.subheader(f"基本信息")
+                base_report_date_str = stock_info.get('base_report_date')
+                if base_report_date_str:
+                    try:
+                        formatted_date = pd.to_datetime(base_report_date_str).strftime('%Y年%m月%d日')
+                        st.caption(f"本估值基于 {formatted_date} 年报数据")
+                    except Exception:
+                        st.caption(f"基准年报日期: {base_report_date_str}") # Fallback if formatting fails
                 
                 # 基本信息 - 第 1 行
                 basic_info_row1_cols = st.columns(6)
@@ -367,16 +374,19 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                             st.metric("TTM每股股息", f"{dps_display_val:{dps_format_str}}")
                         else:
                             st.metric("TTM每股股息", "N/A")
+                
+                st.markdown("---") # 在基本信息和估值结果之间添加横线
 
                 st.subheader("估值结果")
 
                 # 估值结果 - 第 1 行
-                valuation_results_row1_cols = st.columns(6)
+                valuation_results_row1_cols = st.columns(7) # 修改为7列
                 dcf_value_per_share = dcf_details.get('value_per_share')
                 latest_price_for_sm = valuation_results.get('latest_price')
                 safety_margin = ((dcf_value_per_share / latest_price_for_sm) - 1) * 100 if dcf_value_per_share is not None and latest_price_for_sm is not None and latest_price_for_sm > 0 else None
                 dcf_implied_pe_val = dcf_details.get('dcf_implied_diluted_pe')
                 base_ev_ebitda_val = dcf_details.get('base_ev_ebitda')
+                implied_pgr_val = dcf_details.get('implied_perpetual_growth_rate') # 获取新字段
                 wacc_used_val = dcf_details.get('wacc_used')
                 cost_of_equity_used_val = dcf_details.get('cost_of_equity_used')
 
@@ -392,21 +402,25 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 with valuation_results_row1_cols[3]:
                     with st.container():
                         st.metric("隐含 EV/EBITDA", f"{float(base_ev_ebitda_val):.2f}x" if base_ev_ebitda_val is not None else "N/A")
-                with valuation_results_row1_cols[4]:
+                with valuation_results_row1_cols[4]: # 新的第5个块
+                    with st.container():
+                        st.metric("隐含永续增长率", f"{float(implied_pgr_val) * 100:.2f}%" if implied_pgr_val is not None else "N/A")
+                with valuation_results_row1_cols[5]: # 原第5，现第6
                     with st.container():
                         st.metric("WACC", f"{float(wacc_used_val) * 100:.2f}%" if wacc_used_val is not None else "N/A")
-                with valuation_results_row1_cols[5]:
+                with valuation_results_row1_cols[6]: # 原第6，现第7
                     with st.container():
                         st.metric("Ke (股权成本)", f"{float(cost_of_equity_used_val) * 100:.2f}%" if cost_of_equity_used_val is not None else "N/A")
 
                 # 估值结果 - 第 2 行
-                valuation_results_row2_cols = st.columns(6)
+                valuation_results_row2_cols = st.columns(7) # 修改为7列
                 enterprise_value_val = dcf_details.get('enterprise_value')
                 equity_value_val = dcf_details.get('equity_value')
                 pv_forecast_ufcf_val = dcf_details.get('pv_forecast_ufcf')
                 pv_terminal_value_val = dcf_details.get('pv_terminal_value')
                 terminal_value_val = dcf_details.get('terminal_value')
                 net_debt_val = dcf_details.get('net_debt')
+                exit_multiple_used_val = dcf_details.get('exit_multiple_used') # 获取退出乘数
 
                 with valuation_results_row2_cols[0]:
                     with st.container():
@@ -426,6 +440,12 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 with valuation_results_row2_cols[5]:
                     with st.container():
                         st.metric("净债务", f"{float(net_debt_val) / 1e8:.2f} 亿" if net_debt_val is not None else "N/A")
+                with valuation_results_row2_cols[6]: # 新增的第7个块
+                    with st.container():
+                        if dcf_details.get('terminal_value_method_used') == 'exit_multiple' and exit_multiple_used_val is not None:
+                            st.metric("退出乘数", f"{float(exit_multiple_used_val):.1f}x")
+                        else:
+                            st.metric("退出乘数", "N/A")
                 
                 st.markdown("---") # Keep the separator before the expander
 
@@ -596,7 +616,7 @@ with st.sidebar:
     with st.expander("税率假设"):
         target_effective_tax_rate = st.number_input("目标有效所得税率:", min_value=0.0, max_value=1.0, value=0.25, step=0.01, format="%.2f", key="tax_rate")
     with st.expander("WACC 参数 (可选覆盖)"):
-        wacc_weight_mode_ui = st.radio( "WACC 权重模式:", options=["使用目标债务比例", "使用最新市场价值计算权重"], index=0, key="wacc_weight_mode_selector", help="选择使用预设的目标资本结构，还是基于最新的市值和负债动态计算资本结构权重。" )
+        wacc_weight_mode_ui = st.radio( "WACC 权重模式:", options=["使用目标债务比例", "使用最新市场价值计算权重"], index=1, key="wacc_weight_mode_selector", help="选择使用预设的目标资本结构，还是基于最新的市值和负债动态计算资本结构权重。" ) # Default index changed to 1
         target_debt_ratio_disabled = (wacc_weight_mode_ui == "使用最新市场价值计算权重")
         target_debt_ratio = st.number_input( "目标债务比例 D/(D+E):", min_value=0.0, max_value=1.0, value=0.45, step=0.05, format="%.2f", help="仅在选择“使用目标债务比例”模式时有效。留空则使用后端默认值。", key="wacc_debt_ratio", disabled=target_debt_ratio_disabled )
         cost_of_debt = st.number_input("税前债务成本 (Rd):", min_value=0.0, value=0.05, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_cost_debt")
@@ -605,7 +625,7 @@ with st.sidebar:
         market_risk_premium = st.number_input("市场风险溢价 (MRP):", min_value=0.0, value=0.06, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_mrp")
     with st.expander("终值计算假设"):
         terminal_value_method = st.selectbox("终值计算方法:", options=['exit_multiple', 'perpetual_growth'], index=0, key="tv_method")
-        exit_multiple = st.number_input("退出乘数 (EBITDA):", min_value=0.1, value=6.0, step=0.5, format="%.1f", key="tv_exit_multiple", disabled=(terminal_value_method != 'exit_multiple'), on_change=update_sensitivity_ui_elements) if terminal_value_method == 'exit_multiple' else None
+        exit_multiple = st.number_input("退出乘数 (EBITDA):", min_value=0.1, value=7.0, step=0.5, format="%.1f", key="tv_exit_multiple", disabled=(terminal_value_method != 'exit_multiple'), on_change=update_sensitivity_ui_elements) if terminal_value_method == 'exit_multiple' else None
         perpetual_growth_rate = st.number_input("永续增长率:", min_value=0.0, max_value=0.05, value=0.025, step=0.001, format="%.3f", key="tv_pg_rate", disabled=(terminal_value_method != 'perpetual_growth'), on_change=update_sensitivity_ui_elements) if terminal_value_method == 'perpetual_growth' else None
     st.divider()
     st.subheader("🔬 敏感性分析 (可选)")

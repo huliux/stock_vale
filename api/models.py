@@ -88,6 +88,7 @@ class StockBasicInfoModel(BaseModel):
     act_name: Optional[str] = Field(None, description="实际控制人名称")
     act_ent_type: Optional[str] = Field(None, description="实际控制人企业性质")
     latest_annual_diluted_eps: Optional[Decimal] = Field(None, description="最新年报稀释每股收益") # 新增 eps
+    base_report_date: Optional[str] = Field(None, description="估值使用的基准财务报表日期 (YYYY-MM-DD)") # 新增字段
     # Add any other fields that might be in the basic_info dict passed from DataProcessor
     # For Pydantic V2, to handle extra fields in input dict if they are not strictly matching
     model_config = ConfigDict(extra="ignore")
@@ -126,6 +127,7 @@ class DcfForecastDetails(BaseModel):
     forecast_period_years: Optional[int] = Field(None, description="预测期年数")
     dcf_implied_diluted_pe: Optional[float] = Field(None, description="DCF估值对应的稀释市盈率(基于最近年报EPS)")
     base_ev_ebitda: Optional[float] = Field(None, description="基于基础估值的EV/EBITDA") # 新增 EV/EBITDA
+    implied_perpetual_growth_rate: Optional[float] = Field(None, description="当使用退出乘数法时，反推的隐含永续增长率") # 新增字段
 
 class ValuationResultsContainer(BaseModel):
     """(修订版) 包含所有计算结果的容器。"""

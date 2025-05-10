@@ -33,6 +33,7 @@ class DataProcessor:
         self.latest_metrics: Dict[str, Any] = {}
         self.basic_info: Dict[str, Any] = {}
         self.latest_balance_sheet: Optional[pd.Series] = None
+        self.base_financial_statement_date: Optional[str] = None # 新增属性
         self.warnings: List[str] = []
 
         self._process_input_data()
@@ -139,8 +140,14 @@ class DataProcessor:
             try:
                  if 'end_date' in df_bs.columns:
                     df_bs['end_date'] = pd.to_datetime(df_bs['end_date'])
-                    self.latest_balance_sheet = df_bs.sort_values(by='end_date', ascending=False).iloc[0]
-                    print(f"  Extracted latest balance sheet for date: {self.latest_balance_sheet.get('end_date')}")
+                    latest_bs_series = df_bs.sort_values(by='end_date', ascending=False).iloc[0]
+                    self.latest_balance_sheet = latest_bs_series
+                    # 存储基准财务报表日期
+                    if pd.notna(latest_bs_series.get('end_date')):
+                        self.base_financial_statement_date = pd.to_datetime(latest_bs_series.get('end_date')).strftime('%Y-%m-%d')
+                        print(f"  Extracted latest balance sheet for date: {self.base_financial_statement_date}")
+                    else:
+                        print("  Warning: Latest balance sheet end_date is NaT.")
                  else:
                     warning_msg = "'balance_sheet' 表缺少 'end_date' 列，无法确定最新报表。"; self.warnings.append(warning_msg); print(f"Warning: {warning_msg}")
             except Exception as e:
@@ -638,6 +645,10 @@ class DataProcessor:
     def get_latest_balance_sheet(self) -> Optional[pd.Series]:
         """获取最新的资产负债表 Series。"""
         return self.latest_balance_sheet
+
+    def get_base_financial_statement_date(self) -> Optional[str]:
+        """获取基准财务报表的日期 (YYYY-MM-DD)。"""
+        return self.base_financial_statement_date
 
     def get_latest_actual_ebitda(self) -> Optional[Decimal]:
         """获取最近一个完整财年的实际EBITDA。"""

@@ -903,6 +903,37 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             base_dcf_details.base_ev_ebitda = base_ev_ebitda_value
             logger.info(f"Assigned base_ev_ebitda to base_dcf_details: {base_dcf_details.base_ev_ebitda}")
 
+            # 计算隐含永续增长率 (如果使用退出乘数法)
+            implied_pgr_value = None
+            if base_dcf_details.terminal_value_method_used == 'exit_multiple' and \
+               base_dcf_details.terminal_value is not None and \
+               base_dcf_details.wacc_used is not None and \
+               base_forecast_df is not None and not base_forecast_df.empty and \
+               'ufcf' in base_forecast_df.columns:
+                
+                try:
+                    tv_decimal = Decimal(str(base_dcf_details.terminal_value))
+                    wacc_decimal = Decimal(str(base_dcf_details.wacc_used))
+                    # 获取预测期最后一年的 UFCF
+                    fcf_t_decimal = Decimal(str(base_forecast_df['ufcf'].iloc[-1]))
+
+                    if (tv_decimal + fcf_t_decimal) != Decimal('0'): # 避免除以零
+                        # PGR = (TV * WACC - FCF_T) / (TV + FCF_T)
+                        numerator = (tv_decimal * wacc_decimal) - fcf_t_decimal
+                        denominator = tv_decimal + fcf_t_decimal
+                        implied_pgr_value = float(numerator / denominator)
+                        logger.info(f"Calculated Implied Perpetual Growth Rate: {implied_pgr_value:.4f}")
+                    else:
+                        logger.warning("Cannot calculate Implied PGR: TV + FCF_T is zero.")
+                        all_warnings.append("无法计算隐含永续增长率：终值与终期现金流之和为零。")
+                except Exception as e_ipgr:
+                    logger.error(f"Error calculating Implied Perpetual Growth Rate: {e_ipgr}")
+                    all_warnings.append(f"计算隐含永续增长率时出错: {str(e_ipgr)}")
+            
+            if base_dcf_details: # 再次确保 base_dcf_details 存在
+                base_dcf_details.implied_perpetual_growth_rate = implied_pgr_value
+                logger.info(f"Assigned implied_perpetual_growth_rate to base_dcf_details: {base_dcf_details.implied_perpetual_growth_rate}")
+
         results_container = ValuationResultsContainer(
             latest_price=latest_price,
             current_pe=base_latest_metrics.get('pe'),
@@ -923,6 +954,9 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         final_stock_info_data['market'] = base_basic_info.get('market')
         # 新增：从 base_latest_metrics 获取 latest_annual_diluted_eps
         final_stock_info_data['latest_annual_diluted_eps'] = base_latest_metrics.get('latest_annual_diluted_eps')
+        # 新增：从 DataProcessor 获取基准财务报表日期
+        if processed_data_container: # 确保 processed_data_container 已被初始化
+            final_stock_info_data['base_report_date'] = processed_data_container.get_base_financial_statement_date()
         
         final_stock_info = StockBasicInfoModel(**final_stock_info_data)
         return StockValuationResponse(
