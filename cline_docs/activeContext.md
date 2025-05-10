@@ -89,6 +89,11 @@
         *   LLM总结区块拆分为 `render_llm_summary_section()`。
     *   主函数 `render_valuation_results` 逻辑简化，主要负责协调和调用各子渲染函数。
     *   应用经重构后可成功运行。
+-   **后端 API 代码重构 (`api/main.py`) (完成):**
+    *   **辅助函数迁移至 `api/utils.py`**: `decimal_default`, `generate_axis_values_backend`, `build_historical_financial_summary`。
+    *   **LLM 相关逻辑迁移至 `api/llm_utils.py`**: `load_prompt_template`, `format_llm_input_data`, `call_llm_api` 及相关常量。
+    *   **核心估值逻辑迁移至 `services/valuation_service.py`**: `_run_single_valuation` (重命名为 `run_single_valuation`)。
+    *   `api/main.py` 已更新以使用新的工具和服务函数，并修复了相关的语法错误。
 -   **应用状态:**
     *   后端 API 服务可正常运行。Streamlit 应用可运行。
     *   **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决:** 通过指导用户修正其终端环境中的 `DEEPSEEK_API_KEY` 环境变量（移除其中的中文注释），API 调用已恢复正常。相关的调试日志已从 `api/main.py` 中移除。
@@ -106,7 +111,7 @@
 -   **(已完成)** **金融行业适应性提示与文档更新:**
     -   UI层面: 后端API (`api/main.py`, `api/models.py`) 和前端 (`streamlit_app.py`) 已更新，当检测到金融行业股票且存在较多数据问题时，会显示特定的警告信息。
     -   文档层面: `README.md`, `cline_docs/projectbrief.md`, `cline_docs/systemPatterns.md`, `cline_docs/progress.md` 已更新，说明当前DCF模型对金融行业的局限性。
--   **记忆库更新:** (进行中) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件正在更新以反映最新项目状态，特别是 `streamlit_app.py` 的重构。
+-   **记忆库更新:** (进行中) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件正在更新以反映最新项目状态，特别是 `streamlit_app.py` 和 `api/main.py` 的重构。
 
 ## 后续步骤 (优先级排序)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**

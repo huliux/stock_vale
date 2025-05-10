@@ -15,7 +15,7 @@ from st_utils import (
 )
 
 # --- 配置 ---
-API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8124/api/v1/valuation") 
+API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8125/api/v1/valuation") 
 
 # --- 页面配置与渲染函数 ---
 def render_page_config_and_title():

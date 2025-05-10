@@ -114,6 +114,11 @@
         - [x] `render_valuation_results` 函数内部的主要UI区块（基本信息、估值结果摘要、数据警告、行业提示、敏感性分析、高级分析、LLM总结）均已拆分为独立的渲染函数。
         - [x] 主函数 `render_valuation_results` 逻辑简化。
         - [x] 重构后的应用可成功运行。
+- **后端 API (`api/main.py`) 代码拆分与重构 (完成):**
+    - [x] **创建 `api/utils.py`**: 迁移通用辅助函数 (`decimal_default`, `generate_axis_values_backend`, `build_historical_financial_summary`)。
+    - [x] **创建 `api/llm_utils.py`**: 迁移 LLM 相关函数 (`load_prompt_template`, `format_llm_input_data`, `call_llm_api`) 及配置常量。
+    - [x] **创建 `services/valuation_service.py`**: 迁移核心估值逻辑 (`run_single_valuation`)。
+    - [x] **更新 `api/main.py`**: 移除已迁移代码，更新导入，并修复了因先前重构引入的语法错误。
 - **金融行业适应性提示 (UI & 文档):**
     - [x] **UI层面:** 后端API (`api/main.py`, `api/models.py`) 和前端 (`streamlit_app.py`) 已更新，当检测到金融行业股票且存在较多数据问题时，会显示特定的警告信息。
     - [x] **文档层面:** `README.md`, `cline_docs/projectbrief.md`, `cline_docs/systemPatterns.md` 已更新，说明当前DCF模型对金融行业的局限性。
@@ -163,7 +168,7 @@
         *   修复了 `tests/test_wacc_calculator.py` 中的类型错误、数值比较和错误消息断言。
     - [ ] **Streamlit UI 完善:** (可选，优先级降低) 根据测试结果和用户反馈，优化布局（特别是右侧LLM区域）、交互和错误处理。
     - [ ] **优化投资建议呈现:** (可选，优先级降低) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-    - [x] **Memory Bank 更新:** (已完成) 更新文档以反映敏感性分析计划、WACC 轴处理、EV/EBITDA 指标修正、DCF 隐含 PE 指标添加，以及 DeepSeek API `UnicodeEncodeError` 问题的解决。
+    - [x] **Memory Bank 更新:** (进行中) 更新文档以反映 `streamlit_app.py` 和 `api/main.py` 的重构。
     - [ ] **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
     - [ ] **规范符合性检查:** (持续进行) 确保所有实现都已对照 `wiki/` 文档进行验证。
 
