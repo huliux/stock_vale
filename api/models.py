@@ -140,6 +140,8 @@ class ValuationResultsContainer(BaseModel):
     data_warnings: Optional[List[str]] = Field(None, description="数据处理过程中产生的警告信息列表")
     detailed_forecast_table: Optional[List[Dict[str, Any]]] = Field(None, description="详细的逐年财务预测表格")
     sensitivity_analysis_result: Optional[SensitivityAnalysisResult] = Field(None, description="敏感性分析结果 (可选)")
+    historical_financial_summary: Optional[List[Dict[str, Any]]] = Field(None, description="原始财务报表历史摘要表格")
+    historical_ratios_summary: Optional[List[Dict[str, Any]]] = Field(None, description="历史财务比率和周转天数表格")
 
 class StockValuationResponse(BaseModel):
     """

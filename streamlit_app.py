@@ -22,8 +22,8 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-st.title("📈 稳如狗估值服务")
-st.caption("炒股风险高，投资需谨慎。梭哈要安全，远离割韭菜。")
+st.title("📈 稳稳的估吧")
+st.caption("长期投资就是耐心等待。")
 
 # --- 敏感性分析辅助函数与回调 ---
 
@@ -307,7 +307,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                         for warning in data_warnings:
                             st.warning(warning)
 
-                st.subheader(f"基本信息")
+                st.subheader(f"📋 基本信息")
                 base_report_date_str = stock_info.get('base_report_date')
                 if base_report_date_str:
                     try:
@@ -377,7 +377,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 
                 st.markdown("---") # 在基本信息和估值结果之间添加横线
 
-                st.subheader("估值结果")
+                st.subheader("💴 估值结果")
 
                 # 估值结果 - 第 1 行
                 valuation_results_row1_cols = st.columns(7) # 修改为7列
@@ -463,33 +463,6 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                 #         st.caption(f"退出乘数: {dcf_details.get('exit_multiple_used', 'N/A')}")
                 #     elif dcf_details.get('terminal_value_method_used') == 'perpetual_growth':
                 #         st.caption(f"永续增长率: {dcf_details.get('perpetual_growth_rate_used', 'N/A') * 100:.2f}%")
-
-                st.subheader("预测数据")
-                detailed_forecast_table_data = valuation_results.get("detailed_forecast_table")
-                if detailed_forecast_table_data:
-                    try:
-                        df_forecast = pd.DataFrame(detailed_forecast_table_data)
-                        columns_to_format = ['revenue', 'cogs', 'gross_profit', 'sga_rd', 'ebit', 'income_tax', 'nopat', 'd_a', 'capex', 'accounts_receivable', 'inventories', 'accounts_payable', 'other_current_assets', 'other_current_liabilities', 'nwc', 'delta_nwc', 'ebitda', 'ufcf']
-                        format_dict = {col: "{:,.0f}" for col in columns_to_format if col in df_forecast.columns} 
-                        if 'growth_rate' in df_forecast.columns:
-                            format_dict['growth_rate'] = "{:.2%}" 
-                        display_columns = ['year', 'revenue', 'growth_rate', 'ebit', 'nopat', 'd_a', 'capex', 'delta_nwc', 'ufcf', 'ebitda']
-                        existing_display_columns = [col for col in display_columns if col in df_forecast.columns]
-                        
-                        df_display_source = df_forecast[existing_display_columns].copy() # Use .copy() to avoid SettingWithCopyWarning
-                        
-                        # Set 'year' as index if it exists, to mimic sensitivity table display
-                        if 'year' in df_display_source.columns:
-                            df_display_source.set_index('year', inplace=True)
-                        
-                        styler = df_display_source.style.format(format_dict, na_rep='-')
-                        # Now 'year' is the index, st.dataframe should display it as row headers
-                        # No explicit hide_index or styler.hide_index() should be needed if 'year' is the desired index display
-                        st.dataframe(styler, use_container_width=True)
-                    except Exception as e:
-                        st.error(f"无法显示预测表格: {e}")
-                else:
-                    st.info("未找到详细的预测数据。")
                 
                 sensitivity_data = valuation_results.get("sensitivity_analysis_result")
                 sensitivity_enabled_for_this_run = payload_filtered.get("sensitivity_analysis") is not None
@@ -521,7 +494,7 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                             if metric_key in result_tables:
                                 table_data = result_tables[metric_key]
                                 metric_display_name = next((k for k, v in supported_output_metrics.items() if v == metric_key), metric_key)
-                                st.markdown(f"**指标: {metric_display_name}**") 
+                                st.markdown(f"**{metric_display_name}**") #敏感性分析标题：指标
                                 
                                 # Create DataFrame with unique formatted string labels for index and columns
                                 df_sensitivity = pd.DataFrame(
@@ -553,6 +526,199 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
                                 st.warning(f"未找到指标 '{metric_key}' 的敏感性分析结果。")
                     except Exception as e:
                         st.error(f"无法显示敏感性分析表格: {e}")
+
+                # st.markdown("---")
+                with st.expander("高级分析", expanded=False):
+                    st.subheader("历史财务摘要")
+                    historical_financial_summary_data = valuation_results.get("historical_financial_summary")
+                    if historical_financial_summary_data:
+                        try:
+                            df_financial_summary = pd.DataFrame(historical_financial_summary_data)
+                            # Attempt to set '科目' as index if it exists and makes sense
+                            if "科目" in df_financial_summary.columns:
+                                df_financial_summary = df_financial_summary.set_index("科目")
+                            
+                            # Identify year columns for formatting (e.g., columns that are purely numeric like '2022', '2021')
+                            year_cols_to_format = [col for col in df_financial_summary.columns if col.isdigit() and len(col) == 4]
+                            format_dict_fs = {col: "{:,.0f}" for col in year_cols_to_format} # Format as integer with comma
+
+                            st.dataframe(df_financial_summary.style.format(format_dict_fs, na_rep='-'), use_container_width=True)
+                        except Exception as e_fs:
+                            st.error(f"渲染历史财务摘要时出错: {e_fs}")
+                    else:
+                        st.caption("未找到历史财务摘要数据。")
+
+                    st.subheader("历史财务比率")
+                    historical_ratios_summary_data = valuation_results.get("historical_ratios_summary")
+                    if historical_ratios_summary_data:
+                        try:
+                            ratio_display_names_map = {
+                                "cogs_to_revenue_ratio": "主营业务成本率 (%)",
+                                "sga_rd_to_revenue_ratio": "销售管理及研发费用率 (%)",
+                                "operating_margin_median": "营业利润率 (中位数 %)", # 注意：API返回的可能是 operating_margin
+                                "operating_margin": "营业利润率 (中位数 %)", # 添加此项以匹配可能的API返回键
+                                "da_to_revenue_ratio": "折旧与摊销率 (占收入 %)",
+                                "capex_to_revenue_ratio": "资本支出率 (占收入 %)",
+                                "accounts_receivable_days": "应收账款周转天数 (天)",
+                                "inventory_days": "存货周转天数 (天)",
+                                "accounts_payable_days": "应付账款周转天数 (天)",
+                                "other_current_assets_to_revenue_ratio": "其他流动资产率 (占收入 %)",
+                                "other_current_liabilities_to_revenue_ratio": "其他流动负债率 (占收入 %)",
+                                "nwc_to_revenue_ratio": "净营运资本率 (占收入 %)",
+                                "last_historical_nwc": "上一历史期净营运资本 (元)",
+                                "effective_tax_rate": "有效税率 (%)",
+                                "historical_revenue_cagr": "历史收入复合年增长率 (%)"
+                                # 更多指标可以根据API实际返回的 historical_ratios_summary 中的 metric_name 键来补充
+                            }
+                            df_ratios_summary = pd.DataFrame(historical_ratios_summary_data)
+                            
+                            if 'metric_name' in df_ratios_summary.columns:
+                                # 应用映射，如果找不到则保留原名
+                                df_ratios_summary['指标中文名称'] = df_ratios_summary['metric_name'].map(ratio_display_names_map).fillna(df_ratios_summary['metric_name'])
+                            else:
+                                df_ratios_summary['指标中文名称'] = "未知指标" # Fallback if 'metric_name' column is missing
+
+                            # Format 'value' column - check if it's percentage or number
+                            if 'value' in df_ratios_summary.columns:
+                                df_ratios_summary['value'] = pd.to_numeric(df_ratios_summary['value'], errors='coerce')
+                                for index, row in df_ratios_summary.iterrows():
+                                    # 使用 '指标中文名称' 或 'metric_name' (如果前者生成失败) 来判断格式
+                                    metric_name_for_format_check = row.get('指标中文名称', row.get('metric_name', '')) 
+                                    value = row.get('value')
+                                    if pd.notna(value):
+                                        if '率' in metric_name_for_format_check or 'CAGR' in metric_name_for_format_check or \
+                                           'ratio' in metric_name_for_format_check.lower() or 'margin' in metric_name_for_format_check.lower():
+                                            if '天数' not in metric_name_for_format_check and 'days' not in metric_name_for_format_check.lower() and '元' not in metric_name_for_format_check:
+                                                df_ratios_summary.loc[index, 'value_display'] = f"{value*100:.2f}%"
+                                            elif '天数' in metric_name_for_format_check or 'days' in metric_name_for_format_check.lower():
+                                                df_ratios_summary.loc[index, 'value_display'] = f"{value:.1f}"
+                                            else: # For amounts like '元'
+                                                df_ratios_summary.loc[index, 'value_display'] = f"{value:,.0f}" # Format as integer with comma
+                                        elif '天数' in metric_name_for_format_check or 'days' in metric_name_for_format_check.lower():
+                                             df_ratios_summary.loc[index, 'value_display'] = f"{value:.1f}"
+                                        elif '元' in metric_name_for_format_check: # For amounts
+                                            df_ratios_summary.loc[index, 'value_display'] = f"{value:,.0f}"
+                                        else: # For other numbers like multiples or general values
+                                            df_ratios_summary.loc[index, 'value_display'] = f"{value:.2f}"
+                                    else:
+                                        df_ratios_summary.loc[index, 'value_display'] = "-"
+                                
+                                # Display with '指标中文名称' and 'value_display'
+                                df_ratios_display = df_ratios_summary.rename(columns={'指标中文名称':'指标名称', 'value_display':'中位数/历史值'})
+                                if '指标名称' in df_ratios_display.columns and '中位数/历史值' in df_ratios_display.columns:
+                                    st.dataframe(df_ratios_display[['指标名称', '中位数/历史值']].set_index('指标名称'), use_container_width=True)
+                                # Fallback if '指标中文名称' was not created or rename failed, but original columns exist
+                                elif 'metric_name' in df_ratios_summary.columns and 'value_display' in df_ratios_summary.columns:
+                                    df_ratios_fallback_display = df_ratios_summary.rename(columns={'metric_name':'指标名称', 'value_display':'中位数/历史值'})
+                                    st.dataframe(df_ratios_fallback_display[['指标名称', '中位数/历史值']].set_index('指标名称'), use_container_width=True)
+                                elif 'metric_name' in df_ratios_summary.columns and 'value' in df_ratios_summary.columns: 
+                                    st.dataframe(df_ratios_summary[['metric_name', 'value']].set_index('metric_name'), use_container_width=True)
+                                else: 
+                                     st.dataframe(df_ratios_summary, use_container_width=True)
+                            else: # 'value' column not in df_ratios_summary
+                                # Try to set index using '指标中文名称' if it exists
+                                if '指标中文名称' in df_ratios_summary.columns:
+                                    st.dataframe(df_ratios_summary.set_index('指标中文名称'), use_container_width=True)
+                                elif 'metric_name' in df_ratios_summary.columns:
+                                     st.dataframe(df_ratios_summary.set_index('metric_name'), use_container_width=True)
+                                else:
+                                     st.dataframe(df_ratios_summary, use_container_width=True)
+                        except Exception as e_rs:
+                            st.error(f"渲染历史财务比率时出错: {e_rs}")
+                    else:
+                        st.caption("未找到历史财务比率数据。")
+
+                    st.subheader("未来财务预测")
+                    detailed_forecast_table_data = valuation_results.get("detailed_forecast_table")
+                    if detailed_forecast_table_data:
+                        try:
+                            df_forecast = pd.DataFrame(detailed_forecast_table_data)
+                            if not df_forecast.empty:
+                                forecast_column_names_map = {
+                                    "year": "年份 (Year)",
+                                    "revenue": "营业收入 (Revenue)",
+                                    "revenue_growth_rate": "收入增长率 (%)",
+                                    "cogs": "营业成本 (COGS)",
+                                    "gross_profit": "毛利润 (Gross Profit)",
+                                    "sga_expenses": "销售及管理费用 (SG&A)",
+                                    "rd_expenses": "研发费用 (R&D)",
+                                    "sga_rd_expenses": "销售管理及研发费用 (SG&A+R&D)",
+                                    "operating_expenses": "营业费用 (OpEx)", # 包含 sga 和 rd
+                                    "ebit": "息税前利润 (EBIT)",
+                                    "interest_expense": "利息费用 (Interest Exp.)",
+                                    "ebt": "税前利润 (EBT)",
+                                    "taxes": "所得税 (Taxes)",
+                                    "net_income_after_tax": "税后净利润 (Net Income)",
+                                    "net_income": "净利润 (Net Income)",
+                                    "nopat": "税后净营业利润 (NOPAT)",
+                                    "depreciation_amortization": "折旧与摊销 (D&A)",
+                                    "d_a": "折旧与摊销 (D&A)", # 确保映射 d_a
+                                    "capex": "资本性支出 (CapEx)",
+                                    "accounts_receivable": "应收账款 (AR)",
+                                    "inventories": "存货 (Inventories)", # 复数形式
+                                    "accounts_payable": "应付账款 (AP)",
+                                    "other_current_assets": "其他流动资产 (OCA)",
+                                    "other_current_liabilities": "其他流动负债 (OCL)",
+                                    "nwc": "净营运资本 (NWC)",
+                                    "change_in_nwc": "净营运资本变动 (ΔNWC)",
+                                    "delta_nwc": "净营运资本变动 (ΔNWC)", # 确保映射 delta_nwc
+                                    "ebitda": "息税折旧摊销前利润 (EBITDA)",
+                                    "ufcf": "无杠杆自由现金流 (UFCF)",
+                                    "pv_ufcf": "UFCF现值 (PV of UFCF)"
+                                    # 根据API实际返回的列名，可能还需要补充其他如：
+                                    # "total_operating_cost": "总运营成本 (Total OpCost)",
+                                    # "financing_cash_flow": "融资现金流 (FCF)",
+                                    # "investing_cash_flow": "投资现金流 (ICF)",
+                                }
+                                
+                                # 先处理索引
+                                if 'year' in df_forecast.columns:
+                                    df_forecast_display = df_forecast.set_index('year')
+                                    # 如果需要，可以重命名索引名称
+                                    # df_forecast_display.index.name = forecast_column_names_map.get('year', 'year')
+                                else:
+                                    df_forecast_display = df_forecast
+
+                                # 构建格式化字典 (使用原始列名作为键，因为Styler的format作用于原始数据)
+                                format_dict_fc = {}
+                                for col_original in df_forecast_display.columns:
+                                    if col_original == 'revenue_growth_rate':
+                                        format_dict_fc[col_original] = "{:.2%}"
+                                    elif df_forecast_display[col_original].dtype in ['float', 'int', 'float64', 'int64']:
+                                        format_dict_fc[col_original] = "{:,.0f}" # 默认整数格式
+                                
+                                # 重命名列
+                                df_forecast_display_renamed = df_forecast_display.rename(columns=forecast_column_names_map)
+                                
+                                # 应用格式化到重命名后的DataFrame上
+                                # Styler的format方法需要原始列名，所以我们需要一个映射回原始列名的格式字典
+                                # 或者，更简单的方式是，在rename之前应用format，但这样列名就不是中文了
+                                # 另一种方法：创建一个新的格式字典，其键是新的中文列名
+                                final_format_dict_fc = {}
+                                for original_col, new_col_name in forecast_column_names_map.items():
+                                    if original_col in format_dict_fc: # 确保原始列在格式字典中
+                                        final_format_dict_fc[new_col_name] = format_dict_fc[original_col]
+                                # 对于不在映射中但需要格式化的列 (例如，如果映射不完整)
+                                for col_renamed in df_forecast_display_renamed.columns:
+                                    if col_renamed not in final_format_dict_fc and df_forecast_display_renamed[col_renamed].dtype in ['float', 'int', 'float64', 'int64']:
+                                        # 尝试从原始列名查找格式
+                                        original_col_for_renamed = next((k for k, v in forecast_column_names_map.items() if v == col_renamed), None)
+                                        if original_col_for_renamed and original_col_for_renamed in format_dict_fc:
+                                            final_format_dict_fc[col_renamed] = format_dict_fc[original_col_for_renamed]
+                                        elif col_renamed == forecast_column_names_map.get("revenue_growth_rate"): # 特殊处理增长率
+                                             final_format_dict_fc[col_renamed] = "{:.2%}"
+                                        else: # 默认数字格式
+                                            final_format_dict_fc[col_renamed] = "{:,.0f}"
+
+
+                                st.dataframe(df_forecast_display_renamed.style.format(final_format_dict_fc, na_rep='-'), use_container_width=True)
+                            else:
+                                st.caption("详细预测数据为空。")
+                        except Exception as e_fc:
+                            st.error(f"渲染详细预测数据时出错: {e_fc}")
+                            st.error(traceback.format_exc()) # Print full traceback for debugging
+                    else:
+                        st.caption("未找到详细预测数据。")
 
                 # Only display LLM section if toggle is on and summary is available
                 if st.session_state.get("llm_toggle", True): # Default to True if key not found, matching toggle default

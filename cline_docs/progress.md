@@ -104,6 +104,9 @@
     - [x] **退出乘数显示:** Streamlit UI中“估值结果”第二行增加显示“退出乘数”。
     - [x] **UI分隔线:** 在“基本信息”和“估值结果”之间添加了横线。
     - [x] **敏感性分析轴标签修复:** 修复了敏感性分析轴因步长设置不当导致标签显示错误的问题，以及因标签格式化精度不足导致Styler报错的问题。
+    - [x] **历史财务摘要显示问题修复:** 解决了 Streamlit UI 中“历史财务摘要”表格无法正确显示资产负债表数据且不可滚动的问题。
+    - [x] **历史财务比率指标名称中文化:** 在 Streamlit UI 的“历史财务比率 (中位数)”表格中，将英文指标键名替换为用户友好的中文名称。
+    - [x] **详细财务预测列名优化:** 为 Streamlit UI 中“详细财务预测”表格的列名补充了中文解释。
 - **环境设置与调试:**
     - [x] 创建了 Python 虚拟环境 (`.venv`)。
     - [x] 解决了 Python 3.13 下 `numpy` 安装失败的问题。
@@ -111,7 +114,7 @@
     - [x] 解决了多处 `TypeError` (包括 float/Decimal), `AttributeError`, `IndentationError`, `KeyError`。
     - [x] 解决了总股本单位错误，使每股价值计算合理。
     - [x] 确认 PE/PB 数据源为 `valuation_metrics` 表，并更新了 `DataFetcher`。
-    - [x] 确认 LLM (DeepSeek) API 调用成功。
+    - [x] **确认 LLM (DeepSeek) API 调用成功:** 解决了因环境变量 `DEEPSEEK_API_KEY` 包含中文注释导致的 `UnicodeEncodeError` 问题。通过指导用户修正其终端环境中的环境变量，API 调用已恢复正常。相关的调试日志已从 `api/main.py` 中移除。
 - **WACC 权重模式实现:**
     - [x] **后端:** 修改 `wacc_calculator.py`, `api/models.py`, `api/main.py` 以支持基于 "target" 或 "market" 模式计算 WACC 权重。
     - [x] **前端:** 修改 `streamlit_app.py` 添加模式选择 UI，并动态控制目标债务比例输入框。
@@ -150,12 +153,13 @@
         *   修复了 `tests/test_wacc_calculator.py` 中的类型错误、数值比较和错误消息断言。
     - [ ] **Streamlit UI 完善:** (可选，优先级降低) 根据测试结果和用户反馈，优化布局（特别是右侧LLM区域）、交互和错误处理。
     - [ ] **优化投资建议呈现:** (可选，优先级降低) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-    - [x] **Memory Bank 更新:** (已完成) 更新文档以反映敏感性分析计划、WACC 轴处理、EV/EBITDA 指标修正和 DCF 隐含 PE 指标添加。
+    - [x] **Memory Bank 更新:** (已完成) 更新文档以反映敏感性分析计划、WACC 轴处理、EV/EBITDA 指标修正、DCF 隐含 PE 指标添加，以及 DeepSeek API `UnicodeEncodeError` 问题的解决。
     - [ ] **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
     - [ ] **规范符合性检查:** (持续进行) 确保所有实现都已对照 `wiki/` 文档进行验证。
 
 ## 当前状态
 - 后端 API 和 Streamlit 前端的主要功能已实现，包括 DCF 计算流程、LLM 集成（配置为 DeepSeek）和结果展示。
+- **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决**，API 调用功能恢复正常。
 - 敏感性分析功能（包括 WACC 轴后端中心化处理、EV/EBITDA 指标修正和 DCF 隐含 PE 指标添加）已实现。
 - 后端 API 服务可在端口 8125 正常运行。
 - `tests/api/test_sensitivity.py` 中的所有12个测试用例均已通过。

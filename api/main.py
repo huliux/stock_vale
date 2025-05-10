@@ -419,6 +419,7 @@ def call_llm_api(prompt: str) -> Optional[str]:
     # logger.debug(f"Prompt:\n{prompt}\n") # Debug log for full prompt if needed
 
     api_key = LLM_API_KEYS.get(LLM_PROVIDER)
+    # logger.info(f"DEBUG: Raw api_key fetched from LLM_API_KEYS for provider '{LLM_PROVIDER}': {repr(api_key)}") # New log
     if not api_key or api_key == "AIzaSy...pEU": # Also check for example key
         logger.error(f"API Key for {LLM_PROVIDER} not found or not configured correctly in .env file.")
         return f"错误：未找到或未正确配置 {LLM_PROVIDER} 的 API Key。"
@@ -509,16 +510,28 @@ def call_llm_api(prompt: str) -> Optional[str]:
              # 实际调用 DeepSeek API
              # 注意：需要确认实际的 API 端点和模型名称
              url = "https://api.deepseek.com/chat/completions" # 假设的 DeepSeek API 端点
-             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+             
+             # logger.info(f"DEBUG: api_key to be used for DeepSeek Authorization header: {repr(api_key)}") # New log
+
+             headers = {
+                 "Authorization": f"Bearer {api_key}",
+                 # "Content-Type": "application/json", # Will be set later with charset
+                 "User-Agent": "StockValeApp/1.0" # 添加自定义 User-Agent
+             }
              # 根据 DeepSeek API 文档调整 payload 结构
-             payload = {
+             payload_obj = { # Renamed to payload_obj
                  "model": "deepseek-chat", # 确认模型名称
                  "messages": [{"role": "user", "content": prompt}],
                  # "max_tokens": 2048, # 可选参数
                  # "temperature": 0.7, # 可选参数
              } 
-             logger.info(f"Calling DeepSeek API at {url} with model {payload['model']}...")
-             response = requests.post(url, headers=headers, json=payload, timeout=180) # 增加超时
+             logger.info(f"Calling DeepSeek API at {url} with model {payload_obj['model']}...") # Use payload_obj
+             
+             # 手动将 payload dump 为 UTF-8 编码的 JSON 字符串
+             json_payload_utf8 = json.dumps(payload_obj, ensure_ascii=False).encode('utf-8')
+             headers["Content-Type"] = "application/json; charset=utf-8" # 显式设置 charset
+
+             response = requests.post(url, headers=headers, data=json_payload_utf8, timeout=180) # 使用 data=json_payload_utf8
              response.raise_for_status() # 如果状态码不是 2xx，则抛出异常
              
              # 根据 DeepSeek API 文档调整响应解析方式
@@ -861,6 +874,142 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # --- Build Final Response ---
         logger.info("Step 10: Building final response...")
 
+        # --- Prepare historical_ratios_summary ---
+        historical_ratios_summary_data = []
+        if base_historical_ratios:
+            for name, value in base_historical_ratios.items():
+                historical_ratios_summary_data.append({"metric_name": name, "value": float(value) if isinstance(value, Decimal) else value})
+        
+        # --- Prepare historical_financial_summary ---
+        historical_financial_summary_data = []
+        if processed_data_container and processed_data_container.processed_data:
+            core_items_config = {
+                "income_statement": {
+                    "营业总收入": "total_revenue",
+                    "毛利润": "gross_profit", # Need to calculate if not present: total_revenue - oper_cost
+                    "营业利润": "operate_profit", # or 'ebit'
+                    "净利润": "n_income",
+                    "研发费用": "rd_exp"
+                },
+                "balance_sheet": {
+                    "总资产": "total_assets",
+                    "总负债": "total_liab",
+                    "股东权益合计": "total_hldr_eqy_exc_min_int", # Corrected to exc_min_int
+                    "流动资产合计": "total_cur_assets",
+                    "流动负债合计": "total_cur_liab",
+                    "货币资金": "money_cap",
+                    "应收账款及票据": "accounts_receiv_bill", 
+                    "存货": "inventories",
+                    "固定资产": "fix_assets_total", # Changed to fix_assets_total based on log
+                    "短期借款": "st_borr",
+                    "长期借款": "lt_borr"
+                    # "净债务" is calculated, not directly from raw report for this summary
+                },
+                "cash_flow": {
+                    "经营活动现金流量净额": "n_cashflow_act",
+                    "投资活动现金流量净额": "n_cashflow_inv_act",
+                    "筹资活动现金流量净额": "n_cashflow_fin_act"
+                }
+            }
+            
+            num_years_to_display = 5
+
+            for report_type, items_map in core_items_config.items():
+                df = processed_data_container.processed_data.get(report_type)
+                
+                # Debug log for balance sheet - this block should be at the same indent level as the next 'if'
+                if report_type == "balance_sheet" and df is not None: 
+                    logger.info(f"DEBUG_BS: Balance Sheet columns from DataProcessor: {df.columns.tolist()}")
+                    logger.info(f"DEBUG_BS: Balance Sheet head (from DataProcessor):\n{df.head().to_string()}")
+                    logger.info(f"DEBUG_BS: Balance Sheet index name from DataProcessor: {df.index.name}")
+
+                if df is not None and not df.empty: # MODIFIED CONDITION: Only check if df is valid
+                    df_for_years = df.copy()
+                    # Ensure end_date is the index and sorted
+                    if 'end_date' in df_for_years.columns:
+                        df_for_years['end_date'] = pd.to_datetime(df_for_years['end_date'])
+                        df_for_years = df_for_years.set_index('end_date')
+                    
+                    if df_for_years.index.name == 'end_date':
+                        df_for_years = df_for_years.sort_index(ascending=False)
+                    else:
+                        logger.warning(f"DEBUG_MAIN: Skipping report_type {report_type} because 'end_date' could not be set or confirmed as index.")
+                        continue # Skip this report type if end_date cannot be made index
+
+                    # This debug log is correctly indented relative to its purpose
+                    if report_type == "balance_sheet":
+                        logger.info(f"DEBUG_BS: df_for_years head (after indexing and sorting):\n{df_for_years.head().to_string()}")
+                        logger.info(f"DEBUG_BS: df_for_years index name: {df_for_years.index.name}")
+
+                    annual_report_dates = sorted(
+                        [date for date in df_for_years.index.unique() if date.month == 12],
+                        reverse=True
+                    )
+                    
+                    if len(annual_report_dates) < num_years_to_display:
+                        all_report_dates = sorted(df_for_years.index.unique(), reverse=True)
+                        display_dates = all_report_dates[:num_years_to_display]
+                    else:
+                        display_dates = annual_report_dates[:num_years_to_display]
+
+                    if report_type == "balance_sheet":
+                        logger.info(f"DEBUG_BS: Display dates: {display_dates}")
+
+                    display_years_str = [date.strftime('%Y') for date in display_dates]
+
+                    for display_name, actual_col_name in items_map.items():
+                        item_data = {"科目": display_name, "报表类型": report_type.replace("_", " ").title()}
+                        
+                        if report_type == "balance_sheet":
+                             logger.info(f"DEBUG_BS: --- Processing Item: {display_name} (maps to: {actual_col_name}) ---")
+
+                        # Special handling for Gross Profit
+                        if report_type == "income_statement" and actual_col_name == "gross_profit":
+                            if "total_revenue" in df_for_years.columns and "oper_cost" in df_for_years.columns:
+                                for i, date_obj in enumerate(display_dates):
+                                    year_str = display_years_str[i]
+                                    row = df_for_years[df_for_years.index == date_obj]
+                                    if not row.empty:
+                                        revenue = row["total_revenue"].iloc[0]
+                                        cost = row["oper_cost"].iloc[0]
+                                        if pd.notna(revenue) and pd.notna(cost):
+                                            item_data[year_str] = float(Decimal(str(revenue)) - Decimal(str(cost)))
+                                        else:
+                                            item_data[year_str] = None
+                                    else:
+                                        item_data[year_str] = None
+                            else: # Missing components for gross profit
+                                for year_str in display_years_str: item_data[year_str] = None
+                        
+                        elif actual_col_name in df_for_years.columns:
+                            if report_type == "balance_sheet": 
+                                logger.info(f"DEBUG_BS: Item: '{display_name}' (col: '{actual_col_name}') - FOUND in df_for_years.columns.")
+                            for i, date_obj in enumerate(display_dates):
+                                year_str = display_years_str[i]
+                                row = df_for_years[df_for_years.index == date_obj]
+                                if not row.empty and actual_col_name in row.columns and pd.notna(row[actual_col_name].iloc[0]):
+                                    try:
+                                        value_to_add = float(Decimal(str(row[actual_col_name].iloc[0])))
+                                        item_data[year_str] = value_to_add
+                                        if report_type == "balance_sheet":
+                                            logger.info(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, Raw Value: {row[actual_col_name].iloc[0]}, Added Value: {value_to_add}")
+                                    except InvalidOperation:
+                                        item_data[year_str] = None 
+                                        if report_type == "balance_sheet":
+                                            logger.warning(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, InvalidOperation for value: {row[actual_col_name].iloc[0]}")
+                                else:
+                                    item_data[year_str] = None 
+                                    if report_type == "balance_sheet":
+                                        logger.info(f"DEBUG_BS: Item: '{display_name}', Year: {year_str}, Date: {date_obj}, Value: None (Reason: row empty? {row.empty}; col in row? {actual_col_name in row.columns if not row.empty else 'N/A'}; val notna? {pd.notna(row[actual_col_name].iloc[0]) if not row.empty and actual_col_name in row.columns else 'N/A'})")
+                        else: # Column not found in this df
+                            if report_type == "balance_sheet": 
+                                logger.warning(f"DEBUG_BS: Item: '{display_name}' (col: '{actual_col_name}') - NOT FOUND in df_for_years.columns. Available: {df_for_years.columns.tolist()}")
+                            for year_str in display_years_str: item_data[year_str] = None
+                        
+                        historical_financial_summary_data.append(item_data)
+            if historical_financial_summary_data: 
+                logger.info(f"DEBUG: Final historical_financial_summary_data (first 5 items): {json.dumps(historical_financial_summary_data[:5], ensure_ascii=False, default=str)}")
+
         # 计算并添加到基础 DCF 详情中
         dcf_implied_diluted_pe_value = None
         if base_dcf_details and base_dcf_details.value_per_share is not None:
@@ -942,7 +1091,9 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             llm_analysis_summary=llm_summary,
             data_warnings=list(set(all_warnings)) if all_warnings else None, # Remove duplicate warnings
             detailed_forecast_table=base_forecast_df.to_dict(orient='records') if base_forecast_df is not None and not base_forecast_df.empty else None, # Use base forecast table
-            sensitivity_analysis_result=sensitivity_result_obj # Add sensitivity results if available
+            sensitivity_analysis_result=sensitivity_result_obj, # Add sensitivity results if available
+            historical_financial_summary=historical_financial_summary_data if historical_financial_summary_data else None,
+            historical_ratios_summary=historical_ratios_summary_data if historical_ratios_summary_data else None
         )
         logger.info("Valuation request processed successfully.")
         # Use StockBasicInfoModel for stock_info

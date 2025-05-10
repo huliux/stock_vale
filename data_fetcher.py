@@ -97,7 +97,8 @@ class AshareDataFetcher(BaseDataFetcher):
         self.balance_sheet_fields = [
             'ts_code', 'end_date', 'total_share', 'total_assets', 'total_liab', 
             'total_hldr_eqy_exc_min_int', 'total_cur_assets', 'total_cur_liab',
-            'money_cap', 'lt_borr', 'st_borr', 'bond_payable' 
+            'money_cap', 'lt_borr', 'st_borr', 'bond_payable',
+            'accounts_receiv_bill', 'inventories', 'fix_assets' # Changed fixed_assets to fix_assets
         ]
         
         self.dividend_table = 'dividend'
