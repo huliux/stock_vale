@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv # Import load_dotenv
 import traceback
 import json
 import logging # 导入 logging
@@ -48,6 +49,18 @@ LOG_DIR = "logs"
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
+# Load environment variables from .env file AT THE VERY TOP after standard imports
+load_dotenv() 
+
+# Initialize logger early
+logger = logging.getLogger(__name__)
+
+# Log the provider at startup for initial check, but it will be fetched per request later
+# This is just for an initial startup log. The actual provider used will be fetched dynamically.
+_initial_llm_provider_check = os.getenv("LLM_PROVIDER", "deepseek").lower()
+logger.info(f"Initial LLM_PROVIDER from .env at startup: {_initial_llm_provider_check}")
+
+
 logging.basicConfig(
     level=logging.INFO, # 设置日志级别
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -95,6 +108,8 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
     (新版) 计算指定股票的 DCF 估值，并结合 LLM 进行分析。
     支持可选的敏感性分析。
     """
+    # Force reload of .env file for each request to pick up changes to LLM_PROVIDER
+    load_dotenv(override=True) 
     logger.info(f"Received valuation request for: {request.ts_code}")
     all_data = {}
     processed_data_container = None
@@ -224,7 +239,10 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             )
             prompt = prompt_template.format(data_json=llm_input_json_str)
             try:
-                llm_summary = call_llm_api(prompt)
+                # Dynamically get LLM_PROVIDER for each request
+                current_llm_provider = os.getenv("LLM_PROVIDER", "deepseek").lower()
+                logger.info(f"Using LLM Provider for this request: {current_llm_provider}")
+                llm_summary = call_llm_api(prompt, provider=current_llm_provider)
                 logger.info(f"  LLM call complete. Summary length: {len(llm_summary) if llm_summary else 0}")
             except Exception as llm_exc:
                 logger.error(f"Error during LLM call: {llm_exc}")

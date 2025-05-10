@@ -73,7 +73,103 @@ class ValuationService:
 
         try:
             self.logger.debug("  Running single valuation: Step 3 - Forecasting financials...")
-            forecast_assumptions = {k: v for k, v in request_dict.items() if k not in ['ts_code', 'market', 'valuation_date', 'sensitivity_analysis']}
+            # Extract forecast assumptions, excluding keys not relevant for FinancialForecaster
+            forecast_assumptions_raw = {k: v for k, v in request_dict.items() if k not in ['ts_code', 'market', 'valuation_date', 'sensitivity_analysis']}
+            
+            # Create a mutable copy for potential key mapping
+            forecast_assumptions = forecast_assumptions_raw.copy()
+
+            # Map cagr_decay_rate to revenue_cagr_decay_rate for FinancialForecaster
+            if 'cagr_decay_rate' in forecast_assumptions and forecast_assumptions['cagr_decay_rate'] is not None:
+                self.logger.debug(f"Mapping cagr_decay_rate ({forecast_assumptions['cagr_decay_rate']}) to revenue_cagr_decay_rate.")
+                forecast_assumptions['revenue_cagr_decay_rate'] = forecast_assumptions.pop('cagr_decay_rate')
+
+            # --- Comprehensive mapping for other forecast assumptions ---
+            self.logger.debug(f"Original forecast_assumptions from API: {forecast_assumptions_raw}")
+
+            # Helper to pop and set if key exists
+            def map_key(current_assumptions, api_key, forecaster_key):
+                if api_key in current_assumptions and current_assumptions[api_key] is not None:
+                    current_assumptions[forecaster_key] = current_assumptions.pop(api_key)
+                    self.logger.debug(f"Mapped API key '{api_key}' to Forecaster key '{forecaster_key}' with value: {current_assumptions[forecaster_key]}")
+                elif api_key in current_assumptions and current_assumptions[api_key] is None: # Pop if None to avoid sending None with old key
+                    current_assumptions.pop(api_key)
+
+
+            # Operating Margin
+            map_key(forecast_assumptions, 'op_margin_forecast_mode', 'operating_margin_forecast_mode')
+            map_key(forecast_assumptions, 'target_operating_margin', 'operating_margin_target_value') # Corrected forecaster key
+            map_key(forecast_assumptions, 'op_margin_transition_years', 'op_margin_transition_years') # Key matches, but pop to be clean
+
+            # SGA & RD Ratios (API sends combined, Forecaster expects separate)
+            # We'll apply the combined mode and years to both SGA and RD.
+            # The target combined ratio will be used for both individual target ratios.
+            sga_rd_mode = forecast_assumptions.pop('sga_rd_ratio_forecast_mode', None)
+            sga_rd_target = forecast_assumptions.pop('target_sga_rd_to_revenue_ratio', None)
+            sga_rd_trans_years = forecast_assumptions.pop('sga_rd_transition_years', None)
+
+            if sga_rd_mode is not None:
+                forecast_assumptions['sga_to_revenue_ratio_forecast_mode'] = sga_rd_mode
+                forecast_assumptions['rd_to_revenue_ratio_forecast_mode'] = sga_rd_mode
+                self.logger.debug(f"Mapped sga_rd_ratio_forecast_mode to sga_to_revenue_ratio_forecast_mode and rd_to_revenue_ratio_forecast_mode with value: {sga_rd_mode}")
+            if sga_rd_target is not None:
+                # FinancialForecaster will try target_sga_to_revenue_ratio and target_rd_to_revenue_ratio
+                forecast_assumptions['target_sga_to_revenue_ratio'] = sga_rd_target 
+                forecast_assumptions['target_rd_to_revenue_ratio'] = sga_rd_target
+                self.logger.debug(f"Mapped target_sga_rd_to_revenue_ratio to target_sga_to_revenue_ratio and target_rd_to_revenue_ratio with value: {sga_rd_target}")
+            if sga_rd_trans_years is not None:
+                forecast_assumptions['sga_transition_years'] = sga_rd_trans_years
+                forecast_assumptions['rd_transition_years'] = sga_rd_trans_years
+                self.logger.debug(f"Mapped sga_rd_transition_years to sga_transition_years and rd_transition_years with value: {sga_rd_trans_years}")
+
+            # D&A to Revenue Ratio
+            map_key(forecast_assumptions, 'da_ratio_forecast_mode', 'da_to_revenue_ratio_forecast_mode')
+            map_key(forecast_assumptions, 'target_da_to_revenue_ratio', 'target_da_to_revenue_ratio') # Forecaster will find target_metric_name
+            map_key(forecast_assumptions, 'da_ratio_transition_years', 'da_ratio_transition_years') # Key matches
+
+            # Capex to Revenue Ratio
+            map_key(forecast_assumptions, 'capex_ratio_forecast_mode', 'capex_to_revenue_ratio_forecast_mode')
+            map_key(forecast_assumptions, 'target_capex_to_revenue_ratio', 'target_capex_to_revenue_ratio') # Forecaster will find target_metric_name
+            map_key(forecast_assumptions, 'capex_ratio_transition_years', 'capex_ratio_transition_years') # Key matches
+
+            # NWC Days (AR, Inventory, AP)
+            nwc_days_mode = forecast_assumptions.pop('nwc_days_forecast_mode', None)
+            nwc_days_trans_years = forecast_assumptions.pop('nwc_days_transition_years', None)
+            if nwc_days_mode is not None:
+                forecast_assumptions['accounts_receivable_days_forecast_mode'] = nwc_days_mode
+                forecast_assumptions['inventory_days_forecast_mode'] = nwc_days_mode
+                forecast_assumptions['accounts_payable_days_forecast_mode'] = nwc_days_mode
+                self.logger.debug(f"Mapped nwc_days_forecast_mode to individual day forecast modes with value: {nwc_days_mode}")
+            if nwc_days_trans_years is not None:
+                 forecast_assumptions['nwc_days_transition_years'] = nwc_days_trans_years # Forecaster uses this common key
+                 self.logger.debug(f"Set nwc_days_transition_years for Forecaster with value: {nwc_days_trans_years}")
+            map_key(forecast_assumptions, 'target_accounts_receivable_days', 'target_accounts_receivable_days')
+            map_key(forecast_assumptions, 'target_inventory_days', 'target_inventory_days')
+            map_key(forecast_assumptions, 'target_accounts_payable_days', 'target_accounts_payable_days')
+
+            # Other NWC Ratios (OCA, OCL)
+            other_nwc_mode = forecast_assumptions.pop('other_nwc_ratio_forecast_mode', None)
+            other_nwc_trans_years = forecast_assumptions.pop('other_nwc_ratio_transition_years', None)
+            if other_nwc_mode is not None:
+                forecast_assumptions['other_current_assets_to_revenue_ratio_forecast_mode'] = other_nwc_mode
+                forecast_assumptions['other_current_liabilities_to_revenue_ratio_forecast_mode'] = other_nwc_mode
+                self.logger.debug(f"Mapped other_nwc_ratio_forecast_mode to individual ratio forecast modes with value: {other_nwc_mode}")
+            if other_nwc_trans_years is not None:
+                forecast_assumptions['other_nwc_ratio_transition_years'] = other_nwc_trans_years # Forecaster uses this common key
+                self.logger.debug(f"Set other_nwc_ratio_transition_years for Forecaster with value: {other_nwc_trans_years}")
+            map_key(forecast_assumptions, 'target_other_current_assets_to_revenue_ratio', 'target_other_current_assets_to_revenue_ratio')
+            map_key(forecast_assumptions, 'target_other_current_liabilities_to_revenue_ratio', 'target_other_current_liabilities_to_revenue_ratio')
+
+            # Effective Tax Rate
+            map_key(forecast_assumptions, 'target_effective_tax_rate', 'effective_tax_rate_target')
+            # Transition years for tax rate uses a general 'transition_years' key in forecaster if present, or defaults to forecast_years.
+            # If a specific transition year for tax is desired from API, it would need a dedicated API field and mapping here.
+            # For now, we rely on the forecaster's default handling or a general 'transition_years' if we decide to pass one.
+            # Example: if request_dict.get('tax_transition_years'): forecast_assumptions['transition_years'] = request_dict['tax_transition_years']
+            # For now, let's assume the forecaster's default (using self.forecast_years if 'transition_years' is not in assumptions) is acceptable for tax rate transition.
+
+            self.logger.debug(f"Final forecast_assumptions for FinancialForecaster: {forecast_assumptions}")
+            # --- End of comprehensive mapping ---
             
             last_actual_revenue = None
             if 'income_statement' in self.processed_data_container.processed_data and \
@@ -87,7 +183,7 @@ class ValuationService:
             financial_forecaster = FinancialForecaster(
                 last_actual_revenue=last_actual_revenue,
                 historical_ratios=self.processed_data_container.get_historical_ratios(),
-                forecast_assumptions=forecast_assumptions
+                forecast_assumptions=forecast_assumptions # Use the potentially modified forecast_assumptions
             )
             final_forecast_df = financial_forecaster.get_full_forecast()
             if final_forecast_df is None or final_forecast_df.empty or 'ufcf' not in final_forecast_df.columns:

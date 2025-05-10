@@ -61,6 +61,10 @@
         *   通过 `write_to_file` 修正了 `side_effect_dcf_pe` 函数的缩进，解决了 `IndentationError`。
         *   修正了 `test_sensitivity_api_dcf_implied_pe_calculation` 测试中对 `column_values` 的期望值。
         *   所有12个测试用例在 `tests/api/test_sensitivity.py` 中均已通过。
+-   **Pytest 测试修复 (完成):**
+    *   修复了 `tests/test_financial_forecaster.py` 中的 `AssertionError` 和 `TypeError`，确保所有5个测试通过。
+    *   修复了 `tests/test_wacc_calculator.py` 中的 `AttributeError`，并调整了相关逻辑，确保所有14个测试通过。
+    *   **所有 97 个 Pytest 测试用例均已通过。**
 -   **Streamlit UI 界面优化与问题修复 (大部分完成):**
     *   **指标字体:** `st.metric` 中数值的字体大小已通过 CSS 调整。
     *   **区块边框样式:** 经过多次尝试（包括直接 `div` 包裹、`st.container` 与 CSS 相邻兄弟选择器组合），最终根据用户反馈，移除了所有为“基本信息”、“估值结果”区块以及单个“豆腐块”添加的边框和背景样式。目前仅保留字体大小调整。
@@ -100,24 +104,46 @@
     *   UI 方面，已根据用户反馈完成多项调整和功能增强，包括历史财务摘要的正确显示、历史财务比率指标名称的中文化以及详细财务预测列名的优化。
     *   敏感性分析的核心功能及各项指标计算逻辑已按要求实现。
     *   `tests/api/test_sensitivity.py` 中的所有测试均通过。
+    *   **所有 Pytest 测试均已通过。**
+    *   **LLM Provider 选择逻辑修复:** 修正了 `api/llm_utils.py` 和 `api/main.py` 中 LLM 提供商选择逻辑，确保正确使用 `.env` 文件中配置的 `LLM_PROVIDER`。
+    *   **`.env` 文件加载修复:** 在 `api/main.py` 顶部添加了 `load_dotenv()`，以确保环境变量在应用启动时正确加载，解决了 API 密钥无法找到的问题。
+-   **(新增修复完成)** **估值假设传递修复:**
+    *   解决了前端 Streamlit UI 中用户输入的“历史 CAGR 年衰减率”未能正确传递到后端 `FinancialForecaster` 模块的问题。
+    *   在 `services/valuation_service.py` 的 `run_single_valuation` 方法中，添加了将 API 请求中的 `cagr_decay_rate` 键名映射为 `FinancialForecaster` 期望的 `revenue_cagr_decay_rate` 的逻辑。
+    *   经用户测试确认，自定义的衰减率已在后端计算中正确生效。
+-   **(新增状态确认)** **LLM API 调用确认:**
+    *   用户已确认，在启用 LLM 分析总结功能时，API 调用正常，无 API 密钥相关错误（特指 DeepSeek）。
+-   **(新增修复与增强完成)** **LLM 功能优化与调试 (本次任务核心):**
+    *   **LLM Prompt 模板优化 (`config/llm_prompt_template.md` -> V3.1):**
+        *   强化了以 DCF 分析为中心，强调格雷厄姆价值投资原则（内在价值、安全边际）。
+        *   优化了对 `data_json` 中 `key_assumptions`（包括 `prediction_details`）的利用，引导 LLM 进行更深入的假设评估。
+        *   解决了因 Python `format()` 方法无法处理嵌套占位符导致的 `KeyError`。
+        *   通过在提示模板中明确指示 LLM 不要将其响应包裹在代码块标记中，解决了 Streamlit UI 中 Markdown 无法正确渲染的问题。
+    *   **LLM 提供商与模型选择逻辑修复与增强:**
+        *   `api/main.py`: 修改为在每个 API 请求处理时动态从 `.env` 文件加载配置（通过在端点函数开头调用 `load_dotenv(override=True)`）并获取 `LLM_PROVIDER` 环境变量，确保对 `.env` 中 `LLM_PROVIDER` 的更改能即时生效。
+        *   `api/llm_utils.py`:
+            *   **Anthropic API 对接:** 替换了原有的占位符，实现了对 Anthropic API (`messages.create`) 的实际调用逻辑。支持通过环境变量 `ANTHROPIC_MODEL_NAME` (默认 `claude-3-sonnet-20240229`) 和 `ANTHROPIC_MAX_TOKENS` (默认 `4000`)进行配置。指导用户安装了 `anthropic` 库。协助用户定位到 Anthropic API 返回 `403 Forbidden` 错误是由于 API 密钥/账户权限问题，而非代码问题。
+            *   **DeepSeek 模型配置:** 修改了 DeepSeek API 调用逻辑，使其从环境变量 `DEEPSEEK_MODEL_NAME` (默认 `deepseek-chat`) 读取模型名称，允许用户指定如 `deepseek-reasoner` 等不同模型。
+    *   **Streamlit UI Markdown 渲染:**
+        *   确认 `streamlit_app.py` 中 `render_llm_summary_section` 函数使用 `st.markdown(llm_summary, unsafe_allow_html=True)`。
+        *   Markdown 渲染问题最终通过修改 `config/llm_prompt_template.md` 指示 LLM 不要输出代码块标记解决。
 
 ## 当前目标
--   **(已完成)** Streamlit UI 界面根据近期用户反馈完成调整和功能增强（包括隐含永续增长率、基准年报日期、WACC默认模式、退出乘数显示、UI分隔线、敏感性分析轴标签修复）。
--   **(已完成)** 运行 `pytest tests/api/test_sensitivity.py`，所有12个测试用例通过。
--   **(已完成)** 解决 Streamlit UI 中“历史财务摘要”表格资产负债表数据显示不全的问题。
--   **(已完成)** Streamlit UI 中“历史财务比率 (中位数)”表格指标名称中文化。
--   **(已完成)** Streamlit UI 中“详细财务预测”表格列名优化，补充中文解释。
--   **(已完成)** 解决 DeepSeek API 调用时的 `UnicodeEncodeError` 问题（已定位原因为环境变量污染，用户确认修正后 API 调用正常，调试代码已清理）。
--   **(已完成)** **金融行业适应性提示与文档更新:**
-    -   UI层面: 后端API (`api/main.py`, `api/models.py`) 和前端 (`streamlit_app.py`) 已更新，当检测到金融行业股票且存在较多数据问题时，会显示特定的警告信息。
-    -   文档层面: `README.md`, `cline_docs/projectbrief.md`, `cline_docs/systemPatterns.md`, `cline_docs/progress.md` 已更新，说明当前DCF模型对金融行业的局限性。
--   **记忆库更新:** (进行中) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件正在更新以反映最新项目状态，特别是 `streamlit_app.py` 和 `api/main.py` 的重构。
+-   **(已完成)** **LLM 功能优化与调试** (详见上一节“新增修复与增强完成”)。
+-   **(已完成)** 修复前端估值假设（特别是“历史 CAGR 年衰减率”）未能正确传递到后端核心计算逻辑的问题。
+-   **(已完成)** Streamlit UI 界面根据近期用户反馈完成调整和功能增强。
+-   **(已完成)** 所有 Pytest 测试用例均已通过 (97个)。
+-   **(已完成)** 解决 DeepSeek API 调用时的 `UnicodeEncodeError` 问题。
+-   **(已完成)** 金融行业适应性提示与文档更新。
+-   **记忆库更新:** (进行中) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件正在更新以反映最新项目状态，特别是 LLM 功能的优化和调试。
 
 ## 后续步骤 (优先级排序)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**
-1.  **记忆库更新:** 完成 `activeContext.md` 和 `progress.md` 的更新，以反映 `streamlit_app.py` 重构的完成。
-2.  **上下文窗口管理:** 当前上下文窗口使用率约为 20% (重构后可能会降低)。继续保持关注。
-3.  **确认用户满意度:** 用户已确认重构后的应用可成功运行。后续可进一步确认UI细节和整体体验。
-4.  **添加敏感性分析测试:** (部分完成) `tests/api/test_sensitivity.py` 已通过。评估是否需要在其他地方为敏感性分析逻辑补充更多测试。
-5.  **优化投资建议呈现:** (可选，可放入新任务) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-6.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
+1.  **记忆库更新:** 完成 `activeContext.md` 和 `progress.md` 的更新。
+2.  **上下文窗口管理:** 当前上下文窗口使用率已超过 50%。**在本次记忆库更新完成后，应使用 `new_task` 工具创建新任务。**
+3.  **验证提示模板效果:** 用户使用已完全实现的 LLM 提供商（如 DeepSeek，并可指定 `deepseek-reasoner` 模型）测试优化后的提示模板 (`config/llm_prompt_template.md` V3.1) 生成的分析报告质量。
+4.  **Anthropic API 权限问题:** 等待用户确认其 Anthropic API 密钥和账户权限问题是否已解决。
+5.  **处理 Pytest 警告:** (可选，可放入新任务) 解决 `pytest` 输出中的 `FutureWarning`。
+6.  **确认用户满意度:** 在 LLM 功能稳定后，进一步确认UI细节和整体体验。
+7.  **优化投资建议呈现:** (可选，可放入新任务) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
+8.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。

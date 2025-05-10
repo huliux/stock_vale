@@ -156,31 +156,51 @@
         *   [x] 统一并修正了所有 `side_effect` 函数中的 `StockValuationRequest` 对象获取逻辑。
         *   [x] 修正了测试中 `get_latest_metrics` 的 mock 数据。
         *   [x] 解决了 `tests/api/test_sensitivity.py` 中的 `IndentationError` 和后续的断言错误，所有12个测试用例均通过。
-    - [x] **单元测试:** 修复了重构后所有模块（API, DataProcessor, Calculators）中先前失败的 20 个单元测试。所有 85 个测试现在均通过。（注：尚未包含 WACC 权重模式的特定测试，但 `test_sensitivity.py` 已覆盖部分敏感性分析场景）。
+    - [x] **单元测试:** (已完成) 修复了所有先前失败的测试。
         *   修复了 `tests/api/test_main.py` 中的类型和断言错误 (先前任务)。
         *   修复了 `tests/test_data_processor.py` 中的 NaN 处理、fixture 和警告断言错误 (先前任务)。
         *   修复了 `tests/test_equity_bridge_calculator.py` 中的 NaN 处理和异常捕获逻辑。
         *   修复了 `tests/test_fcf_calculator.py` 中的 mock 目标和错误消息断言。
-        *   修复了 `tests/test_financial_forecaster.py` 中的类型错误、属性错误、列名检查和数值计算/断言错误。
+        *   修复了 `tests/test_financial_forecaster.py` 中的类型错误、属性错误、列名检查和数值计算/断言错误 (当前任务)。
         *   修复了 `tests/test_nwc_calculator.py` 中的警告消息断言。
         *   修复了 `tests/test_present_value_calculator.py` 中的数值比较、异常处理和 NaN 检查逻辑及错误消息断言。
         *   修复了 `tests/test_terminal_value_calculator.py` 中的缩进错误、数值比较、类型错误和错误消息断言。
-        *   修复了 `tests/test_wacc_calculator.py` 中的类型错误、数值比较和错误消息断言。
+        *   修复了 `tests/test_wacc_calculator.py` 中的类型错误、数值比较和错误消息断言，以及方法调用错误 (当前任务)。
+        *   **所有 97 个 Pytest 测试用例均已通过。**
     - [ ] **Streamlit UI 完善:** (可选，优先级降低) 根据测试结果和用户反馈，优化布局（特别是右侧LLM区域）、交互和错误处理。
     - [ ] **优化投资建议呈现:** (可选，优先级降低) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-    - [x] **Memory Bank 更新:** (进行中) 更新文档以反映 `streamlit_app.py` 和 `api/main.py` 的重构。
+    - [x] **Memory Bank 更新:** (已完成) 更新文档以反映 Pytest 测试修复、LLM Provider 修复以及 `.env` 加载逻辑的修复。
+    - [x] **LLM Prompt 模板优化 (`config/llm_prompt_template.md` -> V3.1):**
+        - [x] 强化 DCF 分析中心思想和格雷厄姆原则。
+        - [x] 优化对 `data_json` 中 `key_assumptions` 的利用。
+        - [x] 解决 `KeyError` (因 Python `format()` 无法处理嵌套占位符)。
+        - [x] 指示 LLM 不要将其响应包裹在代码块中，以修复 Streamlit UI Markdown 渲染问题。
+    - [x] **LLM 提供商与模型选择逻辑修复与增强:**
+        - [x] `api/main.py`: 实现请求时动态加载 `.env` (通过 `load_dotenv(override=True)`) 并获取 `LLM_PROVIDER`。
+        - [x] `api/llm_utils.py`:
+            - [x] **Anthropic API 对接:** 实现实际 API 调用逻辑，支持通过环境变量配置模型名称和最大 token 数。
+            - [x] **DeepSeek 模型配置:** 实现从环境变量读取 DeepSeek 模型名称。
+    - [x] **Streamlit UI Markdown 渲染问题:** 通过修改提示模板解决。
     - [ ] **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
     - [ ] **规范符合性检查:** (持续进行) 确保所有实现都已对照 `wiki/` 文档进行验证。
 
 ## 当前状态
-- 后端 API 和 Streamlit 前端的主要功能已实现，包括 DCF 计算流程、LLM 集成（配置为 DeepSeek）和结果展示。
-- **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决**，API 调用功能恢复正常。
-- 敏感性分析功能（包括 WACC 轴后端中心化处理、EV/EBITDA 指标修正和 DCF 隐含 PE 指标添加）已实现。
+- 后端 API 和 Streamlit 前端的主要功能已实现。
+- **LLM 功能:**
+    - Prompt 模板 (`config/llm_prompt_template.md`) 已优化至 V3.1。
+    - LLM 提供商 (`LLM_PROVIDER`) 和各提供商的模型名称 (`ANTHROPIC_MODEL_NAME`, `DEEPSEEK_MODEL_NAME` 等) 可通过 `.env` 文件配置，并在运行时动态加载。
+    - Anthropic API 已完成实际对接（用户需确保 API 密钥和账户权限）。
+    - DeepSeek API 调用逻辑已更新，支持通过环境变量配置模型。
+    - Streamlit UI 中 LLM 分析摘要的 Markdown 渲染问题已通过调整 Prompt 解决。
+- **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决**。
+- 敏感性分析功能已实现。
 - 后端 API 服务可在端口 8125 正常运行。
-- `tests/api/test_sensitivity.py` 中的所有12个测试用例均已通过。
+- **所有 97 个 Pytest 测试用例均已通过。**
 - 存在已知的数据警告（如 D&A/Revenue 配对问题），这是由数据源限制引起的，已有降级处理逻辑。
 
 ## 已知问题
+- **Anthropic API 403 Forbidden 错误:** 用户在使用 Anthropic 时遇到 `403 Forbidden` 错误，这通常与 API 密钥权限或账户状态有关，需要用户在 Anthropic 端检查和解决。
+- **Pytest 警告:** `pytest` 输出中存在一些与 pandas 未来版本相关的 `FutureWarning`，不影响当前测试结果，但建议后续处理。
 - **数据警告:** 计算历史中位数时，某些指标（如 D&A/Revenue）可能因数据不足或不匹配而无法计算，程序会记录警告并使用默认值。
 - **金融行业估值准确性:** 当前通用DCF模型对金融行业（银行、保险、证券）的适用性有限，估值结果可能存在较大偏差。已在UI和文档中添加提示。
 - **UI 样式:** (暂时搁置) 右侧 LLM 摘要列的显示效果有待优化。

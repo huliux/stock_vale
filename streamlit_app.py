@@ -535,7 +535,7 @@ def render_llm_summary_section(llm_summary, llm_requested):
         st.subheader("🤖 LLM 分析与投资建议摘要")
         st.caption("请结合以下分析判断投资价值。") 
         if llm_summary:
-            st.markdown(llm_summary)
+            st.markdown(llm_summary, unsafe_allow_html=True)
         else:
             # If LLM was requested but summary is None/empty, it means it failed or was not returned
             st.warning("未能获取 LLM 分析结果。")

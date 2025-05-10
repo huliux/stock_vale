@@ -29,10 +29,10 @@ import requests # For DeepSeek or other HTTP APIs
 
 logger = logging.getLogger(__name__)
 
-# --- LLM Configuration (Copied from main.py) ---
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
+# --- LLM Configuration ---
+# LLM_PROVIDER will now be passed as an argument to call_llm_api
 PROMPT_TEMPLATE_PATH = os.getenv("PROMPT_TEMPLATE_PATH", "config/llm_prompt_template.md")
-LLM_API_KEYS = {
+LLM_API_KEYS = { # API Keys are still loaded from environment
     "gemini": os.getenv("GEMINI_API_KEY"),
     "openai": os.getenv("OPENAI_API_KEY"),
     "anthropic": os.getenv("ANTHROPIC_API_KEY"),
@@ -131,19 +131,27 @@ def format_llm_input_data(
         logger.error(f"Error formatting data for LLM prompt: {e}")
         return "{}"
 
-def call_llm_api(prompt: str) -> Optional[str]:
-    """调用配置的 LLM API"""
-    logger.info(f"--- Calling LLM ({LLM_PROVIDER}) ---")
+def call_llm_api(prompt: str, provider: str) -> Optional[str]:
+    """
+    调用指定的 LLM API。
+    Args:
+        prompt (str): 发送给 LLM 的提示。
+        provider (str): 要使用的 LLM 提供商 (例如 "gemini", "deepseek")。
+    Returns:
+        Optional[str]: LLM 的响应或错误信息。
+    """
+    selected_provider = provider.lower()
+    logger.info(f"--- Calling LLM ({selected_provider}) ---")
 
-    api_key = LLM_API_KEYS.get(LLM_PROVIDER)
-    if not api_key or api_key == "AIzaSy...pEU":
-        logger.error(f"API Key for {LLM_PROVIDER} not found or not configured correctly in .env file.")
-        return f"错误：未找到或未正确配置 {LLM_PROVIDER} 的 API Key。"
+    api_key = LLM_API_KEYS.get(selected_provider)
+    if not api_key or api_key == "AIzaSy...pEU": # Placeholder check
+        logger.error(f"API Key for {selected_provider} not found or not configured correctly in .env file.")
+        return f"错误：未找到或未正确配置 {selected_provider} 的 API Key。"
 
     try:
-        logger.info(f"Attempting to call {LLM_PROVIDER} API...")
-        if LLM_PROVIDER == "gemini":
-            import google.generativeai as genai 
+        logger.info(f"Attempting to call {selected_provider} API...")
+        if selected_provider == "gemini":
+            import google.generativeai as genai
             genai.configure(api_key=api_key)
             model = genai.GenerativeModel('gemini-pro')
             generation_config = genai.types.GenerationConfig()
@@ -184,26 +192,65 @@ def call_llm_api(prompt: str) -> Optional[str]:
                  return f"Gemini API 未返回有效内容。{finish_reason_msg}{safety_ratings_msg}"
             
             llm_result = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-            logger.info(f"Successfully received response from {LLM_PROVIDER}.")
+            logger.info(f"Successfully received response from {selected_provider}.")
             return llm_result
-        elif LLM_PROVIDER == "openai":
+        elif selected_provider == "openai":
             # Placeholder for OpenAI
-            # print("模拟调用 OpenAI API...") # Removed print
             logger.info("Simulating OpenAI API call...")
             return f"OpenAI 分析结果占位符。\n分析内容应基于提供的详细数据和 Prompt 指令生成..."
-        elif LLM_PROVIDER == "anthropic":
-            # Placeholder for Anthropic
-            # print("模拟调用 Anthropic API...") # Removed print
-            logger.info("Simulating Anthropic API call...")
-            return f"Anthropic 分析结果占位符。\n分析内容应基于提供的详细数据和 Prompt 指令生成..."
-        elif LLM_PROVIDER == "deepseek":
+        elif selected_provider == "anthropic":
+            import anthropic # Ensure the library is imported
+            
+            client = anthropic.Anthropic(api_key=api_key)
+            # Common model, user might want to configure this later
+            # For Claude 3 Sonnet, a good balance of speed and performance.
+            # Opus is more powerful but slower and more expensive. Haiku is faster and cheaper.
+            anthropic_model = os.getenv("ANTHROPIC_MODEL_NAME", "claude-3-sonnet-20240229")
+            max_tokens_to_sample = int(os.getenv("ANTHROPIC_MAX_TOKENS", "4000")) # Max tokens for the response
+
+            logger.info(f"Calling Anthropic API with model {anthropic_model} and max_tokens {max_tokens_to_sample}...")
+            
+            # Anthropic API uses a 'messages' structure.
+            # The prompt here is a single user message.
+            # System prompts can be added for more context if needed.
+            response = client.messages.create(
+                model=anthropic_model,
+                max_tokens=max_tokens_to_sample,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ]
+            )
+            
+            if response.content and isinstance(response.content, list) and len(response.content) > 0:
+                # Assuming the first content block is the one we want and it's text.
+                # Claude 3 can return multiple content blocks of different types.
+                # We are interested in the text block.
+                text_content = ""
+                for block in response.content:
+                    if hasattr(block, 'text'): # Check if the block has a 'text' attribute
+                        text_content += block.text
+                
+                if text_content:
+                    logger.info(f"Successfully received response from {selected_provider}.")
+                    return text_content.strip()
+                else:
+                    logger.warning(f"Anthropic API response did not contain text content. Response: {response}")
+                    return "Anthropic API 未返回文本内容。"
+            else:
+                logger.warning(f"Anthropic API response format unexpected or empty: {response}")
+                return "Anthropic API 返回格式错误或无有效内容。"
+        elif selected_provider == "deepseek":
+             deepseek_model = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
              url = "https://api.deepseek.com/chat/completions"
              headers = {
                  "Authorization": f"Bearer {api_key}",
                  "User-Agent": "StockValeApp/1.0"
              }
              payload_obj = {
-                 "model": "deepseek-chat",
+                 "model": deepseek_model,
                  "messages": [{"role": "user", "content": prompt}],
              } 
              logger.info(f"Calling DeepSeek API at {url} with model {payload_obj['model']}...")
@@ -217,17 +264,17 @@ def call_llm_api(prompt: str) -> Optional[str]:
              response_data = response.json()
              if response_data and 'choices' in response_data and response_data['choices'] and 'message' in response_data['choices'][0] and 'content' in response_data['choices'][0]['message']:
                  llm_result = response_data['choices'][0]['message']['content']
-                 logger.info(f"Successfully received response from {LLM_PROVIDER}.")
+                 logger.info(f"Successfully received response from {selected_provider}.")
                  return llm_result
              else:
                   logger.warning(f"DeepSeek API response format unexpected: {response_data}")
                   return "DeepSeek API 返回格式错误或无有效内容。"
         else:
-            return f"错误：不支持的 LLM 提供商 '{LLM_PROVIDER}'。"
+            return f"错误：不支持的 LLM 提供商 '{selected_provider}'。"
 
     except ImportError as ie:
-         logger.error(f"Missing library for {LLM_PROVIDER}. Please install it. {ie}")
-         return f"错误：缺少用于 {LLM_PROVIDER} 的库，请安装。"
+         logger.error(f"Missing library for {selected_provider}. Please install it. {ie}")
+         return f"错误：缺少用于 {selected_provider} 的库，请安装。"
     except Exception as e:
-        logger.error(f"Error calling LLM API ({LLM_PROVIDER}): {e}\n{traceback.format_exc()}")
+        logger.error(f"Error calling LLM API ({selected_provider}): {e}\n{traceback.format_exc()}")
         return f"调用 LLM API 时出错: {str(e)}"
