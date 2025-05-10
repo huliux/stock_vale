@@ -107,6 +107,13 @@
     - [x] **历史财务摘要显示问题修复:** 解决了 Streamlit UI 中“历史财务摘要”表格无法正确显示资产负债表数据且不可滚动的问题。
     - [x] **历史财务比率指标名称中文化:** 在 Streamlit UI 的“历史财务比率 (中位数)”表格中，将英文指标键名替换为用户友好的中文名称。
     - [x] **详细财务预测列名优化:** 为 Streamlit UI 中“详细财务预测”表格的列名补充了中文解释。
+    - [x] **`streamlit_app.py` 代码重构 (完成):**
+        - [x] 辅助函数和常量迁移到 `st_utils.py`。
+        - [x] 页面配置与标题渲染拆分为 `render_page_config_and_title()`。
+        - [x] 侧边栏输入渲染拆分为 `render_sidebar_inputs()`。
+        - [x] `render_valuation_results` 函数内部的主要UI区块（基本信息、估值结果摘要、数据警告、行业提示、敏感性分析、高级分析、LLM总结）均已拆分为独立的渲染函数。
+        - [x] 主函数 `render_valuation_results` 逻辑简化。
+        - [x] 重构后的应用可成功运行。
 - **金融行业适应性提示 (UI & 文档):**
     - [x] **UI层面:** 后端API (`api/main.py`, `api/models.py`) 和前端 (`streamlit_app.py`) 已更新，当检测到金融行业股票且存在较多数据问题时，会显示特定的警告信息。
     - [x] **文档层面:** `README.md`, `cline_docs/projectbrief.md`, `cline_docs/systemPatterns.md` 已更新，说明当前DCF模型对金融行业的局限性。

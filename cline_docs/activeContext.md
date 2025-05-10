@@ -61,7 +61,7 @@
         *   通过 `write_to_file` 修正了 `side_effect_dcf_pe` 函数的缩进，解决了 `IndentationError`。
         *   修正了 `test_sensitivity_api_dcf_implied_pe_calculation` 测试中对 `column_values` 的期望值。
         *   所有12个测试用例在 `tests/api/test_sensitivity.py` 中均已通过。
--   **Streamlit UI 界面优化与问题修复 (完成):**
+-   **Streamlit UI 界面优化与问题修复 (大部分完成):**
     *   **指标字体:** `st.metric` 中数值的字体大小已通过 CSS 调整。
     *   **区块边框样式:** 经过多次尝试（包括直接 `div` 包裹、`st.container` 与 CSS 相邻兄弟选择器组合），最终根据用户反馈，移除了所有为“基本信息”、“估值结果”区块以及单个“豆腐块”添加的边框和背景样式。目前仅保留字体大小调整。
     *   **“查看 DCF 详细构成”板块移除:** 已从 `streamlit_app.py` 中移除该 `st.expander`。
@@ -76,6 +76,19 @@
     *   **历史财务摘要显示问题修复 (完成):** 解决了 Streamlit UI 中“历史财务摘要”表格无法正确显示资产负债表数据且不可滚动的问题。通过修改 `api/main.py` 中构建历史财务摘要数据的逻辑，确保了所有报表类型（包括资产负债表）的数据都能正确传递给前端并显示。
     *   **历史财务比率指标名称中文化 (完成):** 在 Streamlit UI 的“历史财务比率 (中位数)”表格中，将从 API 获取的英文指标键名替换为用户友好的中文名称。
     *   **详细财务预测列名优化 (完成):** 为 Streamlit UI 中“详细财务预测”表格的列名补充了中文解释，使其更易于理解。
+-   **Streamlit UI 代码重构 (`streamlit_app.py`) (完成):**
+    *   **辅助函数迁移:** 将多个辅助函数和常量迁移到 `st_utils.py`。
+    *   **页面配置与标题渲染拆分:** 封装到 `render_page_config_and_title()`。
+    *   **侧边栏输入渲染拆分:** 封装到 `render_sidebar_inputs()`，返回输入字典。
+    *   **估值结果渲染拆分 (`render_valuation_results` 内部):**
+        *   基本信息区块拆分为 `render_basic_info_section()`。
+        *   估值结果摘要区块拆分为 `render_valuation_summary_section()`。
+        *   数据警告与行业提示分别拆分为 `render_data_warnings()` 和 `render_special_industry_warning()`。
+        *   敏感性分析区块拆分为 `render_sensitivity_analysis_section()`。
+        *   高级分析区块拆分为 `render_advanced_analysis_section()`。
+        *   LLM总结区块拆分为 `render_llm_summary_section()`。
+    *   主函数 `render_valuation_results` 逻辑简化，主要负责协调和调用各子渲染函数。
+    *   应用经重构后可成功运行。
 -   **应用状态:**
     *   后端 API 服务可正常运行。Streamlit 应用可运行。
     *   **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决:** 通过指导用户修正其终端环境中的 `DEEPSEEK_API_KEY` 环境变量（移除其中的中文注释），API 调用已恢复正常。相关的调试日志已从 `api/main.py` 中移除。
@@ -93,12 +106,13 @@
 -   **(已完成)** **金融行业适应性提示与文档更新:**
     -   UI层面: 后端API (`api/main.py`, `api/models.py`) 和前端 (`streamlit_app.py`) 已更新，当检测到金融行业股票且存在较多数据问题时，会显示特定的警告信息。
     -   文档层面: `README.md`, `cline_docs/projectbrief.md`, `cline_docs/systemPatterns.md`, `cline_docs/progress.md` 已更新，说明当前DCF模型对金融行业的局限性。
--   **记忆库更新:** (已完成) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件已更新以反映最新项目状态。
+-   **记忆库更新:** (进行中) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件正在更新以反映最新项目状态，特别是 `streamlit_app.py` 的重构。
 
 ## 后续步骤 (优先级排序)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**
-1.  **上下文窗口管理:** 当前上下文窗口使用率约为 30-40%。虽然尚未达到强制创建新任务的 50% 阈值，但仍需保持关注。如果后续操作导致上下文显著增加，应考虑创建新任务。
-2.  **确认用户满意度:** 在新任务开始时或当前任务告一段落时，与用户再次确认当前 Streamlit UI 状态是否满足所有要求（此问题在先前会话中因日志问题而中断，仍需跟进）。
-3.  **添加敏感性分析测试:** (部分完成) `tests/api/test_sensitivity.py` 已通过。评估是否需要在其他地方为敏感性分析逻辑补充更多测试。
-4.  **优化投资建议呈现:** (可选，可放入新任务) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-5.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
+1.  **记忆库更新:** 完成 `activeContext.md` 和 `progress.md` 的更新，以反映 `streamlit_app.py` 重构的完成。
+2.  **上下文窗口管理:** 当前上下文窗口使用率约为 20% (重构后可能会降低)。继续保持关注。
+3.  **确认用户满意度:** 用户已确认重构后的应用可成功运行。后续可进一步确认UI细节和整体体验。
+4.  **添加敏感性分析测试:** (部分完成) `tests/api/test_sensitivity.py` 已通过。评估是否需要在其他地方为敏感性分析逻辑补充更多测试。
+5.  **优化投资建议呈现:** (可选，可放入新任务) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
+6.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
