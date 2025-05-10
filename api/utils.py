@@ -2,15 +2,30 @@ import logging
 import numpy as np
 import pandas as pd
 from decimal import Decimal, InvalidOperation
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional # Added Optional
 
 # Attempt to import DataProcessor for type hinting
 try:
     from data_processor import DataProcessor
 except ImportError:
-    class DataProcessor: pass # Placeholder if not found
+    class DataProcessor: # type: ignore
+        pass # Placeholder if not found
 
-logger = logging.getLogger(__name__)
+# Attempt to import models for type hinting
+try:
+    from api.models import DcfForecastDetails # For type hinting
+    from api.sensitivity_models import SensitivityAxisInput, MetricType # For type hinting
+except ImportError:
+    class DcfForecastDetails: pass # type: ignore
+    class SensitivityAxisInput: pass # type: ignore
+    class MetricType: # type: ignore
+        WACC = "wacc"
+        TERMINAL_GROWTH_RATE = "perpetual_growth_rate"
+        TERMINAL_EBITDA_MULTIPLE = "exit_multiple"
+        # Add other metric types if needed for fallback logic
+
+logger = logging.getLogger(__name__) # This logger will be for utils.py
+# The regenerate_axis_if_needed function will accept a logger instance from the caller.
 
 # Helper for JSON serialization of Decimal and other types
 def decimal_default(obj):
@@ -182,3 +197,67 @@ def build_historical_financial_summary(processed_data_container: DataProcessor) 
     #     logger.debug(f"Built historical_financial_summary_data (first 2 items): {json.dumps(historical_financial_summary_data[:2], ensure_ascii=False, default=str)}")
         
     return historical_financial_summary_data
+
+# --- Axis Regeneration Helper (Moved from api/main.py) ---
+def regenerate_axis_if_needed(
+    axis_input: SensitivityAxisInput, 
+    base_details: Optional[DcfForecastDetails], 
+    param_name: str, 
+    is_row_axis: bool, 
+    base_req_dict: Dict[str, Any],
+    logger_obj: logging.Logger, # Pass logger instance from caller
+    sensitivity_warnings_list: List[str] # Pass warnings list from caller
+) -> List[float]:
+    current_values = axis_input.values
+    should_regenerate = False
+    center_val = None
+
+    # For WACC, always try to regenerate if step/points are given, using base_wacc as center
+    if param_name == MetricType.WACC.value: # type: ignore
+        if axis_input.step is not None and axis_input.points is not None:
+            center_val = base_details.wacc_used if base_details else None
+            if center_val is None: # Fallback to request input for WACC if base_details.wacc_used is None
+                center_val = base_req_dict.get('wacc') 
+                if center_val is None: 
+                    pass # Further fallback logic might be needed if wacc_calculator was involved
+            
+            if center_val is not None:
+                should_regenerate = True
+            else:
+                logger_obj.warning(f"Cannot regenerate WACC axis for {'row' if is_row_axis else 'column'} due to missing base WACC and no fallback in request. Using original values if provided, else empty.")
+                sensitivity_warnings_list.append(f"WACC轴无法重新生成（缺少基础WACC且请求中无回退值），将使用请求中提供的原始值（如果存在）。")
+    
+    # For other params, regenerate only if values list is empty AND step/points are given
+    elif not current_values and axis_input.step is not None and axis_input.points is not None:
+        if param_name == MetricType.TERMINAL_GROWTH_RATE.value: # type: ignore
+            center_val = base_details.perpetual_growth_rate_used if base_details else None
+            if center_val is None: center_val = base_req_dict.get('perpetual_growth_rate')
+        elif param_name == MetricType.TERMINAL_EBITDA_MULTIPLE.value: # type: ignore
+            center_val = base_details.exit_multiple_used if base_details else None
+            if center_val is None: center_val = base_req_dict.get('exit_multiple')
+            if center_val is None: 
+                center_val = 8.0 # Default exit multiple
+                logger_obj.info(f"Using hardcoded default center value {center_val} for {param_name} axis for {'row' if is_row_axis else 'column'}.")
+                sensitivity_warnings_list.append(f"{param_name}轴缺少基准值和请求值，使用默认中心值 {center_val}。")
+        
+        if center_val is not None:
+            try:
+                center_val = float(center_val)
+                should_regenerate = True
+            except (ValueError, TypeError):
+                logger_obj.warning(f"Cannot convert center_val '{center_val}' to float for {param_name} axis for {'row' if is_row_axis else 'column'}. Using original (empty) values.")
+                sensitivity_warnings_list.append(f"{param_name}轴的中心值 '{center_val}' 无法转换为浮点数，将使用空的原始值列表。")
+                should_regenerate = False
+        else:
+            logger_obj.warning(f"Cannot regenerate {param_name} axis for {'row' if is_row_axis else 'column'} due to missing base value and no fallback in request. Using original (empty) values.")
+            sensitivity_warnings_list.append(f"{param_name}轴无法重新生成（所有回退机制均失败），将使用空的原始值列表。")
+    
+    if should_regenerate and center_val is not None:
+        logger_obj.info(f"Regenerating {'row' if is_row_axis else 'column'} axis for {param_name} around center value: {center_val:.4f}, Step: {axis_input.step}, Points: {axis_input.points}")
+        return generate_axis_values_backend( # This function is already in api/utils.py
+            center=float(center_val),
+            step=float(axis_input.step), # type: ignore
+            points=int(axis_input.points) # type: ignore
+        )
+    
+    return current_values if current_values is not None else []

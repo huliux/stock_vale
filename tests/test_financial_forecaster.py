@@ -182,21 +182,21 @@ def test_predict_balance_sheet_and_cf_historical_mode(forecaster_historical_mode
 
     # Revenue Yr1 = 1120, COGS Yr1 = 672, NOPAT Yr1 = 210
     # DA = 1120 * 0.05 = 56
-    assert fcf_components['d_a'].iloc[0] == pytest.approx(Decimal('56.00')) # Use 'd_a'
+    assert Decimal(str(fcf_components['d_a'].iloc[0])) == pytest.approx(Decimal('56.00')) # Use 'd_a'
     # CapEx = 1120 * 0.08 = 89.6
-    assert fcf_components['capex'].iloc[0] == pytest.approx(Decimal('89.60')) # Use 'capex'
+    assert Decimal(str(fcf_components['capex'].iloc[0])) == pytest.approx(Decimal('89.60')) # Use 'capex'
     # AR = 1120 * (75/360) = 233.33
-    assert fcf_components['accounts_receivable'].iloc[0] == pytest.approx(Decimal('233.33'), abs=Decimal('0.01'))
+    assert Decimal(str(fcf_components['accounts_receivable'].iloc[0])) == pytest.approx(Decimal('233.33'), abs=Decimal('0.01'))
     # Inv = 784 * (180/360) = 392 (Using calculated COGS=784)
-    assert fcf_components['inventories'].iloc[0] == pytest.approx(Decimal('392.00')) # Updated expected Inv
+    assert Decimal(str(fcf_components['inventories'].iloc[0])) == pytest.approx(Decimal('392.00')) # Updated expected Inv
     # AP = 784 * (90/360) = 196 (Using calculated COGS=784)
-    assert fcf_components['accounts_payable'].iloc[0] == pytest.approx(Decimal('196.00')) # Updated expected AP
+    assert Decimal(str(fcf_components['accounts_payable'].iloc[0])) == pytest.approx(Decimal('196.00')) # Updated expected AP
     # OthCA = 1120 * 0.05 = 56
-    assert fcf_components['other_current_assets'].iloc[0] == pytest.approx(Decimal('56.00'))
+    assert Decimal(str(fcf_components['other_current_assets'].iloc[0])) == pytest.approx(Decimal('56.00'))
     # OthCL = 1120 * 0.03 = 33.6
-    assert fcf_components['other_current_liabilities'].iloc[0] == pytest.approx(Decimal('33.60'))
+    assert Decimal(str(fcf_components['other_current_liabilities'].iloc[0])) == pytest.approx(Decimal('33.60'))
     # NWC_yr1 = (233.33 + 392 + 56) - (196 + 33.6) = 681.33 - 229.6 = 451.73 (Using updated Inv, AP)
-    assert fcf_components['nwc'].iloc[0] == pytest.approx(Decimal('451.73'), abs=Decimal('0.01')) # Use 'nwc', updated expected NWC
+    assert Decimal(str(fcf_components['nwc'].iloc[0])) == pytest.approx(Decimal('451.73'), abs=Decimal('0.01')) # Use 'nwc', updated expected NWC
     
     # Prev NWC: AR_prev = 1000 * (75/360) = 208.33
     # Inv_prev = 600 * (180/360) = 300
@@ -205,9 +205,9 @@ def test_predict_balance_sheet_and_cf_historical_mode(forecaster_historical_mode
     # OthCL_prev = 1000 * 0.03 = 30
     # Prev_NWC = (208.33 + 300 + 50) - (150 + 30) = 558.33 - 180 = 378.33 (This is the correct previous NWC)
     # Delta NWC = 451.73 - 378.33 = 73.40 (Using updated NWC_yr1 and correct Prev_NWC)
-    assert fcf_components['delta_nwc'].iloc[0] == pytest.approx(Decimal('73.40'), abs=Decimal('0.01')) # Use 'delta_nwc', expected value is now correct
+    assert Decimal(str(fcf_components['delta_nwc'].iloc[0])) == pytest.approx(Decimal('73.40'), abs=Decimal('0.01')) # Use 'delta_nwc', expected value is now correct
     # EBITDA = EBIT + DA = 168 + 56 = 224 (Using calculated EBIT=168)
-    assert fcf_components['ebitda'].iloc[0] == pytest.approx(Decimal('224.00')) # Updated expected EBITDA
+    assert Decimal(str(fcf_components['ebitda'].iloc[0])) == pytest.approx(Decimal('224.00')) # Updated expected EBITDA
 
 # Restore the missing function definition line
 def test_predict_income_statement_target_mode(forecaster_target_mode):

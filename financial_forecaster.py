@@ -174,7 +174,7 @@ class FinancialForecaster:
              historical_cagr = default_cagr
 
 
-        decay_rate_input = self.assumptions.get('cagr_decay_rate') # Corrected key
+        decay_rate_input = self.assumptions.get('revenue_cagr_decay_rate') # Corrected key to match fixture
         try:
             decay_rate = Decimal(decay_rate_input) if decay_rate_input is not None else Decimal('0.1')
             if not (Decimal('0') <= decay_rate <= Decimal('1')):

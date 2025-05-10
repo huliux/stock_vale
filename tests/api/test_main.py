@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 import pandas as pd
 from decimal import Decimal
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch, AsyncMock, PropertyMock
 
 # Import the FastAPI app instance
 from api.main import app
@@ -31,6 +31,7 @@ MOCK_RAW_FINANCIAL_DATA = {
     'income_statement': pd.DataFrame({
         'end_date': pd.to_datetime(['2021-12-31', '2022-12-31', '2023-12-31']),
         'total_revenue': [100, 120, 150],
+        'revenue': [100, 120, 150], # Added 'revenue' column for the check in ValuationService
         'oper_cost': [60, 70, 80],
         'income_tax': [10, 12, 15],
         'n_income': [30, 38, 55], # Net Income
@@ -137,36 +138,40 @@ def test_read_root():
     # Correct the expected message based on api/main.py
     assert response.json() == {"message": "Welcome to the Stock Valuation API (Streamlit Backend)"}
 
-# Correct the patch targets based on imports in api/main.py
-@patch("api.main.AshareDataFetcher") # Corrected class name
-@patch("api.main.DataProcessor")
-@patch("api.main.FinancialForecaster")
-@patch("api.main.WaccCalculator") # Corrected class name
-# FcfCalculator is not directly used in api.main, it's part of FinancialForecaster
-@patch("api.main.TerminalValueCalculator")
-@patch("api.main.PresentValueCalculator")
-@patch("api.main.EquityBridgeCalculator")
-@patch("api.main.call_llm_api") # Corrected function name and removed AsyncMock as it's sync now
+# Adjusted patch targets based on ValuationService structure
+@patch("api.main.AshareDataFetcher") # Assuming DI in api.main creates this
+@patch("api.main.DataProcessor")    # Assuming DI in api.main creates this
+@patch("api.main.WaccCalculator")     # Assuming DI in api.main creates this
+@patch("services.valuation_service.FinancialForecaster") # Instantiated in ValuationService
+@patch("services.valuation_service.TerminalValueCalculator") # Instantiated in ValuationService
+@patch("services.valuation_service.PresentValueCalculator") # Instantiated in ValuationService
+@patch("services.valuation_service.EquityBridgeCalculator") # Instantiated in ValuationService
+@patch("api.main.call_llm_api")
 def test_calculate_valuation_success(
-    MockCallLLM, MockEquityBridge, MockPV, MockTV, MockWACC, # Removed MockFCF
-    MockFinancialForecaster, MockDataProcessor, MockAshareDataFetcher # Renamed mock parameter
+    InjectedMockCallLLM, InjectedMockEquityBridge, InjectedMockPV, InjectedMockTV,
+    InjectedMockFinancialForecaster, InjectedMockWACC, InjectedMockDataProcessor, InjectedMockAshareDataFetcher
 ):
     """Test the valuation endpoint with mocked dependencies (new structure)."""
 
     # --- Configure Mocks ---
     # DataFetcher
-    mock_fetcher_instance = MockAshareDataFetcher.return_value # Corrected variable name
+    mock_fetcher_instance = InjectedMockAshareDataFetcher.return_value
     mock_fetcher_instance.get_stock_basic_info.return_value = MOCK_STOCK_BASIC_INFO
     mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE
     mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA
     mock_fetcher_instance.get_latest_balance_sheet_info.return_value = MOCK_LATEST_BS_INFO
     # Mock get_latest_total_shares to return value in 亿股, explicitly convert to float
     mock_fetcher_instance.get_latest_total_shares.return_value = float(MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000)
+    mock_fetcher_instance.get_latest_pe_pb.return_value = {'pe': MOCK_STOCK_BASIC_INFO['latest_pe_ttm'], 'pb': MOCK_STOCK_BASIC_INFO['latest_pb_mrq']} # Added this mock
 
     # DataProcessor
     # DataProcessor
-    mock_processor_instance = MockDataProcessor.return_value
+    mock_processor_instance = InjectedMockDataProcessor.return_value
+    mock_processor_instance.processed_data = MOCK_PROCESSED_DATA_FOR_FORECASTER # Set the attribute directly
+    mock_processor_instance.get_processed_data.return_value = MOCK_PROCESSED_DATA_FOR_FORECASTER
     mock_processor_instance.clean_data.return_value = MOCK_PROCESSED_DATA_FOR_FORECASTER # Cleaned data
+    mock_processor_instance.get_base_financial_statement_date = MagicMock(return_value='2023-12-31') # Corrected method name
+    # mock_processor_instance.base_report_date = '2023-12-31' # Attribute likely not needed if method is called
     # Corrected mock target method name & using explicit mock object
     mock_get_hist_ratios = MagicMock(return_value=MOCK_HISTORICAL_RATIOS)
     mock_processor_instance.get_historical_ratios = mock_get_hist_ratios
@@ -178,12 +183,13 @@ def test_calculate_valuation_success(
     mock_processor_instance.get_warnings.return_value = ["Mock warning 1", "Mock warning 2"]
 
     # FinancialForecaster
-    mock_forecaster_instance = MockFinancialForecaster.return_value
+    mock_forecaster_instance = InjectedMockFinancialForecaster.return_value
     # get_full_forecast should return the DataFrame directly
     mock_forecaster_instance.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE 
+    mock_forecaster_instance.get_last_actual_revenue.return_value = Decimal('150') # Explicitly mock this
 
     # WACCCalculator
-    mock_wacc_instance = MockWACC.return_value
+    mock_wacc_instance = InjectedMockWACC.return_value
     # Mock the correct method called in api/main.py
     mock_wacc_instance.get_wacc_and_ke.return_value = (Decimal('0.085'), Decimal('0.10')) # Return tuple (wacc, ke)
 
@@ -192,23 +198,23 @@ def test_calculate_valuation_success(
     # The MOCK_DETAILED_FORECAST_TABLE should already include 'free_cash_flow' if it's the output of FinancialForecaster.
 
     # TerminalValueCalculator
-    mock_tv_instance = MockTV.return_value
+    mock_tv_instance = InjectedMockTV.return_value
     # Return None for the error part in the success case
     mock_tv_instance.calculate_terminal_value.return_value = (Decimal('500'), None) 
 
     # PresentValueCalculator
-    mock_pv_instance = MockPV.return_value
+    mock_pv_instance = InjectedMockPV.return_value
     # Return tuple (pv_ufcf, pv_tv, error) - use floats as in the other test
     mock_pv_instance.calculate_present_values.return_value = (400.0, 931.38, None) 
 
     # EquityBridgeCalculator
-    mock_eb_instance = MockEquityBridge.return_value
+    mock_eb_instance = InjectedMockEquityBridge.return_value
     # Return tuple (net_debt, equity_value, value_per_share, error)
     mock_eb_instance.calculate_equity_value.return_value = (Decimal('1500'), Decimal('350'), Decimal('18.04'), None) 
 
     # LLM Call
     # Return only the summary string as expected by the model
-    MockCallLLM.return_value = MOCK_LLM_ANALYSIS["summary"] 
+    InjectedMockCallLLM.return_value = MOCK_LLM_ANALYSIS["summary"] 
     
     # --- Make the request ---
     response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
@@ -236,38 +242,51 @@ def test_calculate_valuation_success(
     assert "data_warnings" in results # Check within results container
     assert "Mock warning 1" in results["data_warnings"] # Corrected key access
 
-@patch("api.main.AshareDataFetcher") # Corrected patch target
-def test_calculate_valuation_fetcher_error(MockAshareDataFetcher): # Corrected mock parameter name
+# For this test, we want to simulate an error from the fetcher instance
+# that api.main creates and passes to ValuationService.
+@patch("api.main.AshareDataFetcher") # Assuming DI in api.main creates this
+def test_calculate_valuation_fetcher_error(MockApiMainAshareDataFetcher):
     """Test valuation endpoint when DataFetcher raises an error."""
-    mock_fetcher_instance = MockAshareDataFetcher.return_value
-    mock_fetcher_instance.get_stock_info.side_effect = ValueError("Failed to fetch stock basic info") # Use get_stock_info
+    mock_fetcher_instance = MockApiMainAshareDataFetcher.return_value
+    # This mock_fetcher_instance is what api.main.py will create and pass to ValuationService
+    mock_fetcher_instance.get_stock_info.side_effect = ValueError("Failed to fetch stock basic info") # Corrected method name
+    # Mock other fetcher calls that happen before the error or might interfere
+    mock_fetcher_instance.get_latest_total_shares.return_value = Decimal('194.05918') # Example value in 亿
+    mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE # Mock this call
+    mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA # Mock this call
 
     response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
 
-    # Expect 500 because the exception is caught generically now
-    assert response.status_code == 500 
-    assert "服务器内部错误: Failed to fetch stock basic info" in response.json()["detail"]
+    assert response.status_code == 500
+    # This error should be caught by the main endpoint's try-except
+    assert response.json()["detail"] == "服务器内部错误: Failed to fetch stock basic info"
 
 
-@patch("api.main.AshareDataFetcher") # Corrected patch target
-@patch("api.main.DataProcessor")
-@patch("api.main.FinancialForecaster")
-@patch("api.main.WaccCalculator") # Corrected class name
-@patch("api.main.call_llm_api") # Corrected function name
+# Corrected patch targets based on DI and internal instantiation
+@patch("api.main.AshareDataFetcher") # DI via api.main
+@patch("api.main.DataProcessor")    # DI via api.main
+@patch("services.valuation_service.FinancialForecaster") # Instantiated in ValuationService
+@patch("api.main.WaccCalculator")     # DI via api.main
+@patch("api.main.call_llm_api")
 def test_calculate_valuation_calculator_error(
-    MockCallLLM, MockWACC, MockFinancialForecaster, MockDataProcessor, MockAshareDataFetcher # Corrected mock parameter name
+    InjectedMockCallLLM, InjectedMockWACC, InjectedMockFinancialForecaster, 
+    InjectedMockDataProcessor, InjectedMockAshareDataFetcher
 ):
     """Test valuation endpoint for an internal server error during a calculation step."""
     # Setup mocks up to the point of error
-    mock_fetcher_instance = MockAshareDataFetcher.return_value # Corrected mock parameter name
+    mock_fetcher_instance = InjectedMockAshareDataFetcher.return_value
     mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_BASIC_INFO # Use get_stock_info
     mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE
     mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA
     mock_fetcher_instance.get_latest_balance_sheet_info.return_value = MOCK_LATEST_BS_INFO
     mock_fetcher_instance.get_latest_pe_pb.return_value = {'pe': MOCK_STOCK_BASIC_INFO['latest_pe_ttm'], 'pb': MOCK_STOCK_BASIC_INFO['latest_pb_mrq']}
-    mock_fetcher_instance.get_latest_total_shares.return_value = MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000
+    # get_latest_total_shares is already mocked above, ensure it's correct for this test's needs
+    # If it was just 'total_shares', it needs conversion to float for consistency if other parts expect float for '亿股'
+    mock_fetcher_instance.get_latest_total_shares.return_value = float(MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000)
 
-    mock_processor_instance = MockDataProcessor.return_value
+
+    mock_processor_instance = InjectedMockDataProcessor.return_value
+    mock_processor_instance.get_processed_data.return_value = MOCK_PROCESSED_DATA_FOR_FORECASTER # Added mock
     # Ensure processed_data is a dict, not None or empty for the check in api/main
     mock_processor_instance.processed_data = {'income_statement': pd.DataFrame({'revenue': [100]})} # Minimal valid structure
     mock_processor_instance.get_historical_ratios.return_value = MOCK_HISTORICAL_RATIOS # Use get method
@@ -275,37 +294,38 @@ def test_calculate_valuation_calculator_error(
     mock_processor_instance.get_latest_balance_sheet.return_value = pd.Series(MOCK_LATEST_BS_INFO) # Use get method, return Series
     mock_processor_instance.get_warnings.return_value = [] # Use get method
 
-    mock_forecaster_instance = MockFinancialForecaster.return_value
+    mock_forecaster_instance = InjectedMockFinancialForecaster.return_value
     # Ensure get_full_forecast returns a DataFrame with 'ufcf' column
     mock_forecaster_instance.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE 
 
     # Simulate an error in WACCCalculator
-    mock_wacc_instance = MockWACC.return_value
+    mock_wacc_instance = InjectedMockWACC.return_value
     mock_wacc_instance.get_wacc_and_ke.side_effect = Exception("WACC calculation failed unexpectedly") # Use get_wacc_and_ke
 
-    MockCallLLM.return_value = MOCK_LLM_ANALYSIS # LLM might still be called for partial data
+    InjectedMockCallLLM.return_value = MOCK_LLM_ANALYSIS # LLM might still be called for partial data
 
     response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)
 
     assert response.status_code == 500
     # Check the actual error message format from the except block in api/main.py
-    assert "服务器内部错误: WACC calculation failed unexpectedly" in response.json()["detail"] 
+    assert "基础估值计算失败: 单次估值计算失败: WACC calculation failed unexpectedly" in response.json()["detail"] 
 
-@patch("api.main.AshareDataFetcher") # Corrected patch target
-@patch("api.main.DataProcessor")
-# Patch the calculators used within the 'with' block correctly
-@patch("api.main.FinancialForecaster") 
-@patch("api.main.WaccCalculator") 
-@patch("api.main.TerminalValueCalculator") 
-@patch("api.main.PresentValueCalculator") 
-@patch("api.main.EquityBridgeCalculator") 
-@patch("api.main.call_llm_api") # Corrected function name
+# Adjusted patch targets based on ValuationService structure
+@patch("api.main.AshareDataFetcher") # Assuming DI in api.main creates this
+@patch("api.main.DataProcessor")    # Assuming DI in api.main creates this
+@patch("api.main.WaccCalculator")     # Assuming DI in api.main creates this
+@patch("services.valuation_service.FinancialForecaster") # Instantiated in ValuationService
+@patch("services.valuation_service.TerminalValueCalculator") # Instantiated in ValuationService
+@patch("services.valuation_service.PresentValueCalculator") # Instantiated in ValuationService
+@patch("services.valuation_service.EquityBridgeCalculator") # Instantiated in ValuationService
+@patch("api.main.call_llm_api")
 def test_calculate_valuation_llm_error(
-    MockCallLLM, MockEBC, MockPVC, MockTVC, MockW, MockFF, # Order matters for patch decorators
-    MockDataProcessor, MockAshareDataFetcher): # Corrected mock parameter name
+    InjectedMockCallLLM, InjectedMockEBC, InjectedMockPVC, InjectedMockTVC, 
+    InjectedMockFF, InjectedMockW, InjectedMockDataProcessor, InjectedMockAshareDataFetcher
+):
     """Test valuation endpoint when LLM call fails."""
     # Setup mocks for successful DCF calculation
-    mock_fetcher_instance = MockAshareDataFetcher.return_value # Corrected mock parameter name
+    mock_fetcher_instance = InjectedMockAshareDataFetcher.return_value
     mock_fetcher_instance.get_stock_info.return_value = MOCK_STOCK_BASIC_INFO # Use get_stock_info
     mock_fetcher_instance.get_latest_price.return_value = MOCK_LATEST_PRICE
     mock_fetcher_instance.get_raw_financial_data.return_value = MOCK_RAW_FINANCIAL_DATA
@@ -313,7 +333,10 @@ def test_calculate_valuation_llm_error(
     mock_fetcher_instance.get_latest_pe_pb.return_value = {'pe': MOCK_STOCK_BASIC_INFO['latest_pe_ttm'], 'pb': MOCK_STOCK_BASIC_INFO['latest_pb_mrq']}
     mock_fetcher_instance.get_latest_total_shares.return_value = MOCK_STOCK_BASIC_INFO['total_shares'] / 100000000
 
-    mock_processor_instance = MockDataProcessor.return_value
+    mock_processor_instance = InjectedMockDataProcessor.return_value
+    mock_processor_instance.get_processed_data.return_value = MOCK_PROCESSED_DATA_FOR_FORECASTER # Added mock
+    mock_processor_instance.get_base_financial_statement_date = MagicMock(return_value='2023-12-31') # Corrected method name
+    # mock_processor_instance.base_report_date = '2023-12-31' # Attribute likely not needed
     mock_processor_instance.processed_data = {'income_statement': pd.DataFrame({'revenue': [100]})} # Minimal valid structure
     # Corrected mock target method name
     mock_processor_instance.get_historical_ratios.return_value = MOCK_HISTORICAL_RATIOS
@@ -323,16 +346,16 @@ def test_calculate_valuation_llm_error(
     mock_processor_instance.get_warnings.return_value = []
     
     # Simulate FinancialForecaster and other calculators returning valid data
-    MockFF.return_value.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE # Return DataFrame directly with 'ufcf'
-    MockW.return_value.get_wacc_and_ke.return_value = (0.085, 0.10) # Return tuple (wacc, ke)
+    InjectedMockFF.return_value.get_full_forecast.return_value = MOCK_DETAILED_FORECAST_TABLE # Return DataFrame directly with 'ufcf'
+    InjectedMockW.return_value.get_wacc_and_ke.return_value = (0.085, 0.10) # Return tuple (wacc, ke)
     # FcfCalculator is used internally by FinancialForecaster, no need to patch here if FF is mocked
-    MockTVC.return_value.calculate_terminal_value.return_value = (Decimal('500'), None) # Return tuple (value, error)
-    MockPVC.return_value.calculate_present_values.return_value = (400.0, 931.38, None) # Return tuple (pv_ufcf, pv_tv, error) - use floats
+    InjectedMockTVC.return_value.calculate_terminal_value.return_value = (Decimal('500'), None) # Return tuple (value, error)
+    InjectedMockPVC.return_value.calculate_present_values.return_value = (400.0, 931.38, None) # Return tuple (pv_ufcf, pv_tv, error) - use floats
     # Return tuple (net_debt, equity_val, per_share, error) - use Decimals where appropriate
-    MockEBC.return_value.calculate_equity_value.return_value = (Decimal('1500'), Decimal('350'), Decimal('18.04'), None) 
+    InjectedMockEBC.return_value.calculate_equity_value.return_value = (Decimal('1500'), Decimal('350'), Decimal('18.04'), None) 
 
     # Simulate LLM call failure
-    MockCallLLM.side_effect = Exception("LLM API unavailable")
+    InjectedMockCallLLM.side_effect = Exception("LLM API unavailable")
 
     # This block should be outside the 'with' statement
     response = client.post("/api/v1/valuation", json=DEFAULT_VALUATION_REQUEST_PAYLOAD)

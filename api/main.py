@@ -11,9 +11,10 @@ from typing import Dict, Any, Optional, Tuple, List # Import Tuple and List
 from decimal import Decimal, InvalidOperation # Import Decimal and InvalidOperation
 
 # 导入新的工具函数
-from api.utils import decimal_default, generate_axis_values_backend, build_historical_financial_summary # 新增导入
+from api.utils import decimal_default, generate_axis_values_backend, build_historical_financial_summary # regenerate_axis_if_needed is now called by ValuationService
 from api.llm_utils import load_prompt_template, format_llm_input_data, call_llm_api
-from services.valuation_service import run_single_valuation # 新增导入
+from services.valuation_service import ValuationService # Updated import
+# regenerate_axis_if_needed is now part of api.utils and called by ValuationService, so no direct import needed here for it.
 
 # 导入 Pydantic 模型
 # 使用绝对导入
@@ -165,13 +166,18 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                   print("Warning: 'n_income' column not found in income_statement for market cap estimation.")
         wacc_calculator = WaccCalculator(financials_dict=processed_data_container.processed_data, market_cap=market_cap_est)
 
+        # --- Initialize ValuationService ---
+        valuation_service = ValuationService(
+            processed_data_container=processed_data_container,
+            wacc_calculator=wacc_calculator,
+            logger_override=logger 
+        )
+
         # --- Run Base Case Valuation ---
         logger.info("Running base case valuation...")
         base_request_dict = request.model_dump() # Get base assumptions, updated from .dict()
-        base_dcf_details, base_forecast_df, base_run_warnings = run_single_valuation(
-            processed_data_container=processed_data_container,
+        base_dcf_details, base_forecast_df, base_run_warnings = valuation_service.run_single_valuation(
             request_dict=base_request_dict,
-            wacc_calculator=wacc_calculator,
             total_shares_actual=total_shares_actual
             # No overrides for base case
         )
@@ -182,192 +188,25 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         logger.info("Base case valuation successful.")
 
         # --- Sensitivity Analysis (if requested) ---
-        if request.sensitivity_analysis:
-            logger.info("Starting sensitivity analysis...")
-            sa_request = request.sensitivity_analysis
-            row_param = sa_request.row_axis.parameter_name
-            col_param = sa_request.column_axis.parameter_name
-            row_values = sa_request.row_axis.values
-            col_values = sa_request.column_axis.values
-            # output_metric is no longer in the request, we calculate all supported metrics
-            # output_metric = sa_request.output_metric
-
-            if row_param == col_param:
-                raise HTTPException(status_code=422, detail="敏感性分析的行轴和列轴不能使用相同的参数。")
-
-            # Validate supported parameters (extend this list as needed)
-            supported_params = ["wacc", "exit_multiple", "perpetual_growth_rate"]
-            if row_param not in supported_params or col_param not in supported_params:
-                 raise HTTPException(status_code=422, detail=f"敏感性分析仅支持以下参数: {', '.join(supported_params)}")
-
-            sensitivity_warnings = [] # Initialize warnings for sensitivity analysis part
-
-            # --- WACC-specific axis regeneration ---
-            actual_row_values = row_values # Default to request values
-            actual_col_values = col_values # Default to request values
-            
-            # Regenerate axis values if step and points are provided
-            def regenerate_axis_if_needed(axis_input: SensitivityAxisInput, base_details: Optional[DcfForecastDetails], param_name: str, is_row_axis: bool, base_req_dict: Dict[str, Any]) -> List[float]:
-                current_values = axis_input.values
-                should_regenerate = False
-                center_val = None
-
-                # For WACC, always try to regenerate if step/points are given, using base_wacc as center
-                if param_name == MetricType.WACC.value:
-                    if axis_input.step is not None and axis_input.points is not None:
-                        center_val = base_details.wacc_used if base_details else None
-                        if center_val is None: # Fallback to request input for WACC if base_details.wacc_used is None
-                            center_val = base_req_dict.get('wacc') # Assuming 'wacc' might be a direct param or calculated
-                            if center_val is None: # Try to get from wacc_calculator if not directly in request
-                                # This part is tricky as wacc_calculator is outside this direct scope
-                                # For now, rely on base_details.wacc_used or a clear request param
-                                pass 
-                        
-                        if center_val is not None:
-                            should_regenerate = True
-                        else:
-                            logger.warning(f"Cannot regenerate WACC axis for {'row' if is_row_axis else 'column'} due to missing base WACC and no fallback in request. Using original values if provided, else empty.")
-                            sensitivity_warnings.append(f"WACC轴无法重新生成（缺少基础WACC且请求中无回退值），将使用请求中提供的原始值（如果存在）。")
-                
-                # For other params, regenerate only if values list is empty AND step/points are given
-                elif not current_values and axis_input.step is not None and axis_input.points is not None:
-                    if param_name == MetricType.TERMINAL_GROWTH_RATE.value:
-                        center_val = base_details.perpetual_growth_rate_used if base_details else None
-                        if center_val is None: # Fallback to request input
-                            center_val = base_req_dict.get('perpetual_growth_rate')
-                    elif param_name == MetricType.TERMINAL_EBITDA_MULTIPLE.value: # "exit_multiple"
-                        center_val = base_details.exit_multiple_used if base_details else None
-                        if center_val is None: # Fallback to request input
-                            center_val = base_req_dict.get('exit_multiple')
-                        if center_val is None: # Further fallback to a hardcoded default if still None
-                            center_val = 8.0 # Default exit multiple
-                            logger.info(f"Using hardcoded default center value {center_val} for {param_name} axis for {'row' if is_row_axis else 'column'}.")
-                            sensitivity_warnings.append(f"{param_name}轴缺少基准值和请求值，使用默认中心值 {center_val}。")
-                    
-                    if center_val is not None:
-                        try:
-                            # Ensure center_val is float for generate_axis_values_backend
-                            center_val = float(center_val)
-                            should_regenerate = True
-                        except (ValueError, TypeError):
-                            logger.warning(f"Cannot convert center_val '{center_val}' to float for {param_name} axis for {'row' if is_row_axis else 'column'}. Using original (empty) values.")
-                            sensitivity_warnings.append(f"{param_name}轴的中心值 '{center_val}' 无法转换为浮点数，将使用空的原始值列表。")
-                            should_regenerate = False # Prevent regeneration if conversion fails
-                    else:
-                        # This case should ideally not be reached if we have a hardcoded default for exit_multiple
-                        logger.warning(f"Cannot regenerate {param_name} axis for {'row' if is_row_axis else 'column'} due to missing base value and no fallback in request (even after default). Using original (empty) values.")
-                        sensitivity_warnings.append(f"{param_name}轴无法重新生成（所有回退机制均失败），将使用空的原始值列表。")
-                
-                if should_regenerate and center_val is not None: # center_val already converted to float or regeneration is skipped
-                    logger.info(f"Regenerating {'row' if is_row_axis else 'column'} axis for {param_name} around center value: {center_val:.4f}, Step: {axis_input.step}, Points: {axis_input.points}")
-                    return generate_axis_values_backend(
-                        center=float(center_val),
-                        step=float(axis_input.step),
-                        points=int(axis_input.points)
-                    )
-                
-                # If not regenerated, return the original values from the request
-                # If original values were empty and regeneration didn't happen (e.g. missing center_val for non-WACC), it will return empty.
-                return current_values
-
-            actual_row_values = regenerate_axis_if_needed(sa_request.row_axis, base_dcf_details, row_param, True, base_request_dict)
-            actual_col_values = regenerate_axis_if_needed(sa_request.column_axis, base_dcf_details, col_param, False, base_request_dict)
-
-            # Initialize result tables for all supported metrics using actual axis dimensions
-            from api.sensitivity_models import SUPPORTED_SENSITIVITY_OUTPUT_METRICS # Import the Literal type
-            output_metrics_to_calculate = list(SUPPORTED_SENSITIVITY_OUTPUT_METRICS.__args__)
-            result_tables: Dict[str, List[List[Optional[float]]]] = {
-                metric: [[None for _ in actual_col_values] for _ in actual_row_values]
-                for metric in output_metrics_to_calculate
-            }
-            # sensitivity_warnings already initialized
-
-            for i, row_val in enumerate(actual_row_values): # Use actual_row_values
-                for j, col_val in enumerate(actual_col_values): # Use actual_col_values
-                    logger.debug(f"  Running sensitivity case: {row_param}={row_val}, {col_param}={col_val}")
-                    temp_request_dict = base_request_dict.copy()
-                    override_wacc = None
-                    override_exit_multiple = None
-                    override_perpetual_growth_rate = None
-
-                    # Apply overrides based on axis parameters
-                    if row_param == "wacc": override_wacc = float(row_val)
-                    elif row_param == "exit_multiple": override_exit_multiple = float(row_val)
-                    elif row_param == "perpetual_growth_rate": override_perpetual_growth_rate = float(row_val)
-
-                    if col_param == "wacc": override_wacc = float(col_val)
-                    elif col_param == "exit_multiple": override_exit_multiple = float(col_val)
-                    elif col_param == "perpetual_growth_rate": override_perpetual_growth_rate = float(col_val)
-                    
-                    # Need to handle terminal value method logic based on overrides
-                    if override_exit_multiple is not None:
-                        temp_request_dict['terminal_value_method'] = 'exit_multiple'
-                        temp_request_dict['perpetual_growth_rate'] = None # Ensure consistency
-                    elif override_perpetual_growth_rate is not None:
-                        temp_request_dict['terminal_value_method'] = 'perpetual_growth'
-                        temp_request_dict['exit_multiple'] = None # Ensure consistency
-
-                    # Run valuation for this specific combination
-                    dcf_details_sens, forecast_df_sens, run_warnings_sens = run_single_valuation(
-                        processed_data_container=processed_data_container,
-                        request_dict=temp_request_dict, # Pass modified assumptions
-                        wacc_calculator=wacc_calculator,
-                        total_shares_actual=total_shares_actual,
-                        override_wacc=override_wacc,
-                        override_exit_multiple=override_exit_multiple,
-                        override_perpetual_growth_rate=override_perpetual_growth_rate
-                    )
-                    sensitivity_warnings.extend(run_warnings_sens)
-                    
-                    # Calculate and store all supported output metrics for this combination
-                    if dcf_details_sens:
-                        # Value per Share
-                        result_tables["value_per_share"][i][j] = dcf_details_sens.value_per_share
-                        # Enterprise Value
-                        result_tables["enterprise_value"][i][j] = dcf_details_sens.enterprise_value
-                        # Equity Value
-                        result_tables["equity_value"][i][j] = dcf_details_sens.equity_value
-                        # TV/EV Ratio (using PV of Terminal Value)
-                        if dcf_details_sens.enterprise_value and dcf_details_sens.enterprise_value != 0:
-                            result_tables["tv_ev_ratio"][i][j] = (dcf_details_sens.pv_terminal_value or 0) / dcf_details_sens.enterprise_value
-                        else:
-                            result_tables["tv_ev_ratio"][i][j] = None
-                        
-                        # DCF Implied PE
-                        result_tables["dcf_implied_pe"][i][j] = dcf_details_sens.dcf_implied_diluted_pe
-                        logger.debug(f"DEBUG api/main: Populating dcf_implied_pe table at [{i}][{j}] with value: {dcf_details_sens.dcf_implied_diluted_pe} (Type: {type(dcf_details_sens.dcf_implied_diluted_pe)})")
-
-                        # EV/EBITDA (using base year's actual EBITDA)
-                        base_actual_ebitda = base_latest_metrics.get('latest_actual_ebitda')
-                        if base_actual_ebitda is not None and isinstance(base_actual_ebitda, Decimal) and base_actual_ebitda > Decimal('0'):
-                            if dcf_details_sens.enterprise_value is not None:
-                                try:
-                                    result_tables["ev_ebitda"][i][j] = float(Decimal(str(dcf_details_sens.enterprise_value)) / base_actual_ebitda)
-                                except (InvalidOperation, TypeError, ZeroDivisionError) as e_calc:
-                                    logger.warning(f"Error calculating EV/EBITDA for sensitivity: EV={dcf_details_sens.enterprise_value}, BaseEBITDA={base_actual_ebitda}. Error: {e_calc}")
-                                    result_tables["ev_ebitda"][i][j] = None
-                            else:
-                                result_tables["ev_ebitda"][i][j] = None
-                        else:
-                            result_tables["ev_ebitda"][i][j] = None
-                            if base_actual_ebitda is None:
-                                sensitivity_warnings.append("无法获取基准年实际EBITDA，EV/EBITDA敏感性分析结果可能不准确或为空。")
-                            elif not (isinstance(base_actual_ebitda, Decimal) and base_actual_ebitda > Decimal('0')):
-                                 sensitivity_warnings.append(f"基准年实际EBITDA无效 ({base_actual_ebitda})，EV/EBITDA敏感性分析结果可能不准确或为空。")
-                                 
-                    else:
-                        # If dcf_details_sens is None, all metrics for this combo are None (already initialized)
-                        logger.warning(f"  Sensitivity case failed for {row_param}={row_val}, {col_param}={col_val}")
-
-            sensitivity_result_obj = SensitivityAnalysisResult(
-                row_parameter=row_param,
-                column_parameter=col_param,
-                row_values=actual_row_values, # Return the actual values used
-                column_values=actual_col_values, # Return the actual values used
-                result_tables=result_tables # Pass the dictionary of tables
+        if request.sensitivity_analysis and base_dcf_details: # Ensure base_dcf_details is available
+            logger.info("Calling ValuationService for sensitivity analysis...")
+            # Ensure all necessary parameters are passed to the service method
+            sensitivity_result_obj, sensitivity_run_warnings = valuation_service.run_sensitivity_analysis(
+                sa_request_model=request.sensitivity_analysis,
+                base_dcf_details=base_dcf_details, # Pass DcfForecastDetails from base run
+                base_request_dict=base_request_dict, # Pass the original request dict for base assumptions
+                total_shares_actual=total_shares_actual, # Pass total shares
+                base_latest_metrics=base_latest_metrics # Pass latest metrics for EV/EBITDA base
             )
-            all_warnings.extend(sensitivity_warnings) # Add warnings from sensitivity runs
-            logger.info("Sensitivity analysis complete.")
+            all_warnings.extend(sensitivity_run_warnings)
+            if sensitivity_result_obj:
+                logger.info("Sensitivity analysis by service complete.")
+            else:
+                logger.warning("Sensitivity analysis by service returned no result object, or an error occurred.")
+        elif request.sensitivity_analysis and not base_dcf_details: # Base valuation failed
+            logger.warning("Skipping sensitivity analysis because base valuation failed.")
+            all_warnings.append("基础估值失败，跳过敏感性分析。")
+        # If request.sensitivity_analysis is None, this block is skipped, sensitivity_result_obj remains None.
 
         # --- LLM Analysis (Based on Base Case) ---
         logger.info("Step 9: Preparing LLM input and calling API (based on base case)...")
@@ -672,7 +511,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # --- Run Base Case Valuation ---
         logger.info("Running base case valuation...")
         base_request_dict = request.model_dump() # Get base assumptions, updated from .dict()
-        base_dcf_details, base_forecast_df, base_run_warnings = _run_single_valuation(
+        base_dcf_details, base_forecast_df, base_run_warnings = run_single_valuation(
             processed_data_container=processed_data_container,
             request_dict=base_request_dict,
             wacc_calculator=wacc_calculator,
@@ -711,71 +550,25 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
             actual_col_values = col_values # Default to request values
             
             # Regenerate axis values if step and points are provided
-            def regenerate_axis_if_needed(axis_input: SensitivityAxisInput, base_details: Optional[DcfForecastDetails], param_name: str, is_row_axis: bool, base_req_dict: Dict[str, Any]) -> List[float]:
-                current_values = axis_input.values
-                should_regenerate = False
-                center_val = None
-
-                # For WACC, always try to regenerate if step/points are given, using base_wacc as center
-                if param_name == MetricType.WACC.value:
-                    if axis_input.step is not None and axis_input.points is not None:
-                        center_val = base_details.wacc_used if base_details else None
-                        if center_val is None: # Fallback to request input for WACC if base_details.wacc_used is None
-                            center_val = base_req_dict.get('wacc') # Assuming 'wacc' might be a direct param or calculated
-                            if center_val is None: # Try to get from wacc_calculator if not directly in request
-                                # This part is tricky as wacc_calculator is outside this direct scope
-                                # For now, rely on base_details.wacc_used or a clear request param
-                                pass 
-                        
-                        if center_val is not None:
-                            should_regenerate = True
-                        else:
-                            logger.warning(f"Cannot regenerate WACC axis for {'row' if is_row_axis else 'column'} due to missing base WACC and no fallback in request. Using original values if provided, else empty.")
-                            sensitivity_warnings.append(f"WACC轴无法重新生成（缺少基础WACC且请求中无回退值），将使用请求中提供的原始值（如果存在）。")
-                
-                # For other params, regenerate only if values list is empty AND step/points are given
-                elif not current_values and axis_input.step is not None and axis_input.points is not None:
-                    if param_name == MetricType.TERMINAL_GROWTH_RATE.value:
-                        center_val = base_details.perpetual_growth_rate_used if base_details else None
-                        if center_val is None: # Fallback to request input
-                            center_val = base_req_dict.get('perpetual_growth_rate')
-                    elif param_name == MetricType.TERMINAL_EBITDA_MULTIPLE.value: # "exit_multiple"
-                        center_val = base_details.exit_multiple_used if base_details else None
-                        if center_val is None: # Fallback to request input
-                            center_val = base_req_dict.get('exit_multiple')
-                        if center_val is None: # Further fallback to a hardcoded default if still None
-                            center_val = 8.0 # Default exit multiple
-                            logger.info(f"Using hardcoded default center value {center_val} for {param_name} axis for {'row' if is_row_axis else 'column'}.")
-                            sensitivity_warnings.append(f"{param_name}轴缺少基准值和请求值，使用默认中心值 {center_val}。")
-                    
-                    if center_val is not None:
-                        try:
-                            # Ensure center_val is float for generate_axis_values_backend
-                            center_val = float(center_val)
-                            should_regenerate = True
-                        except (ValueError, TypeError):
-                            logger.warning(f"Cannot convert center_val '{center_val}' to float for {param_name} axis for {'row' if is_row_axis else 'column'}. Using original (empty) values.")
-                            sensitivity_warnings.append(f"{param_name}轴的中心值 '{center_val}' 无法转换为浮点数，将使用空的原始值列表。")
-                            should_regenerate = False # Prevent regeneration if conversion fails
-                    else:
-                        # This case should ideally not be reached if we have a hardcoded default for exit_multiple
-                        logger.warning(f"Cannot regenerate {param_name} axis for {'row' if is_row_axis else 'column'} due to missing base value and no fallback in request (even after default). Using original (empty) values.")
-                        sensitivity_warnings.append(f"{param_name}轴无法重新生成（所有回退机制均失败），将使用空的原始值列表。")
-                
-                if should_regenerate and center_val is not None: # center_val already converted to float or regeneration is skipped
-                    logger.info(f"Regenerating {'row' if is_row_axis else 'column'} axis for {param_name} around center value: {center_val:.4f}, Step: {axis_input.step}, Points: {axis_input.points}")
-                    return generate_axis_values_backend(
-                        center=float(center_val),
-                        step=float(axis_input.step),
-                        points=int(axis_input.points)
-                    )
-                
-                # If not regenerated, return the original values from the request
-                # If original values were empty and regeneration didn't happen (e.g. missing center_val for non-WACC), it will return empty.
-                return current_values
-
-            actual_row_values = regenerate_axis_if_needed(sa_request.row_axis, base_dcf_details, row_param, True, base_request_dict)
-            actual_col_values = regenerate_axis_if_needed(sa_request.column_axis, base_dcf_details, col_param, False, base_request_dict)
+            # The function 'regenerate_axis_if_needed' has been moved to api.utils
+            actual_row_values = regenerate_axis_if_needed(
+                axis_input=sa_request.row_axis, 
+                base_details=base_dcf_details, 
+                param_name=row_param, 
+                is_row_axis=True, 
+                base_req_dict=base_request_dict,
+                logger_obj=logger, # Pass logger instance
+                sensitivity_warnings_list=sensitivity_warnings # Pass warnings list
+            )
+            actual_col_values = regenerate_axis_if_needed(
+                axis_input=sa_request.column_axis, 
+                base_details=base_dcf_details, 
+                param_name=col_param, 
+                is_row_axis=False, 
+                base_req_dict=base_request_dict,
+                logger_obj=logger, # Pass logger instance
+                sensitivity_warnings_list=sensitivity_warnings # Pass warnings list
+            )
 
             # Initialize result tables for all supported metrics using actual axis dimensions
             from api.sensitivity_models import SUPPORTED_SENSITIVITY_OUTPUT_METRICS # Import the Literal type
@@ -812,7 +605,7 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
                         temp_request_dict['exit_multiple'] = None # Ensure consistency
 
                     # Run valuation for this specific combination
-                    dcf_details_sens, forecast_df_sens, run_warnings_sens = _run_single_valuation(
+                    dcf_details_sens, forecast_df_sens, run_warnings_sens = run_single_valuation(
                         processed_data_container=processed_data_container,
                         request_dict=temp_request_dict, # Pass modified assumptions
                         wacc_calculator=wacc_calculator,

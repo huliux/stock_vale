@@ -642,10 +642,10 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
 # --- 函数：渲染侧边栏输入 ---
 def render_sidebar_inputs():
     with st.sidebar:
-        st.header("估值参数输入")
+        st.header("参数输入")
         ts_code_val = st.text_input("股票代码 (例如 600519.SH):", "600519.SH", key="ts_code_input")
         valuation_date_val = st.date_input("估值基准日期:", value=pd.to_datetime("today"), key="valuation_date_input")
-        st.subheader("DCF 核心假设")
+        st.subheader("核心假设")
         forecast_years_val = st.slider("预测期年数:", min_value=3, max_value=15, value=5, key="forecast_years_slider")
         with st.expander("收入预测假设", expanded=True):
             cagr_decay_rate_val = st.number_input("历史 CAGR 年衰减率 (0-1):", min_value=0.0, max_value=1.0, value=0.1, step=0.01, format="%.2f", help="用于基于历史CAGR预测未来收入时的年衰减比例。0表示不衰减，1表示第一年后增长为0。", key="cagr_decay")
@@ -688,7 +688,7 @@ def render_sidebar_inputs():
             exit_multiple_val = st.number_input("退出乘数 (EBITDA):", min_value=0.1, value=7.0, step=0.5, format="%.1f", key="tv_exit_multiple", disabled=(terminal_value_method_val != 'exit_multiple'), on_change=update_sensitivity_ui_elements) if terminal_value_method_val == 'exit_multiple' else None
             perpetual_growth_rate_val = st.number_input("永续增长率:", min_value=0.0, max_value=0.05, value=0.025, step=0.001, format="%.3f", key="tv_pg_rate", disabled=(terminal_value_method_val != 'perpetual_growth'), on_change=update_sensitivity_ui_elements) if terminal_value_method_val == 'perpetual_growth' else None
         st.divider()
-        st.subheader("🔬 敏感性分析 (可选)")
+        st.subheader("敏感性分析")
         enable_sensitivity_val = st.checkbox("启用敏感性分析", value=True, key="enable_sensitivity_cb")
         if enable_sensitivity_val:
             st.markdown("**行轴设置**")
@@ -721,7 +721,7 @@ def render_sidebar_inputs():
                      update_sensitivity_ui_elements()
                      st.session_state.sens_ui_initialized_run = True
         st.divider()
-        st.subheader("⚙️ 其他选项")
+        st.subheader("其他选项")
         llm_toggle_value_val = st.checkbox("启用 LLM 分析总结", value=False, key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。") # Default to False
         st.divider()
         st.caption("未来功能：情景分析")

@@ -57,6 +57,27 @@ class WaccCalculator:
             tuple: (wacc, cost_of_equity) 或 (None, None) 如果计算失败。
         """
         try:
+            # 先计算股权成本 (Ke)，因为它不依赖于权重模式
+            rf_rate_raw = params.get('risk_free_rate', self.default_risk_free_rate)
+            rf_rate = Decimal(str(rf_rate_raw)) if rf_rate_raw is not None else self.default_risk_free_rate
+
+            beta_raw = params.get('beta', self.default_beta)
+            beta = Decimal(str(beta_raw)) if beta_raw is not None else self.default_beta
+
+            mrp_raw = params.get('market_risk_premium', self.default_market_risk_premium)
+            mrp = Decimal(str(mrp_raw)) if mrp_raw is not None else self.default_market_risk_premium
+
+            size_premium_raw = params.get('size_premium', self.default_size_premium)
+            size_premium = Decimal(str(size_premium_raw)) if size_premium_raw is not None else self.default_size_premium
+            
+            cost_of_equity = rf_rate + beta * mrp + size_premium
+            if cost_of_equity.is_nan() or cost_of_equity.is_infinite() or cost_of_equity <= Decimal('0'):
+                 print(f"警告: 计算出的权益成本(Ke)无效或非正 ({cost_of_equity:.4f})，无法计算 WACC。参数: Rf={rf_rate}, Beta={beta}, MRP={mrp}, SP={size_premium}")
+                 return None, None # Ke 无效，WACC 也无法计算
+            
+            cost_of_equity_float = float(cost_of_equity)
+
+            # 初始化 debt_ratio 和 equity_ratio
             debt_ratio: Optional[Decimal] = None
             equity_ratio: Optional[Decimal] = None
 
@@ -69,72 +90,58 @@ class WaccCalculator:
                         equity_ratio = equity_mv / total_mv
                         print(f"信息: 使用市场价值权重计算 WACC。债务市值: {debt_mv}, 股权市值: {equity_mv}, 债务比例: {debt_ratio:.4f}")
                     else:
-                        print("警告: 市场价值计算的总资本为零或负，无法使用市场价值权重。将回退到目标债务比例。")
+                        print("警告: 市场价值计算的总资本为零或负，无法使用市场价值权重。")
+                        # 对于市场模式，如果权重计算失败，则 WACC 计算也失败
+                        return None, cost_of_equity_float 
                 else:
-                    print("警告: 无法获取市场价值组件，无法使用市场价值权重。将回退到目标债务比例。")
+                    print("警告: 无法获取市场价值组件，无法使用市场价值权重。")
+                     # 对于市场模式，如果权重计算失败，则 WACC 计算也失败
+                    return None, cost_of_equity_float
 
-            if debt_ratio is None or equity_ratio is None: # 如果市场模式失败或模式为target
-                if wacc_weight_mode == "market": # 明确提示回退
-                    print("信息: WACC权重计算已回退到使用目标债务比例。")
-                
-                debt_ratio_raw = params.get('target_debt_ratio', self.default_target_debt_ratio)
-                debt_ratio = Decimal(str(debt_ratio_raw)) if debt_ratio_raw is not None else self.default_target_debt_ratio
-                # 参数验证 (使用 Decimal 比较) - 确保 debt_ratio 在此被正确验证
-                if not (Decimal('0') <= debt_ratio <= Decimal('1')):
-                    print(f"警告: 无效的目标债务比率 ({debt_ratio})，将使用默认值 {self.default_target_debt_ratio}")
-                    debt_ratio = self.default_target_debt_ratio
-                equity_ratio = Decimal('1.0') - debt_ratio
+            # 如果不是市场模式，或者市场模式成功获取了 debt_ratio 和 equity_ratio
+            if debt_ratio is None or equity_ratio is None: # 这意味着是目标模式，或者市场模式意外未设置（理论上不应发生）
+                if wacc_weight_mode == "target": # 明确是目标模式
+                    debt_ratio_raw = params.get('target_debt_ratio', self.default_target_debt_ratio)
+                    debt_ratio = Decimal(str(debt_ratio_raw)) if debt_ratio_raw is not None else self.default_target_debt_ratio
+                    if not (Decimal('0') <= debt_ratio <= Decimal('1')):
+                        print(f"警告: 无效的目标债务比率 ({debt_ratio})，将使用默认值 {self.default_target_debt_ratio}")
+                        debt_ratio = self.default_target_debt_ratio
+                    equity_ratio = Decimal('1.0') - debt_ratio
+                elif wacc_weight_mode == "market": 
+                    # 此处不应到达，因为市场模式失败时已提前返回
+                    print("错误: 市场模式权重计算逻辑异常。")
+                    return None, cost_of_equity_float
+
 
             # 确保 debt_ratio 和 equity_ratio 此时已定义且有效
-            if debt_ratio is None or equity_ratio is None: # 理论上不应发生，除非default_target_debt_ratio也出问题
+            if debt_ratio is None or equity_ratio is None:
                 print("错误: 无法确定债务和股权比例。")
-                return None, None
+                return None, cost_of_equity_float # Ke 可能有效
 
+            # 获取其他参数
             cost_of_debt_raw = params.get('cost_of_debt', self.default_cost_of_debt_pretax)
             cost_of_debt = Decimal(str(cost_of_debt_raw)) if cost_of_debt_raw is not None else self.default_cost_of_debt_pretax
 
             tax_rate_raw = params.get('tax_rate', self.default_tax_rate)
             tax_rate = Decimal(str(tax_rate_raw)) if tax_rate_raw is not None else self.default_tax_rate
-
-            rf_rate_raw = params.get('risk_free_rate', self.default_risk_free_rate)
-            rf_rate = Decimal(str(rf_rate_raw)) if rf_rate_raw is not None else self.default_risk_free_rate
-
-            beta_raw = params.get('beta', self.default_beta)
-            beta = Decimal(str(beta_raw)) if beta_raw is not None else self.default_beta
-
-            mrp_raw = params.get('market_risk_premium', self.default_market_risk_premium)
-            mrp = Decimal(str(mrp_raw)) if mrp_raw is not None else self.default_market_risk_premium
-
-            size_premium_raw = params.get('size_premium', self.default_size_premium)
-            size_premium = Decimal(str(size_premium_raw)) if size_premium_raw is not None else self.default_size_premium
-
-            if not (Decimal('0') <= tax_rate <= Decimal('1')): # tax_rate 的获取和验证保持不变
+            if not (Decimal('0') <= tax_rate <= Decimal('1')):
                  print(f"警告: 无效的税率 ({tax_rate})，将使用默认值 {self.default_tax_rate}")
                  tax_rate = self.default_tax_rate
-
-            # 计算股权成本 (Ke)
-            cost_of_equity = rf_rate + beta * mrp + size_premium
-            if cost_of_equity.is_nan() or cost_of_equity.is_infinite() or cost_of_equity <= Decimal('0'):
-                 print(f"警告: 计算出的权益成本(Ke)无效或非正 ({cost_of_equity:.4f})，无法计算 WACC。参数: Rf={rf_rate}, Beta={beta}, MRP={mrp}, SP={size_premium}")
-                 return None, None # Ke 无效，WACC 也无法计算
 
             # 计算税后债务成本
             cost_of_debt_after_tax = cost_of_debt * (Decimal('1') - tax_rate)
             if cost_of_debt_after_tax.is_nan() or cost_of_debt_after_tax.is_infinite():
                  print(f"警告: 计算出的税后债务成本无效 ({cost_of_debt_after_tax:.4f})，无法计算 WACC。参数: Kd={cost_of_debt}, Tax={tax_rate}")
-                 # 即使 Kd(AT) 无效，Ke 可能仍然有效，返回 Ke as float
-                 return None, float(cost_of_equity) 
+                 return None, cost_of_equity_float
 
             # 计算 WACC
             wacc = (equity_ratio * cost_of_equity) + (debt_ratio * cost_of_debt_after_tax)
 
             if wacc.is_nan() or wacc.is_infinite() or not (Decimal('0') < wacc < Decimal('1')):
                  print(f"警告: 计算出的 WACC ({wacc:.4f}) 无效或超出合理范围 (0-100%)。Ke={cost_of_equity:.4f}, Kd(AT)={cost_of_debt_after_tax:.4f}, DebtRatio={debt_ratio:.2f}")
-                 # WACC 无效，但 Ke 可能有效
-                 return None, cost_of_equity
+                 return None, cost_of_equity_float # WACC 无效，但 Ke 可能有效
 
-            # 返回 Decimal 类型
-            return float(wacc), float(cost_of_equity)
+            return float(wacc), cost_of_equity_float
 
         except Exception as e:
             print(f"计算 WACC 和 Ke 时出错: {e}")

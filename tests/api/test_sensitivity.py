@@ -89,7 +89,7 @@ def get_default_stock_valuation_request(stock_code: str = "000001.SZ") -> StockV
 # --- API 集成测试 ---
 
 @patch('api.main.call_llm_api') 
-@patch('api.main._run_single_valuation') 
+@patch('services.valuation_service.ValuationService.run_single_valuation') # Patched to service
 def test_sensitivity_api_wacc_axis_regeneration(mock_run_single_valuation, mock_call_llm_api): 
     mock_base_wacc = Decimal("0.085") 
     
@@ -163,9 +163,9 @@ def test_sensitivity_api_wacc_axis_regeneration(mock_run_single_valuation, mock_
 @patch('api.main.PresentValueCalculator') 
 @patch('api.main.EquityBridgeCalculator')
 @patch('api.main.call_llm_api')
-@patch('api.main._run_single_valuation', autospec=True) # Innermost patch, removed new_callable
+@patch('services.valuation_service.ValuationService.run_single_valuation', autospec=True) # Patched to service
 def test_sensitivity_api_ev_ebitda_calculation(
-    mock_run_single_valuation, # Added mock for _run_single_valuation
+    mock_run_single_valuation, 
     mock_call_llm_api,
     MockEquityBridgeCalculator,
     MockPresentValueCalculator,
@@ -177,6 +177,7 @@ def test_sensitivity_api_ev_ebitda_calculation(
 ):
     mocked_latest_actual_ebitda = Decimal("1000.0")
     MockDataProcessor.return_value.get_latest_actual_ebitda.return_value = mocked_latest_actual_ebitda
+    MockDataProcessor.return_value.get_base_financial_statement_date.return_value = "2023-12-31"
     MockAshareDataFetcher.return_value.get_latest_price.return_value = Decimal("12.0")
     MockAshareDataFetcher.return_value.get_latest_total_shares.return_value = Decimal("10000.0")
     mock_df = pd.DataFrame({'some_col': [1, 2]})
@@ -333,9 +334,9 @@ def test_sensitivity_api_ev_ebitda_calculation(
 @patch('api.main.PresentValueCalculator')
 @patch('api.main.EquityBridgeCalculator')
 @patch('api.main.call_llm_api')
-@patch('api.main._run_single_valuation', autospec=True) # Innermost patch, removed new_callable
+@patch('services.valuation_service.ValuationService.run_single_valuation', autospec=True) # Patched to service
 def test_sensitivity_api_dcf_implied_pe_calculation(
-    mock_run_single_valuation, # Added
+    mock_run_single_valuation, 
     mock_call_llm_api,
     MockEquityBridgeCalculator,
     MockPresentValueCalculator,
@@ -347,6 +348,7 @@ def test_sensitivity_api_dcf_implied_pe_calculation(
 ):
     mocked_latest_diluted_eps = Decimal("2.50")
     MockDataProcessor.return_value.get_latest_diluted_eps.return_value = mocked_latest_diluted_eps
+    MockDataProcessor.return_value.get_base_financial_statement_date.return_value = "2023-12-31"
     MockAshareDataFetcher.return_value.get_latest_price.return_value = Decimal("60.0")
     MockAshareDataFetcher.return_value.get_latest_total_shares.return_value = Decimal("10000.0")
     mock_df = pd.DataFrame({'some_col': [1, 2]})
@@ -507,9 +509,9 @@ def test_sensitivity_api_dcf_implied_pe_calculation(
 @patch('api.main.PresentValueCalculator')
 @patch('api.main.EquityBridgeCalculator')
 @patch('api.main.call_llm_api')
-@patch('api.main._run_single_valuation', autospec=True) # Innermost patch, removed new_callable
+@patch('services.valuation_service.ValuationService.run_single_valuation', autospec=True) # Patched to service
 def test_sensitivity_api_overall_flow(
-    mock_run_single_valuation, # Added
+    mock_run_single_valuation, 
     mock_call_llm_api,
     MockEquityBridgeCalculator,
     MockPresentValueCalculator,
@@ -521,6 +523,7 @@ def test_sensitivity_api_overall_flow(
 ):
     MockAshareDataFetcher.return_value.get_latest_price.return_value = Decimal("20.0")
     MockAshareDataFetcher.return_value.get_latest_total_shares.return_value = Decimal("12000.0") 
+    MockDataProcessor.return_value.get_base_financial_statement_date.return_value = "2023-12-31"
     mock_df = pd.DataFrame({'some_col': [1, 2]})
     mock_revenue_df_overall = pd.DataFrame({'revenue': [Decimal("300000.0"), Decimal("320000.0")]})
     MockAshareDataFetcher.return_value.get_raw_financial_data.return_value = {

@@ -212,14 +212,14 @@ def test_calculate_wacc_based_on_market_values_success(sample_financials_dict):
     # WACC = 0.8474576 * 0.08 + 0.1525424 * 0.0375
     # WACC = 0.0677966 + 0.00572034 = 0.07351694
 
-    wacc = calculator.calculate_wacc_based_on_market_values()
+    wacc, _ = calculator.get_wacc_and_ke(wacc_weight_mode="market")
     # Compare as float
     assert wacc == pytest.approx(0.073517, abs=0.000001)
 
 def test_calculate_wacc_market_no_bs_data(capsys):
     with patch.dict(os.environ, {}, clear=True):
         calculator = WaccCalculator(financials_dict={}, market_cap=Decimal('1000'))
-    wacc = calculator.calculate_wacc_based_on_market_values()
+    wacc, _ = calculator.get_wacc_and_ke(wacc_weight_mode="market")
     captured = capsys.readouterr()
     assert "财务数据(资产负债表)为空" in captured.out
     assert wacc is None
@@ -227,7 +227,7 @@ def test_calculate_wacc_market_no_bs_data(capsys):
 def test_calculate_wacc_market_zero_market_cap(sample_financials_dict, capsys):
     with patch.dict(os.environ, {}, clear=True):
         calculator = WaccCalculator(financials_dict=sample_financials_dict, market_cap=Decimal('0'))
-    wacc = calculator.calculate_wacc_based_on_market_values()
+    wacc, _ = calculator.get_wacc_and_ke(wacc_weight_mode="market")
     captured = capsys.readouterr()
     assert "市值非正" in captured.out
     assert wacc is None
@@ -252,9 +252,9 @@ def test_calculate_wacc_market_zero_debt_uses_total_liab(sample_financials_dict,
     # Debt Weight = 200/1200 = 0.166667
     # WACC = 0.833333 * 0.08 + 0.166667 * 0.0375
     # WACC = 0.06666664 + 0.00625001 = 0.07291665
-    wacc = calculator.calculate_wacc_based_on_market_values()
+    wacc, _ = calculator.get_wacc_and_ke(wacc_weight_mode="market")
     captured = capsys.readouterr()
-    assert "未找到明确的有息负债数据，使用总负债近似债务市值计算 WACC" in captured.out
+    assert "未找到明确的有息负债数据，使用总负债近似债务市值" in captured.out # 调整断言以匹配实际输出
     # Compare as float
     assert wacc == pytest.approx(0.072917, abs=0.000001)
 
@@ -270,7 +270,7 @@ def test_calculate_wacc_market_zero_total_capital(sample_financials_dict, capsys
     with patch.dict(os.environ, {}, clear=True):
         # Market cap also zero to make total capital zero
         calculator = WaccCalculator(financials_dict={'balance_sheet': modified_bs}, market_cap=Decimal('0'))
-    wacc = calculator.calculate_wacc_based_on_market_values()
+    wacc, _ = calculator.get_wacc_and_ke(wacc_weight_mode="market")
     captured = capsys.readouterr()
     # "市值非正" is checked first
     assert "市值非正" in captured.out # This check comes before total capital check if market_cap is 0
@@ -285,8 +285,8 @@ def test_calculate_wacc_market_zero_total_capital(sample_financials_dict, capsys
     with patch.dict(os.environ, {}, clear=True):
         calculator_no_debt = WaccCalculator(financials_dict={'balance_sheet': modified_bs_no_debt}, market_cap=Decimal('1000'))
     # Ke = 0.08. Debt = 0. WACC = Ke = 0.08
-    wacc_no_debt = calculator_no_debt.calculate_wacc_based_on_market_values()
+    wacc_no_debt, _ = calculator_no_debt.get_wacc_and_ke(wacc_weight_mode="market")
     captured_no_debt = capsys.readouterr()
-    assert "无法获取有效债务数据（有息或总负债），假设债务为零计算基于市值的 WACC" in captured_no_debt.out
+    assert "无法获取有效债务数据（有息或总负债），市场价值债务将视为零。" in captured_no_debt.out # 调整断言以匹配实际输出
     # Compare as float
     assert wacc_no_debt == pytest.approx(0.08)
