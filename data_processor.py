@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Union, List, Optional, Any
+import traceback # 导入 traceback 模块
 
 pd.set_option('future.no_silent_downcasting', True) # Opt-in to future behavior
 from decimal import Decimal, InvalidOperation # Import Decimal and InvalidOperation
