@@ -68,7 +68,9 @@ def test_calculate_delta_nwc_success(calculator):
     # Yr2: 535 - 470 = 65
     # Yr3: 600 - 535 = 65
     expected_delta = pd.Series([Decimal('NaN'), Decimal('65'), Decimal('65')])
-    pd.testing.assert_series_equal(delta_nwc, expected_delta, check_index=False, check_dtype=False)
+    # Convert expected_delta to float to ensure NaN is np.nan for comparison
+    # delta_nwc from .diff() is already float with np.nan
+    pd.testing.assert_series_equal(delta_nwc, expected_delta.astype(float), check_index=False, check_dtype=False)
 
 def test_calculate_delta_nwc_with_nan(calculator):
     nwc = pd.Series([Decimal('470'), Decimal('NaN'), Decimal('600')])

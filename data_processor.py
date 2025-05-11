@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Union, List, Optional, Any
+
+pd.set_option('future.no_silent_downcasting', True) # Opt-in to future behavior
 from decimal import Decimal, InvalidOperation # Import Decimal and InvalidOperation
 
 # 假设 NwcCalculator 类在 nwc_calculator.py 中定义
@@ -372,7 +374,7 @@ class DataProcessor:
         
         sga_rd_exp = (is_df.get('sell_exp', pd.Series(0.0, index=is_df.index)) + 
                       is_df.get('admin_exp', pd.Series(0.0, index=is_df.index)) + 
-                      is_df.get('rd_exp', pd.Series(0.0, index=is_df.index))).fillna(0)
+                      is_df.get('rd_exp', pd.Series(0.0, index=is_df.index))).fillna(0).infer_objects(copy=False)
         if isinstance(sga_rd_exp, (int, float)) and sga_rd_exp == 0 and not any(c in is_df for c in ['sell_exp', 'admin_exp', 'rd_exp']):
              self.historical_ratios['sga_rd_to_revenue_ratio'] = 0.0
         else:
@@ -405,7 +407,7 @@ class DataProcessor:
              cf_da_sum = cf_df[existing_da_cols].sum(axis=1, skipna=True)
              # 使用 update 或者 reindex + fillna 来合并，确保索引对齐
              total_da_series.update(cf_da_sum) 
-             total_da_series = total_da_series.fillna(Decimal('0.0')) # 确保更新后没有NaN, 填充Decimal
+             total_da_series = total_da_series.fillna(Decimal('0.0')).infer_objects(copy=False) # 确保更新后没有NaN, 填充Decimal
         else:
              # 如果现金流量表中没有D&A列，total_da_series将保持为全Decimal('0.0') (基于is_df的索引)
              warning_msg = "现金流量表中缺少计算总折旧摊销所需的关键字段（如 depr_fa_coga_dpba, amort_intang_assets）。";
