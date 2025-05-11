@@ -2,11 +2,19 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y supervisor \
+RUN apt-get update && \
+    apt-get install -y supervisor \
+    # Add dependencies for matplotlib and other common build tools
+    # build-essential \
+    # pkg-config \
+    # libpng-dev \
+    # libfreetype6-dev \
+    # libxft-dev \
+    # Clean up
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 COPY . .
 
