@@ -147,3 +147,4 @@ reports/
 *.log
 
 *.bak
+.DS_Store

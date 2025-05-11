@@ -15,7 +15,12 @@
 ## 设计模式应用
 - **数据获取:** **策略模式 (Strategy Pattern)** (保持) 用于支持多市场数据源。
 - **估值计算:** **模块化设计** (新) 将 DCF 计算流程拆分为多个职责单一的类/模块 (NWC, FCF, WACC, TV, PV, Equity Bridge)。
-- **LLM 调用:** **适配器模式 (Adapter Pattern)** (新) 可能用于封装不同 LLM 服务商的 API 调用，提供统一接口。
+- **LLM 调用:** 
+    - **统一接口与适配:** `api/llm_utils.py` 中的 `call_llm_api` 函数作为统一接口，根据传入的 `provider` 参数适配调用不同的 LLM 服务。
+    - **支持的提供商:**
+        - **DeepSeek:** 通过 `requests`库直接调用其 API。
+        - **自定义 OpenAI 兼容模型:** 通过 `openai` Python SDK 调用，允许用户指定 API Base URL 和模型 ID。
+    - **配置驱动:** API 密钥、默认模型 ID、默认 API Base URL（用于自定义模型）、以及 Temperature/Top-P/Max Tokens 等默认参数均从 `.env` 文件加载。前端 UI 提供选项以覆盖这些默认参数。
 - **报告生成:** (已移除) 不再需要旧的报告生成模式。
 
 ## 数据处理

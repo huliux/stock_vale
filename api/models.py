@@ -67,6 +67,14 @@ class StockValuationRequest(BaseModel):
     # --- LLM Control ---
     request_llm_summary: Optional[bool] = Field(True, description="是否请求 LLM 分析总结")
 
+    # --- LLM 调用参数 ---
+    llm_provider: Optional[str] = Field(None, description="LLM 提供商 (例如 'deepseek', 'custom_openai')")
+    llm_model_id: Optional[str] = Field(None, description="LLM 模型 ID")
+    llm_api_base_url: Optional[str] = Field(None, description="自定义 LLM API Base URL (仅当 llm_provider='custom_openai' 时使用)")
+    llm_temperature: Optional[float] = Field(None, ge=0.0, le=2.0, description="LLM 温度参数")
+    llm_top_p: Optional[float] = Field(None, ge=0.0, le=1.0, description="LLM Top-P 参数")
+    llm_max_tokens: Optional[int] = Field(None, ge=1, description="LLM 生成内容的最大 token 数")
+
 
 # --- Response Models ---
 

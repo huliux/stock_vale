@@ -22,7 +22,7 @@
     - **股权价值计算 (`EquityBridgeCalculator`):** 从企业价值桥接到股权价值和每股价值。
 - **LLM 分析:**
     - 整合估值结果和关键财务数据，构建 Prompt。
-    - 调用外部大语言模型 API (通过 `.env` 配置，支持 DeepSeek, OpenAI, Anthropic, Gemini 等)。
+    - 调用外部大语言模型 API (通过 `.env` 配置，支持 DeepSeek 和自定义 OpenAI 兼容模型)。
     - 返回 LLM 生成的估值分析摘要和投资建议。
 - **API 交互:**
     - 通过 POST 请求提交股票代码、市场和估值假设。
@@ -41,7 +41,7 @@
 
 ## 技术栈
 
-- **后端:** Python, FastAPI, Uvicorn, Pydantic, SQLAlchemy, psycopg2-binary, Pandas, NumPy, python-dotenv, requests, google-generativeai, openai, anthropic
+- **后端:** Python, FastAPI, Uvicorn, Pydantic, SQLAlchemy, psycopg2-binary, Pandas, NumPy, python-dotenv, requests, openai
 - **前端:** Streamlit
 - **数据库:** PostgreSQL (需要自行准备和配置)
 - **测试:** pytest
@@ -62,7 +62,7 @@
 - **配置环境变量:**
   - 复制 `.env.example` 为 `.env`。
   - 在 `.env` 文件中填入正确的数据库连接信息 (`DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`)。
-  - 配置所需的大语言模型 API Key (例如 `DEEPSEEK_API_KEY`) 和基础 URL (如果需要)。
+  - 配置所需的大语言模型 API Key (例如 `DEEPSEEK_API_KEY`, `CUSTOM_LLM_API_KEY`)、模型名称 (`DEEPSEEK_MODEL_NAME`, `CUSTOM_LLM_MODEL_ID`) 和自定义模型的 API Base URL (`CUSTOM_LLM_API_BASE_URL`)。同时可以配置 LLM 调用参数的默认值 (`LLM_DEFAULT_TEMPERATURE`, `LLM_DEFAULT_TOP_P`, `LLM_DEFAULT_MAX_TOKENS`)。
   - （可选）配置 WACC 计算所需的默认市场参数。
 - **运行 Streamlit 应用 (包含后端调用):**
   ```bash

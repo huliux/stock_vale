@@ -3,6 +3,10 @@ import json
 import logging
 import traceback
 from typing import Dict, Any, Optional
+from dotenv import load_dotenv
+
+# Load .env file at the beginning of this module to ensure env vars are available for module-level constants
+load_dotenv()
 
 # 假设 DcfForecastDetails 模型定义在 api.models
 # 如果不是，需要调整导入路径
@@ -30,14 +34,20 @@ import requests # For DeepSeek or other HTTP APIs
 logger = logging.getLogger(__name__)
 
 # --- LLM Configuration ---
-# LLM_PROVIDER will now be passed as an argument to call_llm_api
 PROMPT_TEMPLATE_PATH = os.getenv("PROMPT_TEMPLATE_PATH", "config/llm_prompt_template.md")
 LLM_API_KEYS = { # API Keys are still loaded from environment
-    "gemini": os.getenv("GEMINI_API_KEY"),
-    "openai": os.getenv("OPENAI_API_KEY"),
-    "anthropic": os.getenv("ANTHROPIC_API_KEY"),
     "deepseek": os.getenv("DEEPSEEK_API_KEY"),
+    "custom_openai": os.getenv("CUSTOM_LLM_API_KEY"), # For custom OpenAI-compatible models
 }
+
+# Default LLM parameters from environment variables
+LLM_DEFAULT_TEMPERATURE = float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7"))
+LLM_DEFAULT_TOP_P = float(os.getenv("LLM_DEFAULT_TOP_P", "0.9"))
+LLM_DEFAULT_MAX_TOKENS = int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000"))
+DEEPSEEK_DEFAULT_MODEL_NAME = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
+CUSTOM_LLM_DEFAULT_API_BASE_URL = os.getenv("CUSTOM_LLM_API_BASE_URL")
+CUSTOM_LLM_DEFAULT_MODEL_ID = os.getenv("CUSTOM_LLM_MODEL_ID")
+
 
 def load_prompt_template() -> str:
     """从文件加载 Prompt 模板"""
@@ -131,12 +141,25 @@ def format_llm_input_data(
         logger.error(f"Error formatting data for LLM prompt: {e}")
         return "{}"
 
-def call_llm_api(prompt: str, provider: str) -> Optional[str]:
+def call_llm_api(
+    prompt: str, 
+    provider: str, 
+    model_id: Optional[str] = None, 
+    api_base_url: Optional[str] = None, 
+    temperature: Optional[float] = None, 
+    top_p: Optional[float] = None, 
+    max_tokens: Optional[int] = None
+) -> Optional[str]:
     """
     调用指定的 LLM API。
     Args:
         prompt (str): 发送给 LLM 的提示。
-        provider (str): 要使用的 LLM 提供商 (例如 "gemini", "deepseek")。
+        provider (str): 要使用的 LLM 提供商 (例如 "deepseek", "custom_openai")。
+        model_id (Optional[str]): 要使用的模型ID。
+        api_base_url (Optional[str]): 自定义模型的API基础URL。
+        temperature (Optional[float]): 生成文本的温度。
+        top_p (Optional[float]): Top-P采样。
+        max_tokens (Optional[int]): 生成文本的最大token数。
     Returns:
         Optional[str]: LLM 的响应或错误信息。
     """
@@ -144,137 +167,97 @@ def call_llm_api(prompt: str, provider: str) -> Optional[str]:
     logger.info(f"--- Calling LLM ({selected_provider}) ---")
 
     api_key = LLM_API_KEYS.get(selected_provider)
-    if not api_key or api_key == "AIzaSy...pEU": # Placeholder check
-        logger.error(f"API Key for {selected_provider} not found or not configured correctly in .env file.")
-        return f"错误：未找到或未正确配置 {selected_provider} 的 API Key。"
+    if not api_key:
+        # For custom_openai, API key might be optional if the custom server doesn't require it,
+        # or if it's handled by other means (e.g. direct network access on a trusted server).
+        # However, the OpenAI SDK typically expects an api_key, even if it's a dummy one for local servers.
+        if selected_provider != "custom_openai" or (selected_provider == "custom_openai" and not CUSTOM_LLM_DEFAULT_API_BASE_URL): # Only error if not custom or custom without base_url
+            logger.error(f"API Key for {selected_provider} not found or not configured correctly in .env file.")
+            return f"错误：未找到或未正确配置 {selected_provider} 的 API Key。"
+        elif selected_provider == "custom_openai" and not api_key:
+             logger.info(f"API Key for custom_openai not found in .env, will proceed if API base URL is set (assuming no auth or dummy key needed).")
+             api_key = "dummy_key_if_not_needed" # OpenAI SDK might require a non-empty key
+
+    # Resolve parameters, using passed values or falling back to defaults from .env
+    current_temperature = temperature if temperature is not None else LLM_DEFAULT_TEMPERATURE
+    current_top_p = top_p if top_p is not None else LLM_DEFAULT_TOP_P
+    current_max_tokens = max_tokens if max_tokens is not None else LLM_DEFAULT_MAX_TOKENS
 
     try:
         logger.info(f"Attempting to call {selected_provider} API...")
-        if selected_provider == "gemini":
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-pro')
-            generation_config = genai.types.GenerationConfig()
-            safety_settings = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
-            # print(f"调用 Gemini API (model: gemini-pro)...") # Removed print
-            response = model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                safety_settings=safety_settings
-            )
-            if response.prompt_feedback and response.prompt_feedback.block_reason:
-                block_reason_message = f"Gemini API 请求被阻止，原因: {response.prompt_feedback.block_reason}"
-                if response.prompt_feedback.block_reason_message:
-                    block_reason_message += f" - {response.prompt_feedback.block_reason_message}"
-                # print(f"Warning: {block_reason_message}") # Removed print
-                logger.warning(block_reason_message)
-                if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-                    partial_text = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-                    if partial_text:
-                        return f"{block_reason_message}\n部分返回内容:\n{partial_text}"
-                return block_reason_message
-
-            if not response.candidates or not response.candidates[0].content or not response.candidates[0].content.parts:
-                 finish_reason_msg = ""
-                 if response.candidates and response.candidates[0].finish_reason:
-                     finish_reason_msg = f" (Finish Reason: {response.candidates[0].finish_reason.name})"
-                 safety_ratings_msg = ""
-                 if response.candidates and response.candidates[0].safety_ratings:
-                     problematic_ratings = [f"{rating.category.name}: {rating.probability.name}" for rating in response.candidates[0].safety_ratings if rating.probability.name not in ["NEGLIGIBLE", "LOW"]]
-                     if problematic_ratings:
-                         safety_ratings_msg = f" (Problematic Safety Ratings: {', '.join(problematic_ratings)})"
-                 logger.warning(f"Gemini API did not return valid content. {finish_reason_msg}{safety_ratings_msg}")
-                 return f"Gemini API 未返回有效内容。{finish_reason_msg}{safety_ratings_msg}"
+        if selected_provider == "deepseek":
+            current_model_id = model_id or DEEPSEEK_DEFAULT_MODEL_NAME
+            url = "https://api.deepseek.com/chat/completions" # Or make this configurable if needed
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "User-Agent": "StockValeApp/1.0",
+                "Content-Type": "application/json; charset=utf-8"
+            }
+            payload_obj = {
+                "model": current_model_id,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": current_temperature,
+                "top_p": current_top_p,
+                "max_tokens": current_max_tokens
+            }
+            logger.info(f"Calling DeepSeek API at {url} with model {current_model_id}, temp={current_temperature}, top_p={current_top_p}, max_tokens={current_max_tokens}")
             
-            llm_result = "".join(part.text for part in response.candidates[0].content.parts if hasattr(part, 'text'))
-            logger.info(f"Successfully received response from {selected_provider}.")
-            return llm_result
-        elif selected_provider == "openai":
-            # Placeholder for OpenAI
-            logger.info("Simulating OpenAI API call...")
-            return f"OpenAI 分析结果占位符。\n分析内容应基于提供的详细数据和 Prompt 指令生成..."
-        elif selected_provider == "anthropic":
-            import anthropic # Ensure the library is imported
+            json_payload_utf8 = json.dumps(payload_obj, ensure_ascii=False).encode('utf-8')
+            response = requests.post(url, headers=headers, data=json_payload_utf8, timeout=180)
+            response.raise_for_status()
             
-            client = anthropic.Anthropic(api_key=api_key)
-            # Common model, user might want to configure this later
-            # For Claude 3 Sonnet, a good balance of speed and performance.
-            # Opus is more powerful but slower and more expensive. Haiku is faster and cheaper.
-            anthropic_model = os.getenv("ANTHROPIC_MODEL_NAME", "claude-3-sonnet-20240229")
-            max_tokens_to_sample = int(os.getenv("ANTHROPIC_MAX_TOKENS", "4000")) # Max tokens for the response
-
-            logger.info(f"Calling Anthropic API with model {anthropic_model} and max_tokens {max_tokens_to_sample}...")
-            
-            # Anthropic API uses a 'messages' structure.
-            # The prompt here is a single user message.
-            # System prompts can be added for more context if needed.
-            response = client.messages.create(
-                model=anthropic_model,
-                max_tokens=max_tokens_to_sample,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ]
-            )
-            
-            if response.content and isinstance(response.content, list) and len(response.content) > 0:
-                # Assuming the first content block is the one we want and it's text.
-                # Claude 3 can return multiple content blocks of different types.
-                # We are interested in the text block.
-                text_content = ""
-                for block in response.content:
-                    if hasattr(block, 'text'): # Check if the block has a 'text' attribute
-                        text_content += block.text
-                
-                if text_content:
-                    logger.info(f"Successfully received response from {selected_provider}.")
-                    return text_content.strip()
-                else:
-                    logger.warning(f"Anthropic API response did not contain text content. Response: {response}")
-                    return "Anthropic API 未返回文本内容。"
+            response_data = response.json()
+            if response_data and 'choices' in response_data and response_data['choices'] and 'message' in response_data['choices'][0] and 'content' in response_data['choices'][0]['message']:
+                llm_result = response_data['choices'][0]['message']['content']
+                logger.info(f"Successfully received response from {selected_provider}.")
+                return llm_result
             else:
-                logger.warning(f"Anthropic API response format unexpected or empty: {response}")
-                return "Anthropic API 返回格式错误或无有效内容。"
-        elif selected_provider == "deepseek":
-             deepseek_model = os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")
-             url = "https://api.deepseek.com/chat/completions"
-             headers = {
-                 "Authorization": f"Bearer {api_key}",
-                 "User-Agent": "StockValeApp/1.0"
-             }
-             payload_obj = {
-                 "model": deepseek_model,
-                 "messages": [{"role": "user", "content": prompt}],
-             } 
-             logger.info(f"Calling DeepSeek API at {url} with model {payload_obj['model']}...")
-             
-             json_payload_utf8 = json.dumps(payload_obj, ensure_ascii=False).encode('utf-8')
-             headers["Content-Type"] = "application/json; charset=utf-8"
+                logger.warning(f"DeepSeek API response format unexpected: {response_data}")
+                return "DeepSeek API 返回格式错误或无有效内容。"
 
-             response = requests.post(url, headers=headers, data=json_payload_utf8, timeout=180)
-             response.raise_for_status()
-             
-             response_data = response.json()
-             if response_data and 'choices' in response_data and response_data['choices'] and 'message' in response_data['choices'][0] and 'content' in response_data['choices'][0]['message']:
-                 llm_result = response_data['choices'][0]['message']['content']
-                 logger.info(f"Successfully received response from {selected_provider}.")
-                 return llm_result
-             else:
-                  logger.warning(f"DeepSeek API response format unexpected: {response_data}")
-                  return "DeepSeek API 返回格式错误或无有效内容。"
+        elif selected_provider == "custom_openai":
+            import openai
+
+            current_model_id = model_id or CUSTOM_LLM_DEFAULT_MODEL_ID
+            current_api_base_url = api_base_url or CUSTOM_LLM_DEFAULT_API_BASE_URL
+
+            if not current_api_base_url:
+                logger.error("Custom OpenAI provider selected, but API Base URL is not configured (neither passed nor in .env).")
+                return "错误：自定义OpenAI模型的API Base URL未配置。"
+            if not current_model_id:
+                logger.error("Custom OpenAI provider selected, but Model ID is not configured (neither passed nor in .env).")
+                return "错误：自定义OpenAI模型的Model ID未配置。"
+
+            logger.info(f"Initializing OpenAI client for custom provider: base_url={current_api_base_url}, model={current_model_id}")
+            
+            client = openai.OpenAI(
+                api_key=api_key, # This will be CUSTOM_LLM_API_KEY or the dummy key
+                base_url=current_api_base_url
+            )
+            
+            logger.info(f"Calling Custom OpenAI API with model {current_model_id}, temp={current_temperature}, top_p={current_top_p}, max_tokens={current_max_tokens}...")
+            
+            response = client.chat.completions.create(
+                model=current_model_id,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=current_temperature,
+                top_p=current_top_p,
+                max_tokens=current_max_tokens
+            )
+            
+            if response.choices and response.choices[0].message and response.choices[0].message.content:
+                llm_result = response.choices[0].message.content
+                logger.info(f"Successfully received response from {selected_provider}.")
+                return llm_result.strip()
+            else:
+                logger.warning(f"Custom OpenAI API response format unexpected or empty: {response}")
+                return "自定义 OpenAI API 返回格式错误或无有效内容。"
         else:
             return f"错误：不支持的 LLM 提供商 '{selected_provider}'。"
 
     except ImportError as ie:
-         logger.error(f"Missing library for {selected_provider}. Please install it. {ie}")
-         return f"错误：缺少用于 {selected_provider} 的库，请安装。"
+        logger.error(f"Missing library for {selected_provider}. Please install it. {ie}")
+        return f"错误：缺少用于 {selected_provider} 的库，请安装。"
     except Exception as e:
         logger.error(f"Error calling LLM API ({selected_provider}): {e}\n{traceback.format_exc()}")
         return f"调用 LLM API 时出错: {str(e)}"

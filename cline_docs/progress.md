@@ -181,25 +181,34 @@
             - [x] **Anthropic API 对接:** 实现实际 API 调用逻辑，支持通过环境变量配置模型名称和最大 token 数。
             - [x] **DeepSeek 模型配置:** 实现从环境变量读取 DeepSeek 模型名称。
     - [x] **Streamlit UI Markdown 渲染问题:** 通过修改提示模板解决。
+    - [ ] **LLM 功能重构 (进行中):**
+        - [x] 更新 `.env.example` 以包含新的 LLM 相关环境变量。
+        - [x] 重构 `api/llm_utils.py` 以支持 DeepSeek 和自定义 OpenAI 兼容模型，并处理新的配置参数。
+        - [x] 更新 `api/models.py` 中的 `StockValuationRequest` 以包含新的 LLM 配置字段。
+        - [x] 更新 `api/main.py` 以从请求中读取新的 LLM 配置并传递给 `call_llm_api`。
+        - [x] 更新 `streamlit_app.py` 以添加新的 LLM 配置 UI 元素，并将用户选择传递到后端。
     - [ ] **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
     - [ ] **规范符合性检查:** (持续进行) 确保所有实现都已对照 `wiki/` 文档进行验证。
 
 ## 当前状态
 - 后端 API 和 Streamlit 前端的主要功能已实现。
-- **LLM 功能:**
+- **LLM 功能 (正在重构):**
+    - **目标:** 支持 DeepSeek 和自定义 OpenAI 兼容模型，提供灵活的前端配置。
+    - **进展:**
+        - `.env.example` 已更新。
+        - `api/llm_utils.py` 已重构。
+        - `api/models.py` (StockValuationRequest) 已更新。
+        - `api/main.py` 已更新以适配新的 LLM 调用方式。
+        - `streamlit_app.py` 已更新以包含新的 LLM 配置界面和逻辑。
     - Prompt 模板 (`config/llm_prompt_template.md`) 已优化至 V3.1。
-    - LLM 提供商 (`LLM_PROVIDER`) 和各提供商的模型名称 (`ANTHROPIC_MODEL_NAME`, `DEEPSEEK_MODEL_NAME` 等) 可通过 `.env` 文件配置，并在运行时动态加载。
-    - Anthropic API 已完成实际对接（用户需确保 API 密钥和账户权限）。
-    - DeepSeek API 调用逻辑已更新，支持通过环境变量配置模型。
-    - Streamlit UI 中 LLM 分析摘要的 Markdown 渲染问题已通过调整 Prompt 解决。
-- **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决**。
+    - 旧的 LLM 提供商 (Anthropic, Gemini, direct OpenAI) 将被移除。
+- **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决** (在之前的迭代中)。
 - 敏感性分析功能已实现。
-- 后端 API 服务可在端口 8125 正常运行。
+- 后端 API 服务可正常运行。
 - **所有 97 个 Pytest 测试用例均已通过。**
 - 存在已知的数据警告（如 D&A/Revenue 配对问题），这是由数据源限制引起的，已有降级处理逻辑。
 
 ## 已知问题
-- **Anthropic API 403 Forbidden 错误:** 用户在使用 Anthropic 时遇到 `403 Forbidden` 错误，这通常与 API 密钥权限或账户状态有关，需要用户在 Anthropic 端检查和解决。
 - **Pytest 警告:** `pytest` 输出中存在一些与 pandas 未来版本相关的 `FutureWarning`，不影响当前测试结果，但建议后续处理。
 - **数据警告:** 计算历史中位数时，某些指标（如 D&A/Revenue）可能因数据不足或不匹配而无法计算，程序会记录警告并使用默认值。
 - **金融行业估值准确性:** 当前通用DCF模型对金融行业（银行、保险、证券）的适用性有限，估值结果可能存在较大偏差。已在UI和文档中添加提示。

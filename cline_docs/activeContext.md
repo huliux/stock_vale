@@ -13,8 +13,11 @@
     *   **前端:** 废弃并删除原有的 Next.js 前端 (`frontend/` 目录)。采用 **Streamlit** 构建新的 GUI。
     *   **后端:** 保留 FastAPI 后端，继续提供 JSON 数据接口，但需重构和增强。
     *   **报告:** 移除旧的非 JSON 报告生成器 (`generators/` 目录)。所有结果通过 Streamlit 展示。
-3.  **LLM 集成:**
-    *   后端 API 负责收集数据、构建 Prompt (模板来自配置文件)、调用外部 LLM 服务（支持 Gemini, OpenAI, Anthropic, DeepSeek，通过 `.env` 配置），并将分析摘要返回。
+3.  **LLM 集成 (重构计划):**
+    *   **目标:** 移除对 Gemini, OpenAI (直接集成), Anthropic 的支持。保留 DeepSeek，并新增对“其他自定义模型”（通过 OpenAI SDK 访问，兼容 OpenAI API 格式）的支持。
+    *   **配置:** 所有 LLM 相关参数（API密钥、模型ID、API Base URL、Temperature, Top-P, Max Tokens 默认值）将通过 `.env` 文件管理。
+    *   **前端:** Streamlit UI 将允许用户选择 DeepSeek 或自定义模型，并为自定义模型提供 API Base URL 和模型 ID 输入。同时，允许用户调整通用的 LLM 参数（Temperature, Top-P, Max Tokens）。
+    *   **后端:** FastAPI 后端将接收前端传递的 LLM 配置，并据此调用相应的 LLM 服务。
 4.  **代码结构优化:**
     *   后端 DCF 核心计算逻辑将从 `valuation_calculator.py` 拆分到更小、职责更单一的模块 (`wacc_calculator.py`, `terminal_value_calculator.py`, `present_value_calculator.py`, `equity_bridge_calculator.py`, `fcf_calculator.py`, `nwc_calculator.py`)。
 5.  **预测逻辑简化:**
@@ -127,23 +130,26 @@
     *   **Streamlit UI Markdown 渲染:**
         *   确认 `streamlit_app.py` 中 `render_llm_summary_section` 函数使用 `st.markdown(llm_summary, unsafe_allow_html=True)`。
         *   Markdown 渲染问题最终通过修改 `config/llm_prompt_template.md` 指示 LLM 不要输出代码块标记解决。
+    *   **LLM 功能重构 (进行中):** 根据用户最新需求，正在重构 LLM 功能以支持 DeepSeek 和自定义 OpenAI 兼容模型，并提供更灵活的前端配置。
+        *   已更新 `.env.example`。
+        *   已更新 `api/llm_utils.py` 以支持新的提供商逻辑和参数。
+        *   已更新 `api/models.py` 中的 `StockValuationRequest` 以包含新的 LLM 参数。
+        *   已更新 `api/main.py` 以处理新的 LLM 参数并调用更新后的 `llm_utils`。
+        *   已更新 `streamlit_app.py` 以包含新的 LLM 配置 UI 元素和逻辑。
 
 ## 当前目标
--   **(已完成)** **LLM 功能优化与调试** (详见上一节“新增修复与增强完成”)。
--   **(已完成)** 修复前端估值假设（特别是“历史 CAGR 年衰减率”）未能正确传递到后端核心计算逻辑的问题。
--   **(已完成)** Streamlit UI 界面根据近期用户反馈完成调整和功能增强。
--   **(已完成)** 所有 Pytest 测试用例均已通过 (97个)。
--   **(已完成)** 解决 DeepSeek API 调用时的 `UnicodeEncodeError` 问题。
--   **(已完成)** 金融行业适应性提示与文档更新。
--   **记忆库更新:** (进行中) 本次 `activeContext.md` 和 `progress.md` 等记忆库文件正在更新以反映最新项目状态，特别是 LLM 功能的优化和调试。
+-   **完成 LLM 功能重构:**
+    *   确保后端 (`.env`, `api/llm_utils.py`, `api/models.py`, `api/main.py`) 和前端 (`streamlit_app.py`) 的代码修改符合新的 LLM 支持策略（DeepSeek + 自定义 OpenAI 兼容模型）。
+-   **更新项目文档:** 包括 `cline_docs/` 中的记忆库文件，以反映此次 LLM 功能的重大调整。
 
 ## 后续步骤 (优先级排序)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**
-1.  **记忆库更新:** 完成 `activeContext.md` 和 `progress.md` 的更新。
-2.  **上下文窗口管理:** 当前上下文窗口使用率已超过 50%。**在本次记忆库更新完成后，应使用 `new_task` 工具创建新任务。**
-3.  **验证提示模板效果:** 用户使用已完全实现的 LLM 提供商（如 DeepSeek，并可指定 `deepseek-reasoner` 模型）测试优化后的提示模板 (`config/llm_prompt_template.md` V3.1) 生成的分析报告质量。
-4.  **Anthropic API 权限问题:** 等待用户确认其 Anthropic API 密钥和账户权限问题是否已解决。
-5.  **处理 Pytest 警告:** (可选，可放入新任务) 解决 `pytest` 输出中的 `FutureWarning`。
-6.  **确认用户满意度:** 在 LLM 功能稳定后，进一步确认UI细节和整体体验。
-7.  **优化投资建议呈现:** (可选，可放入新任务) 调整 Prompt 或解析 LLM 输出，提供更明确的投资评级。
-8.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
+1.  **完成记忆库更新:** 完成 `activeContext.md`, `progress.md`, `techContext.md`, `systemPatterns.md` 的更新，以反映 LLM 重构。
+2.  **测试新的 LLM 功能:**
+    *   **DeepSeek 测试:** 用户配置 DeepSeek API 密钥后，通过 Streamlit UI 测试 DeepSeek 模型调用及参数调整功能。
+    *   **自定义模型测试:** 用户配置一个 OpenAI 兼容的自定义模型服务，并通过 Streamlit UI 测试其调用及参数调整功能。
+3.  **验证提示模板效果:** 用户使用新的 LLM 配置（DeepSeek 或自定义模型）测试优化后的提示模板 (`config/llm_prompt_template.md` V3.1) 生成的分析报告质量。
+4.  **处理 Pytest 警告:** (可选，优先级较低) 解决 `pytest` 输出中的 `FutureWarning`。
+5.  **确认用户满意度:** 在 LLM 功能稳定并按新方案运行后，进一步确认UI细节和整体体验。
+6.  **上下文窗口管理:** 当前上下文窗口使用率较高。**在本次 LLM 重构和文档更新完成后，应使用 `new_task` 工具创建新任务。**
+7.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。

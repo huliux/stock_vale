@@ -4,6 +4,7 @@ import pandas as pd
 import json
 import traceback
 import os # 导入 os 以使用 getenv
+from dotenv import load_dotenv # 导入 dotenv
 import numpy as np # Import numpy for isnan check and closest index finding
 from st_utils import (
     generate_axis_values, 
@@ -13,6 +14,8 @@ from st_utils import (
     supported_axis_params, # Import constants
     supported_output_metrics # Import constants
 )
+
+load_dotenv() # 在应用早期加载 .env 文件
 
 # --- 配置 ---
 API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8125/api/v1/valuation") 
@@ -723,6 +726,80 @@ def render_sidebar_inputs():
         st.divider()
         st.subheader("其他选项")
         llm_toggle_value_val = st.checkbox("启用 LLM 分析总结", value=False, key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。") # Default to False
+        
+        # --- 新增 LLM 配置 UI ---
+        if llm_toggle_value_val: # 仅在启用LLM分析时显示这些选项
+            st.markdown("---")
+            st.subheader("LLM 配置")
+            llm_provider_options = ["DeepSeek", "自定义 (OpenAI 兼容)"]
+            # 从 .env 读取默认 provider，如果未设置，则默认为 "DeepSeek"
+            default_provider_from_env = os.getenv("LLM_PROVIDER", "deepseek").lower()
+            default_provider_index = 0 # Default to DeepSeek
+            if default_provider_from_env == "custom_openai": # Check if default is custom
+                 # This case is tricky as "自定义 (OpenAI 兼容)" is not a direct env value.
+                 # For simplicity, we'll default to DeepSeek if LLM_PROVIDER is not explicitly "custom_openai" in a way that maps to the UI option.
+                 # A more robust mapping might be needed if .env could store "自定义 (OpenAI 兼容)" directly.
+                 # For now, if LLM_PROVIDER is 'custom_openai', we assume the user wants the custom option selected.
+                 # However, the UI option is "自定义 (OpenAI 兼容)". Let's assume if .env is 'custom_openai', it maps to the second option.
+                 # This part of the logic for default_provider_index might need refinement based on exact .env values.
+                 # A simpler approach: always default UI to DeepSeek unless user changes it.
+                 # Or, if os.getenv("LLM_PROVIDER") == "custom_openai_placeholder_for_ui", then index = 1.
+                 # For now, let's default to DeepSeek in UI and let user change.
+                 pass # Keep default_provider_index = 0 (DeepSeek) or adjust if a clear mapping from .env is desired for "自定义"
+
+            llm_provider_select_val = st.selectbox(
+                "选择 LLM 提供商:", 
+                options=llm_provider_options, 
+                index=default_provider_index, # Default to DeepSeek in UI
+                key="llm_provider_select"
+            )
+
+            deepseek_model_id_val = None
+            custom_llm_api_base_url_val = None
+            custom_llm_model_id_val = None
+
+            if llm_provider_select_val == "DeepSeek":
+                deepseek_model_id_val = st.text_input(
+                    "DeepSeek 模型 ID (可选):", 
+                    value=os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"), 
+                    key="deepseek_model_id",
+                    help="留空则使用 .env 中的 DEEPSEEK_MODEL_NAME 或 deepseek-chat"
+                )
+            elif llm_provider_select_val == "自定义 (OpenAI 兼容)":
+                custom_llm_api_base_url_val = st.text_input(
+                    "自定义模型 API Base URL:", 
+                    value=os.getenv("CUSTOM_LLM_API_BASE_URL", ""), 
+                    key="custom_base_url", 
+                    help="例如: http://localhost:1234/v1"
+                )
+                custom_llm_model_id_val = st.text_input(
+                    "自定义模型 ID:", 
+                    value=os.getenv("CUSTOM_LLM_MODEL_ID", ""), 
+                    key="custom_model_id",
+                    help="例如: my-custom-model"
+                )
+            
+            llm_temperature_val = st.slider(
+                "Temperature:", 
+                min_value=0.0, max_value=2.0, 
+                value=float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7")), 
+                step=0.1, key="llm_temp"
+            )
+            llm_top_p_val = st.slider(
+                "Top-P:", 
+                min_value=0.0, max_value=1.0, 
+                value=float(os.getenv("LLM_DEFAULT_TOP_P", "0.9")), 
+                step=0.05, key="llm_top_p"
+            )
+            llm_max_tokens_val = st.number_input(
+                "Max Tokens (最大完成长度):", 
+                min_value=50, max_value=32000, # Adjusted max based on common models
+                value=int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000")), 
+                step=100, key="llm_max_tokens",
+                help="LLM 生成内容的最大 token 数。"
+            )
+        # --- End of LLM 配置 UI ---
+        
         st.divider()
         st.caption("未来功能：情景分析")
         st.info("未来版本将支持对关键假设进行情景分析。")
@@ -765,11 +842,15 @@ def render_sidebar_inputs():
         "exit_multiple": exit_multiple_val,
         "perpetual_growth_rate": perpetual_growth_rate_val,
         "enable_sensitivity": enable_sensitivity_val,
-        "llm_toggle_value": llm_toggle_value_val
-        # Note: Sensitivity specific values like row_param_display, col_param_display, etc.
-        # are typically read from st.session_state directly when constructing the payload
-        # or passed if this function were to also build the sensitivity part of the payload.
-        # For now, this function primarily returns the direct UI input values.
+        "llm_toggle_value": llm_toggle_value_val,
+        # Add new LLM config values from sidebar to be returned by render_sidebar_inputs
+        "llm_provider_selected": st.session_state.get("llm_provider_select", "DeepSeek") if llm_toggle_value_val else None,
+        "deepseek_model_id_input": st.session_state.get("deepseek_model_id") if llm_toggle_value_val and st.session_state.get("llm_provider_select") == "DeepSeek" else None,
+        "custom_llm_api_base_url_input": st.session_state.get("custom_base_url") if llm_toggle_value_val and st.session_state.get("llm_provider_select") == "自定义 (OpenAI 兼容)" else None,
+        "custom_llm_model_id_input": st.session_state.get("custom_model_id") if llm_toggle_value_val and st.session_state.get("llm_provider_select") == "自定义 (OpenAI 兼容)" else None,
+        "llm_temperature_input": st.session_state.get("llm_temp", float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7"))) if llm_toggle_value_val else None,
+        "llm_top_p_input": st.session_state.get("llm_top_p", float(os.getenv("LLM_DEFAULT_TOP_P", "0.9"))) if llm_toggle_value_val else None,
+        "llm_max_tokens_input": st.session_state.get("llm_max_tokens", int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000"))) if llm_toggle_value_val else None
     }
 
 # --- 主程序逻辑 ---
@@ -814,7 +895,29 @@ if st.button("🚀 开始估值计算", key="start_valuation_button"):
         "exit_multiple": sidebar_inputs["exit_multiple"],
         "perpetual_growth_rate": sidebar_inputs["perpetual_growth_rate"],
         "request_llm_summary": sidebar_inputs["llm_toggle_value"],
+        # Add new LLM params to payload
+        "llm_provider": None, # Will be set below
+        "llm_model_id": None, # Will be set below
+        "llm_api_base_url": None, # Will be set below
+        "llm_temperature": None, # Will be set below
+        "llm_top_p": None, # Will be set below
+        "llm_max_tokens": None, # Will be set below
     }
+
+    if sidebar_inputs["llm_toggle_value"]:
+        provider_ui_value = sidebar_inputs.get("llm_provider_selected")
+        if provider_ui_value == "DeepSeek":
+            base_request_payload["llm_provider"] = "deepseek"
+            base_request_payload["llm_model_id"] = sidebar_inputs.get("deepseek_model_id_input") or os.getenv("DEEPSEEK_MODEL_NAME") # Fallback to env if input is empty
+        elif provider_ui_value == "自定义 (OpenAI 兼容)":
+            base_request_payload["llm_provider"] = "custom_openai"
+            base_request_payload["llm_api_base_url"] = sidebar_inputs.get("custom_llm_api_base_url_input")
+            base_request_payload["llm_model_id"] = sidebar_inputs.get("custom_llm_model_id_input")
+        
+        base_request_payload["llm_temperature"] = sidebar_inputs.get("llm_temperature_input")
+        base_request_payload["llm_top_p"] = sidebar_inputs.get("llm_top_p_input")
+        base_request_payload["llm_max_tokens"] = sidebar_inputs.get("llm_max_tokens_input")
+
     sensitivity_payload = None
     # The following block was erroneously duplicated and caused a SyntaxError.
     # It is being removed as the logic for sensitivity_payload construction
