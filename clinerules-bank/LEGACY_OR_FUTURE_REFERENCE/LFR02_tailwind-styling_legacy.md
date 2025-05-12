@@ -1,5 +1,7 @@
 # 样式指南 (stock_vale 项目 - 前端)
 
+**注意：此样式指南主要针对设想中的基于 Tailwind CSS 的 Next.js 前端。当前 `stock_vale` 项目已转向 Streamlit 前端，其样式主要通过 Streamlit 内建机制和少量自定义 CSS 实现。此文档作为历史参考或未来可能的技术选型参考。**
+
 ## 简要概述
 本文档定义了 `stock_vale` 项目前端界面开发时推荐的样式指南，主要基于 Tailwind CSS。
 
