@@ -30,6 +30,12 @@
     *   计算敏感性分析中的 EV/EBITDA 指标时，EBITDA 分母使用基准年份的实际 EBITDA 值。
 9.  **DCF 隐含 PE 指标:**
     *   在估值结果中增加显示 DCF 隐含稀释 PE (基于最近年报的 `diluted_eps`)。
+10. **(新功能规划) 新增股票筛选器功能:**
+    *   **目标:** 开发一个独立的股票筛选工具，帮助用户基于核心财务指标（静态PE、PB、市值）快速筛选A股市场的股票。
+    *   **数据源:** 直接使用 Tushare Pro API (`pro.stock_basic` 和 `pro.daily_basic`)。
+    *   **核心技术:** Python, Streamlit, Pandas, Tushare。
+    *   **缓存策略:** `stock_basic` 和 `daily_basic` 数据均采用本地文件持久化缓存，由用户手动触发更新，并在UI上显示数据更新状态。
+    *   **开发流程:** 先进行功能验证 (Proof of Concept)，再进行完整功能开发。
 
 ## 当前状态
 -   项目处于**执行模式 (ACT MODE)**。
@@ -140,16 +146,45 @@
 ## 当前目标
 -   **完成 LLM 功能重构:**
     *   确保后端 (`.env`, `api/llm_utils.py`, `api/models.py`, `api/main.py`) 和前端 (`streamlit_app.py`) 的代码修改符合新的 LLM 支持策略（DeepSeek + 自定义 OpenAI 兼容模型）。
--   **更新项目文档:** 包括 `cline_docs/` 中的记忆库文件，以反映此次 LLM 功能的重大调整。
+-   **更新项目文档 (LLM 重构相关):** 包括 `cline_docs/` 中的记忆库文件，以反映此次 LLM 功能的重大调整。
+-   **(新任务) 规划与开发股票筛选器功能:** 根据与用户确定的方案，开始股票筛选器的开发工作。
 
 ## 后续步骤 (优先级排序)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**
-1.  **完成记忆库更新:** 完成 `activeContext.md`, `progress.md`, `techContext.md`, `systemPatterns.md` 的更新，以反映 LLM 重构。
-2.  **测试新的 LLM 功能:**
+1.  **(当前) 完成 LLM 功能重构的收尾工作:**
+    *   确保所有相关的代码修改已提交并通过测试。
+    *   完成对 `cline_docs/` 中与 LLM 重构相关的文档更新（如 `systemPatterns.md`, `techContext.md` 中关于 LLM 的部分）。
+2.  **(当前) 测试新的 LLM 功能 (如尚未完全完成):**
     *   **DeepSeek 测试:** 用户配置 DeepSeek API 密钥后，通过 Streamlit UI 测试 DeepSeek 模型调用及参数调整功能。
     *   **自定义模型测试:** 用户配置一个 OpenAI 兼容的自定义模型服务，并通过 Streamlit UI 测试其调用及参数调整功能。
-3.  **验证提示模板效果:** 用户使用新的 LLM 配置（DeepSeek 或自定义模型）测试优化后的提示模板 (`config/llm_prompt_template.md` V3.1) 生成的分析报告质量。
-4.  **处理 Pytest 警告:** (可选，优先级较低) 解决 `pytest` 输出中的 `FutureWarning`。
-5.  **确认用户满意度:** 在 LLM 功能稳定并按新方案运行后，进一步确认UI细节和整体体验。
-6.  **上下文窗口管理:** 当前上下文窗口使用率较高。**在本次 LLM 重构和文档更新完成后，应使用 `new_task` 工具创建新任务。**
-7.  **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
+3.  **(当前) 验证提示模板效果 (如尚未完全完成):** 用户使用新的 LLM 配置（DeepSeek 或自定义模型）测试优化后的提示模板 (`config/llm_prompt_template.md` V3.1) 生成的分析报告质量。
+4.  **更新记忆库 (本次“update memory bank”任务的核心):**
+    *   更新 `activeContext.md` 和 `progress.md` 以包含“股票筛选器”的完整开发计划。
+    *   酌情更新 `projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md` 以简要反映新增筛选器功能。
+5.  **启动“股票筛选器”开发任务 (新阶段):**
+    *   **5.1 功能验证 (Proof of Concept):**
+        *   创建独立的 `tushare_screener_poc.py` 脚本。
+        *   验证 Tushare Pro API Token 及 `pro.stock_basic`, `pro.daily_basic` 接口调用。
+        *   确认关键数据字段 (静态PE, PB, 市值) 的获取。
+        *   初步测试数据合并与基于简单条件的筛选。
+        *   向用户报告验证结果。
+    *   **(后续待用户确认PoC后) 5.2 数据获取与缓存模块实现:**
+        *   实现 `stock_basic` 数据获取与本地文件缓存逻辑 (用户手动更新)。
+        *   实现 `daily_basic` 数据获取与本地文件缓存逻辑 (用户手动更新，记录交易日和拉取日期)。
+        *   实现数据合并与预处理逻辑。
+    *   **(后续) 5.3 Streamlit UI 界面实现:**
+        *   创建筛选器主页面结构。
+        *   实现侧边栏筛选条件输入组件 (PE, PB, 市值范围)。
+        *   实现数据更新按钮和状态信息显示。
+        *   实现主内容区筛选结果的表格展示。
+        *   实现“开始筛选”按钮及与后端逻辑的交互。
+    *   **(后续) 5.4 筛选逻辑核心功能实现:**
+        *   实现根据用户输入条件在合并数据上执行筛选的函数。
+    *   **(后续) 5.5 集成、测试与文档:**
+        *   完整功能流程测试。
+        *   用户界面和体验测试。
+        *   更新所有相关的 `cline_docs/` 文档以反映筛选器功能的最终实现。
+6.  **处理 Pytest 警告:** (可选，优先级较低，可在筛选器功能稳定后进行) 解决 `pytest` 输出中的 `FutureWarning`。
+7.  **确认用户满意度 (LLM & 筛选器):** 在各项功能稳定后，进一步确认UI细节和整体体验。
+8.  **上下文窗口管理:** 在主要功能模块（如LLM重构、股票筛选器初版）完成后，或上下文窗口使用率显著增高时，应使用 `new_task` 工具创建新任务。
+9.  **规则文件更新 (`.clinerules/`):** (可选，定期进行) 根据项目经验检查并更新。

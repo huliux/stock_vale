@@ -8,6 +8,7 @@
 - **数据验证/序列化:** Pydantic (用于 FastAPI)
 - **数据库交互:** SQLAlchemy, psycopg2-binary (PostgreSQL)
 - **数据处理:** Pandas, NumPy
+- **外部数据源:** Tushare Pro (用于股票行情、基本面及财务数据)
 - **LLM API 调用:** requests (用于 DeepSeek), openai (用于自定义 OpenAI 兼容模型)
 - **环境管理:** venv, pip
 - **配置管理:** python-dotenv (.env 文件), 配置文件 (用于 Prompt 模板)
@@ -19,5 +20,5 @@
 - **版本控制:** Git
 
 ## 关键依赖 (示例)
-- **运行依赖:** streamlit, fastapi, uvicorn, sqlalchemy, psycopg2-binary, pandas, numpy, pydantic, python-dotenv, requests, openai
+- **运行依赖:** streamlit, fastapi, uvicorn, sqlalchemy, psycopg2-binary, pandas, numpy, pydantic, python-dotenv, requests, openai, tushare
 - **开发依赖:** pytest, black, flake8, pre-commit

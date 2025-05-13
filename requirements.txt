@@ -1,24 +1,15 @@
-# matplotlib
 numpy
 pandas
 SQLAlchemy
-psycopg2-binary # Or latest stable version - PostgreSQL driver
-
-# Development Tools
-python-dotenv # Or latest stable version
-pytest       # Or latest stable version
-black       # Or latest stable version
-flake8       # Or latest stable version
-pre-commit   # Or latest stable version
-
-# Web Framework & GUI
-fastapi    # Or latest stable version
-uvicorn[standard] # Or latest stable version
-httpx       # Required by TestClient for testing FastAPI
-streamlit   # Or latest stable version - GUI Framework
-
-# LLM SDKs (Install based on usage)
-# google-generativeai # Or latest stable version - For Gemini (Removed)
-openai           # Or latest stable version - For OpenAI and custom OpenAI-compatible models
-# anthropic        # Or latest stable version - For Anthropic (Removed)
-# Add deepseek SDK if available via pip (DeepSeek is called via requests, no separate SDK needed for now)
+psycopg2-binary
+python-dotenv
+pytest
+black
+flake8
+pre-commit
+fastapi
+uvicorn[standard]
+httpx
+streamlit
+openai 
+tushare

@@ -149,3 +149,5 @@ reports/
 *.bak
 .DS_Store
 wiki/
+data_cache/
+clinerules-bank/
