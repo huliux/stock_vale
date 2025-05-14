@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./packages/fastapi-backend
+      dockerfile: Dockerfile
+    ports:
+      - "8125:8125" # FastAPI 后端端口
+    volumes:
+      - ./packages/fastapi-backend:/app # 将本地后端代码映射到容器，实现热重载
+      # 如果有数据库或其他依赖，可以在这里添加
+    env_file:
+      - .env # 加载项目根目录的 .env 文件
+    environment:
+      # 可以在这里覆盖或添加环境变量
+      # PYTHONUNBUFFERED: 1 # 确保Python日志直接输出
+      LOG_LEVEL: info # 示例：设置日志级别
+    # command: uvicorn api.main:app --host 0.0.0.0 --port 8125 --reload # 如果Dockerfile中没有CMD或想覆盖
+    # depends_on:
+    #   - db # 如果有数据库服务
+
+  frontend:
+    build:
+      context: ./packages/vue-frontend
+      dockerfile: Dockerfile # 假设 vue-frontend 中也会有一个 Dockerfile 用于开发或生产
+      # 或者，对于本地开发，更常见的是直接使用 node 镜像运行 npm run dev
+    # 如果直接使用 node 镜像进行本地开发：
+    # image: node:18-alpine # 或其他合适的Node版本
+    # working_dir: /app/packages/vue-frontend
+    # volumes:
+    #   - ./packages/vue-frontend:/app/packages/vue-frontend # 映射代码
+    #   - /app/packages/vue-frontend/node_modules # 匿名卷，防止本地node_modules覆盖容器内的
+    # command: npm run dev
+    ports:
+      - "5173:5173" # Vite 默认端口，如果是Vue CLI可能是8080
+    volumes:
+      - ./packages/vue-frontend:/app # 将本地前端代码映射到容器
+      - /app/node_modules # 匿名卷，防止本地node_modules覆盖容器内的 (如果vue-frontend/Dockerfile中执行了npm install)
+    environment:
+      # CHOKIDAR_USEPOLLING: "true" # 有时在Docker中文件监听需要此参数
+      VITE_API_BASE_URL: http://backend:8125/api/v1 # 示例：告知前端API的地址
+    depends_on:
+      - backend # 确保后端先启动 (不完全保证后端API可用，只是容器启动顺序)
+
+# volumes: # 如果需要持久化数据，例如数据库
+#   postgres_data:

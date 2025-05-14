@@ -1,0 +1,34 @@
+{
+  "include": ["env.d.ts", "src/**/*", "src/**/*.vue", "../shared-types/src/**/*.ts"], // Added shared-types
+  "exclude": ["src/**/__tests__/*"],
+  "compilerOptions": {
+    // Core options typically from tsconfig.dom.json
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler", // Vite prefers "bundler"
+    "strict": true,
+    "jsx": "preserve",
+    "importHelpers": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": true, // Common for modern TS/JS
+    "sourceMap": true, // Good for debugging, Vite handles for prod/dev
+    "lib": ["ESNext", "DOM", "DOM.Iterable"], // "scripthost" is sometimes included
+
+    // Vite/Vue specific and other good practices
+    "composite": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "resolveJsonModule": true,
+    "isolatedModules": true, // Required by Vite
+    "noEmit": true, // Vite handles emitting files, TS only type checks
+    "baseUrl": ".", // Important for path aliases
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared-types/*": ["../shared-types/src/*"] // Added path for shared-types
+    }
+    // "types": [] // Explicitly empty, or remove the types property altogether
+    // Let's try removing it to rely on triple-slash directives and auto-inclusion.
+  }
+}

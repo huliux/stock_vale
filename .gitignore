@@ -151,3 +151,14 @@ reports/
 wiki/
 data_cache/
 clinerules-bank/
+
+# Frontend (Vue) - in packages
+packages/vue-frontend/node_modules/
+packages/vue-frontend/dist/
+packages/vue-frontend/.env*
+packages/vue-frontend/coverage/
+# packages/vue-frontend/.eslintcache # Uncomment if ESLint cache is generated and needs ignoring
+
+# Shared types
+packages/shared-types/node_modules/
+packages/shared-types/dist/
