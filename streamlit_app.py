@@ -14,11 +14,16 @@ from st_utils import (
     supported_axis_params, # Import constants
     supported_output_metrics # Import constants
 )
+from stock_screener_data import (
+    get_tushare_pro_api, 
+    get_latest_valid_trade_date,
+    load_stock_basic,  # Added for screener data update
+    load_daily_basic,  # Added for screener data update
+    get_merged_stock_data # Added for screener filtering
+) # 筛选器需要
+from datetime import datetime # 筛选器需要
 
 load_dotenv() # 在应用早期加载 .env 文件
-
-# --- 配置 ---
-API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8125/api/v1/valuation") 
 
 # --- 页面配置与渲染函数 ---
 def render_page_config_and_title():
@@ -37,7 +42,88 @@ def render_page_config_and_title():
     st.title("📈 稳稳的估吧")
     st.caption("长期投资就是耐心等待。")
 
-render_page_config_and_title()
+render_page_config_and_title() # MOVED TO BE THE FIRST STREAMLIT COMMAND AFTER IMPORTS
+
+# --- 配置 ---
+API_ENDPOINT = os.getenv("API_ENDPOINT", "http://127.0.0.1:8125/api/v1/valuation") 
+
+# --- Tushare API 初始化 (用于股票筛选器) ---
+@st.cache_resource
+def init_pro_api():
+    return get_tushare_pro_api()
+
+pro = init_pro_api()
+
+# --- 股票筛选器状态管理 ---
+# Ensure session_state is accessed only after set_page_config
+if 'latest_trade_date' not in st.session_state:
+    st.session_state.latest_trade_date = None
+if 'stock_basic_last_update' not in st.session_state:
+    st.session_state.stock_basic_last_update = "N/A"
+if 'daily_basic_last_update' not in st.session_state:
+    st.session_state.daily_basic_last_update = "N/A"
+if 'daily_basic_data_date' not in st.session_state:
+    st.session_state.daily_basic_data_date = "N/A"
+if 'screener_merged_data' not in st.session_state: # Renamed from merged_data to avoid conflict
+    st.session_state.screener_merged_data = pd.DataFrame()
+if 'screener_filtered_data' not in st.session_state: # Renamed from filtered_data
+    st.session_state.screener_filtered_data = pd.DataFrame()
+
+def update_screener_data_status(): # Renamed from update_data_status
+    """Updates the status of cached screener data."""
+    stock_basic_cache_path = os.path.join("data_cache", "stock_basic.feather")
+    if os.path.exists(stock_basic_cache_path):
+        st.session_state.stock_basic_last_update = datetime.fromtimestamp(
+            os.path.getmtime(stock_basic_cache_path)
+        ).strftime('%Y-%m-%d %H:%M:%S')
+    else:
+        st.session_state.stock_basic_last_update = "无本地缓存"
+
+    if st.session_state.latest_trade_date:
+        daily_basic_cache_path = os.path.join("data_cache", f"daily_basic_{st.session_state.latest_trade_date}.feather")
+        if os.path.exists(daily_basic_cache_path):
+            st.session_state.daily_basic_last_update = datetime.fromtimestamp(
+                os.path.getmtime(daily_basic_cache_path)
+            ).strftime('%Y-%m-%d %H:%M:%S')
+            st.session_state.daily_basic_data_date = st.session_state.latest_trade_date
+        else:
+            st.session_state.daily_basic_last_update = "无本地缓存"
+            st.session_state.daily_basic_data_date = "N/A"
+    else:
+        st.session_state.daily_basic_last_update = "等待确定交易日"
+        st.session_state.daily_basic_data_date = "N/A"
+
+# Initialize latest_trade_date for screener if not already set
+if pro and st.session_state.latest_trade_date is None:
+    with st.spinner("正在获取最新交易日 (用于筛选器)..."): # Added context for spinner
+        st.session_state.latest_trade_date = get_latest_valid_trade_date(pro)
+    update_screener_data_status()
+
+# Initial screener data status update on first load
+if 'screener_initial_load_done' not in st.session_state: # Renamed state variable
+    if pro: # Only update if pro is available
+        update_screener_data_status()
+    st.session_state.screener_initial_load_done = True
+
+
+# --- 页面配置与渲染函数 ---
+def render_page_config_and_title():
+    st.set_page_config(page_title="股票估值分析工具", layout="wide")
+
+    custom_css = """
+    <style>
+        /* 减小 st.metric 中数值的字体大小 */
+        div[data-testid="stMetricValue"] {
+            font-size: 24px !important; /* 例如 24px，可以根据需要调整 */
+        }
+    </style>
+    """
+    st.markdown(custom_css, unsafe_allow_html=True)
+
+    st.title("📈 稳稳的估吧")
+    st.caption("长期投资就是耐心等待。")
+
+# render_page_config_and_title() # CALL MOVED UP
 
 # --- 敏感性分析辅助函数与回调 ---
 
@@ -206,32 +292,65 @@ def render_basic_info_section(stock_info, valuation_results):
 
     # 基本信息 - 第 2 行
     basic_info_row2_cols = st.columns(6)
-    latest_price_val = valuation_results.get('latest_price')
-    current_pe_val = valuation_results.get('current_pe')
-    current_pb_val = valuation_results.get('current_pb')
-    latest_annual_eps_val = stock_info.get('latest_annual_diluted_eps') # 从 stock_info 获取
-    dividend_yield_val = stock_info.get('dividend_yield')
+    
+    # 获取当前估值股票代码
+    current_dcf_ts_code = stock_info.get('ts_code')
+    screener_metrics = st.session_state.get('screener_metrics_for_dcf')
+    
+    use_screener_data = False
+    screener_trade_date_str = None
+    if screener_metrics and screener_metrics.get('ts_code') == current_dcf_ts_code:
+        use_screener_data = True
+        screener_trade_date = screener_metrics.get('trade_date')
+        if screener_trade_date:
+            try:
+                screener_trade_date_str = pd.to_datetime(screener_trade_date, format='%Y%m%d').strftime('%Y-%m-%d')
+            except: # Fallback if format is different or error
+                screener_trade_date_str = str(screener_trade_date)
+
+    # 获取指标值，优先从筛选器获取 (价格, PE, PB)
+    latest_price_val = screener_metrics.get('close') if use_screener_data and screener_metrics.get('close') is not None else valuation_results.get('latest_price')
+    current_pe_val = screener_metrics.get('pe') if use_screener_data and screener_metrics.get('pe') is not None else valuation_results.get('current_pe')
+    current_pb_val = screener_metrics.get('pb') if use_screener_data and screener_metrics.get('pb') is not None else valuation_results.get('current_pb')
+    
+    # 股息率始终来自财报数据 (API)
+    # API的dividend_yield是小数形式，如0.0333 for 3.33%
+    raw_dividend_yield_from_api = stock_info.get('dividend_yield') 
+
+    # 每股收益和TTM每股股息通常来自财报，继续使用API/stock_info的数据源
+    latest_annual_eps_val = stock_info.get('latest_annual_diluted_eps')
     ttm_dps_val = stock_info.get('ttm_dps')
+
+    price_suffix = f" ({screener_trade_date_str})" if use_screener_data and screener_trade_date_str and latest_price_val == screener_metrics.get('close') else ""
+    pe_suffix = f" ({screener_trade_date_str})" if use_screener_data and screener_metrics.get('pe') is not None and screener_trade_date_str and current_pe_val == screener_metrics.get('pe') else ""
+    pb_suffix = f" ({screener_trade_date_str})" if use_screener_data and screener_metrics.get('pb') is not None and screener_trade_date_str and current_pb_val == screener_metrics.get('pb') else ""
+    # 股息率的后缀将基于财报，不显示筛选器日期
+    dv_suffix = " (TTM)"
+
 
     with basic_info_row2_cols[0]:
         with st.container():
-            st.metric("最新价格", f"{float(latest_price_val):.2f}" if latest_price_val is not None else "N/A")
+            st.metric(f"最新价格{price_suffix}", f"{float(latest_price_val):.2f}" if latest_price_val is not None else "N/A")
     with basic_info_row2_cols[1]:
         with st.container():
-            st.metric("当前PE", f"{float(current_pe_val):.2f}" if current_pe_val is not None else "N/A")
+            st.metric(f"当前PE{pe_suffix}", f"{float(current_pe_val):.2f}" if current_pe_val is not None else "N/A")
     with basic_info_row2_cols[2]:
         with st.container():
-            st.metric("当前PB", f"{float(current_pb_val):.2f}" if current_pb_val is not None else "N/A")
+            st.metric(f"当前PB{pb_suffix}", f"{float(current_pb_val):.2f}" if current_pb_val is not None else "N/A")
     with basic_info_row2_cols[3]:
         with st.container():
-            st.metric("每股收益", f"{float(latest_annual_eps_val):.2f}" if latest_annual_eps_val is not None else "N/A")
+            st.metric("每股收益 (年报)", f"{float(latest_annual_eps_val):.2f}" if latest_annual_eps_val is not None else "N/A")
     
     with basic_info_row2_cols[4]:
         with st.container():
-            if dividend_yield_val is not None:
-                st.metric("TTM股息率", f"{float(dividend_yield_val) * 100:.2f}%")
-            else:
-                st.metric("TTM股息率", "N/A")
+            if raw_dividend_yield_from_api is not None and pd.notna(raw_dividend_yield_from_api):
+                try:
+                    display_dv_percent = float(raw_dividend_yield_from_api) * 100 # API data is decimal, e.g., 0.0333
+                    st.metric(f"股息率{dv_suffix}", f"{display_dv_percent:.2f}%")
+                except ValueError: 
+                    st.metric(f"股息率{dv_suffix}", "N/A")
+            else: 
+                st.metric(f"股息率{dv_suffix}", "N/A")
     
     with basic_info_row2_cols[5]:
         with st.container():
@@ -645,61 +764,59 @@ def render_valuation_results(payload_filtered, current_ts_code, base_assumptions
 # --- 函数：渲染侧边栏输入 ---
 def render_sidebar_inputs():
     with st.sidebar:
-        st.header("参数输入")
-        ts_code_val = st.text_input("股票代码 (例如 600519.SH):", "600519.SH", key="ts_code_input")
-        valuation_date_val = st.date_input("估值基准日期:", value=pd.to_datetime("today"), key="valuation_date_input")
+        st.header("DCF估值参数") # Changed header for clarity
+        ts_code_val = st.text_input("股票代码 (例如 600519.SH):", st.session_state.get("ts_code_input", "600519.SH"), key="ts_code_input") # Use session state for persistence
+        valuation_date_val = st.date_input("估值基准日期:", value=pd.to_datetime(st.session_state.get("valuation_date_input", pd.to_datetime("today"))), key="valuation_date_input")
         st.subheader("核心假设")
-        forecast_years_val = st.slider("预测期年数:", min_value=3, max_value=15, value=5, key="forecast_years_slider")
+        forecast_years_val = st.slider("预测期年数:", min_value=3, max_value=15, value=st.session_state.get("forecast_years_slider", 5), key="forecast_years_slider")
         with st.expander("收入预测假设", expanded=True):
-            cagr_decay_rate_val = st.number_input("历史 CAGR 年衰减率 (0-1):", min_value=0.0, max_value=1.0, value=0.1, step=0.01, format="%.2f", help="用于基于历史CAGR预测未来收入时的年衰减比例。0表示不衰减，1表示第一年后增长为0。", key="cagr_decay")
+            cagr_decay_rate_val = st.number_input("历史 CAGR 年衰减率 (0-1):", min_value=0.0, max_value=1.0, value=st.session_state.get("cagr_decay", 0.1), step=0.01, format="%.2f", help="用于基于历史CAGR预测未来收入时的年衰减比例。0表示不衰减，1表示第一年后增长为0。", key="cagr_decay")
         with st.expander("利润率与费用预测假设"):
-            op_margin_forecast_mode_val = st.selectbox("营业利润率模式:", options=['historical_median', 'transition_to_target'], index=0, key="op_margin_mode", help="选择使用历史中位数，还是逐渐过渡到目标值。")
-            target_operating_margin_val = st.number_input("目标营业利润率:", value=0.15, step=0.01, format="%.3f", key="target_op_margin", disabled=(op_margin_forecast_mode_val != 'transition_to_target')) if op_margin_forecast_mode_val == 'transition_to_target' else None
-            op_margin_transition_years_val = st.number_input("利润率过渡年数:", min_value=1, value=forecast_years_val, step=1, key="op_margin_trans_years", disabled=(op_margin_forecast_mode_val != 'transition_to_target' or target_operating_margin_val is None)) if op_margin_forecast_mode_val == 'transition_to_target' else None
-            sga_rd_ratio_forecast_mode_val = st.selectbox("SGA&RD 占收入比模式:", options=['historical_median', 'transition_to_target'], index=0, key="sga_rd_mode")
-            target_sga_rd_to_revenue_ratio_val = st.number_input("目标 SGA&RD 占收入比:", value=0.20, step=0.01, format="%.3f", key="target_sga_rd_ratio", disabled=(sga_rd_ratio_forecast_mode_val != 'transition_to_target')) if sga_rd_ratio_forecast_mode_val == 'transition_to_target' else None
-            sga_rd_transition_years_val = st.number_input("SGA&RD 比率过渡年数:", min_value=1, value=forecast_years_val, step=1, key="sga_rd_trans_years", disabled=(sga_rd_ratio_forecast_mode_val != 'transition_to_target' or target_sga_rd_to_revenue_ratio_val is None)) if sga_rd_ratio_forecast_mode_val == 'transition_to_target' else None
+            op_margin_forecast_mode_val = st.selectbox("营业利润率模式:", options=['historical_median', 'transition_to_target'], index=['historical_median', 'transition_to_target'].index(st.session_state.get("op_margin_mode", 'historical_median')), key="op_margin_mode", help="选择使用历史中位数，还是逐渐过渡到目标值。")
+            target_operating_margin_val = st.number_input("目标营业利润率:", value=st.session_state.get("target_op_margin", 0.15), step=0.01, format="%.3f", key="target_op_margin", disabled=(op_margin_forecast_mode_val != 'transition_to_target')) if op_margin_forecast_mode_val == 'transition_to_target' else None
+            op_margin_transition_years_val = st.number_input("利润率过渡年数:", min_value=1, value=st.session_state.get("op_margin_trans_years", forecast_years_val), step=1, key="op_margin_trans_years", disabled=(op_margin_forecast_mode_val != 'transition_to_target' or target_operating_margin_val is None)) if op_margin_forecast_mode_val == 'transition_to_target' else None
+            sga_rd_ratio_forecast_mode_val = st.selectbox("SGA&RD 占收入比模式:", options=['historical_median', 'transition_to_target'], index=['historical_median', 'transition_to_target'].index(st.session_state.get("sga_rd_mode", 'historical_median')), key="sga_rd_mode")
+            target_sga_rd_to_revenue_ratio_val = st.number_input("目标 SGA&RD 占收入比:", value=st.session_state.get("target_sga_rd_ratio", 0.20), step=0.01, format="%.3f", key="target_sga_rd_ratio", disabled=(sga_rd_ratio_forecast_mode_val != 'transition_to_target')) if sga_rd_ratio_forecast_mode_val == 'transition_to_target' else None
+            sga_rd_transition_years_val = st.number_input("SGA&RD 比率过渡年数:", min_value=1, value=st.session_state.get("sga_rd_trans_years", forecast_years_val), step=1, key="sga_rd_trans_years", disabled=(sga_rd_ratio_forecast_mode_val != 'transition_to_target' or target_sga_rd_to_revenue_ratio_val is None)) if sga_rd_ratio_forecast_mode_val == 'transition_to_target' else None
         with st.expander("资产与投资预测假设"):
-            da_ratio_forecast_mode_val = st.selectbox("D&A 占收入比模式:", options=['historical_median', 'transition_to_target'], index=0, key="da_mode")
-            target_da_to_revenue_ratio_val = st.number_input("目标 D&A 占收入比:", value=0.05, step=0.005, format="%.3f", key="target_da_ratio", disabled=(da_ratio_forecast_mode_val != 'transition_to_target')) if da_ratio_forecast_mode_val == 'transition_to_target' else None
-            da_ratio_transition_years_val = st.number_input("D&A 比率过渡年数:", min_value=1, value=forecast_years_val, step=1, key="da_trans_years", disabled=(da_ratio_forecast_mode_val != 'transition_to_target' or target_da_to_revenue_ratio_val is None)) if da_ratio_forecast_mode_val == 'transition_to_target' else None
-            capex_ratio_forecast_mode_val = st.selectbox("Capex 占收入比模式:", options=['historical_median', 'transition_to_target'], index=0, key="capex_mode")
-            target_capex_to_revenue_ratio_val = st.number_input("目标 Capex 占收入比:", value=0.07, step=0.005, format="%.3f", key="target_capex_ratio", disabled=(capex_ratio_forecast_mode_val != 'transition_to_target')) if capex_ratio_forecast_mode_val == 'transition_to_target' else None
-            capex_ratio_transition_years_val = st.number_input("Capex 比率过渡年数:", min_value=1, value=forecast_years_val, step=1, key="capex_trans_years", disabled=(capex_ratio_forecast_mode_val != 'transition_to_target' or target_capex_to_revenue_ratio_val is None)) if capex_ratio_forecast_mode_val == 'transition_to_target' else None
+            da_ratio_forecast_mode_val = st.selectbox("D&A 占收入比模式:", options=['historical_median', 'transition_to_target'], index=['historical_median', 'transition_to_target'].index(st.session_state.get("da_mode", 'historical_median')), key="da_mode")
+            target_da_to_revenue_ratio_val = st.number_input("目标 D&A 占收入比:", value=st.session_state.get("target_da_ratio", 0.05), step=0.005, format="%.3f", key="target_da_ratio", disabled=(da_ratio_forecast_mode_val != 'transition_to_target')) if da_ratio_forecast_mode_val == 'transition_to_target' else None
+            da_ratio_transition_years_val = st.number_input("D&A 比率过渡年数:", min_value=1, value=st.session_state.get("da_trans_years", forecast_years_val), step=1, key="da_trans_years", disabled=(da_ratio_forecast_mode_val != 'transition_to_target' or target_da_to_revenue_ratio_val is None)) if da_ratio_forecast_mode_val == 'transition_to_target' else None
+            capex_ratio_forecast_mode_val = st.selectbox("Capex 占收入比模式:", options=['historical_median', 'transition_to_target'], index=['historical_median', 'transition_to_target'].index(st.session_state.get("capex_mode", 'historical_median')), key="capex_mode")
+            target_capex_to_revenue_ratio_val = st.number_input("目标 Capex 占收入比:", value=st.session_state.get("target_capex_ratio", 0.07), step=0.005, format="%.3f", key="target_capex_ratio", disabled=(capex_ratio_forecast_mode_val != 'transition_to_target')) if capex_ratio_forecast_mode_val == 'transition_to_target' else None
+            capex_ratio_transition_years_val = st.number_input("Capex 比率过渡年数:", min_value=1, value=st.session_state.get("capex_trans_years", forecast_years_val), step=1, key="capex_trans_years", disabled=(capex_ratio_forecast_mode_val != 'transition_to_target' or target_capex_to_revenue_ratio_val is None)) if capex_ratio_forecast_mode_val == 'transition_to_target' else None
         with st.expander("营运资本预测假设"):
-            nwc_days_forecast_mode_val = st.selectbox("核心 NWC 周转天数模式:", options=['historical_median', 'transition_to_target'], index=0, key="nwc_days_mode")
-            target_accounts_receivable_days_val = st.number_input("目标 DSO:", value=30.0, step=1.0, format="%.1f", key="target_ar_days", disabled=(nwc_days_forecast_mode_val != 'transition_to_target')) if nwc_days_forecast_mode_val == 'transition_to_target' else None
-            target_inventory_days_val = st.number_input("目标 DIO:", value=60.0, step=1.0, format="%.1f", key="target_inv_days", disabled=(nwc_days_forecast_mode_val != 'transition_to_target')) if nwc_days_forecast_mode_val == 'transition_to_target' else None
-            target_accounts_payable_days_val = st.number_input("目标 DPO:", value=45.0, step=1.0, format="%.1f", key="target_ap_days", disabled=(nwc_days_forecast_mode_val != 'transition_to_target')) if nwc_days_forecast_mode_val == 'transition_to_target' else None
-            nwc_days_transition_years_val = st.number_input("NWC 天数过渡年数:", min_value=1, value=forecast_years_val, step=1, key="nwc_days_trans_years", disabled=(nwc_days_forecast_mode_val != 'transition_to_target' or not any([target_accounts_receivable_days_val, target_inventory_days_val, target_accounts_payable_days_val]))) if nwc_days_forecast_mode_val == 'transition_to_target' else None
-            other_nwc_ratio_forecast_mode_val = st.selectbox("其他 NWC 占收入比模式:", options=['historical_median', 'transition_to_target'], index=0, key="other_nwc_mode")
-            target_other_current_assets_to_revenue_ratio_val = st.number_input("目标其他流动资产/收入:", value=0.05, step=0.005, format="%.3f", key="target_oca_ratio", disabled=(other_nwc_ratio_forecast_mode_val != 'transition_to_target')) if other_nwc_ratio_forecast_mode_val == 'transition_to_target' else None
-            target_other_current_liabilities_to_revenue_ratio_val = st.number_input("目标其他流动负债/收入:", value=0.03, step=0.005, format="%.3f", key="target_ocl_ratio", disabled=(other_nwc_ratio_forecast_mode_val != 'transition_to_target')) if other_nwc_ratio_forecast_mode_val == 'transition_to_target' else None
-            other_nwc_ratio_transition_years_val = st.number_input("其他 NWC 比率过渡年数:", min_value=1, value=forecast_years_val, step=1, key="other_nwc_trans_years", disabled=(other_nwc_ratio_forecast_mode_val != 'transition_to_target' or not any([target_other_current_assets_to_revenue_ratio_val, target_other_current_liabilities_to_revenue_ratio_val]))) if other_nwc_ratio_forecast_mode_val == 'transition_to_target' else None
+            nwc_days_forecast_mode_val = st.selectbox("核心 NWC 周转天数模式:", options=['historical_median', 'transition_to_target'], index=['historical_median', 'transition_to_target'].index(st.session_state.get("nwc_days_mode", 'historical_median')), key="nwc_days_mode")
+            target_accounts_receivable_days_val = st.number_input("目标 DSO:", value=st.session_state.get("target_ar_days", 30.0), step=1.0, format="%.1f", key="target_ar_days", disabled=(nwc_days_forecast_mode_val != 'transition_to_target')) if nwc_days_forecast_mode_val == 'transition_to_target' else None
+            target_inventory_days_val = st.number_input("目标 DIO:", value=st.session_state.get("target_inv_days", 60.0), step=1.0, format="%.1f", key="target_inv_days", disabled=(nwc_days_forecast_mode_val != 'transition_to_target')) if nwc_days_forecast_mode_val == 'transition_to_target' else None
+            target_accounts_payable_days_val = st.number_input("目标 DPO:", value=st.session_state.get("target_ap_days", 45.0), step=1.0, format="%.1f", key="target_ap_days", disabled=(nwc_days_forecast_mode_val != 'transition_to_target')) if nwc_days_forecast_mode_val == 'transition_to_target' else None
+            nwc_days_transition_years_val = st.number_input("NWC 天数过渡年数:", min_value=1, value=st.session_state.get("nwc_days_trans_years", forecast_years_val), step=1, key="nwc_days_trans_years", disabled=(nwc_days_forecast_mode_val != 'transition_to_target' or not any([target_accounts_receivable_days_val, target_inventory_days_val, target_accounts_payable_days_val]))) if nwc_days_forecast_mode_val == 'transition_to_target' else None
+            other_nwc_ratio_forecast_mode_val = st.selectbox("其他 NWC 占收入比模式:", options=['historical_median', 'transition_to_target'], index=['historical_median', 'transition_to_target'].index(st.session_state.get("other_nwc_mode", 'historical_median')), key="other_nwc_mode")
+            target_other_current_assets_to_revenue_ratio_val = st.number_input("目标其他流动资产/收入:", value=st.session_state.get("target_oca_ratio", 0.05), step=0.005, format="%.3f", key="target_oca_ratio", disabled=(other_nwc_ratio_forecast_mode_val != 'transition_to_target')) if other_nwc_ratio_forecast_mode_val == 'transition_to_target' else None
+            target_other_current_liabilities_to_revenue_ratio_val = st.number_input("目标其他流动负债/收入:", value=st.session_state.get("target_ocl_ratio", 0.03), step=0.005, format="%.3f", key="target_ocl_ratio", disabled=(other_nwc_ratio_forecast_mode_val != 'transition_to_target')) if other_nwc_ratio_forecast_mode_val == 'transition_to_target' else None
+            other_nwc_ratio_transition_years_val = st.number_input("其他 NWC 比率过渡年数:", min_value=1, value=st.session_state.get("other_nwc_trans_years", forecast_years_val), step=1, key="other_nwc_trans_years", disabled=(other_nwc_ratio_forecast_mode_val != 'transition_to_target' or not any([target_other_current_assets_to_revenue_ratio_val, target_other_current_liabilities_to_revenue_ratio_val]))) if other_nwc_ratio_forecast_mode_val == 'transition_to_target' else None
         with st.expander("税率假设"):
-            target_effective_tax_rate_val = st.number_input("目标有效所得税率:", min_value=0.0, max_value=1.0, value=0.25, step=0.01, format="%.2f", key="tax_rate")
+            target_effective_tax_rate_val = st.number_input("目标有效所得税率:", min_value=0.0, max_value=1.0, value=st.session_state.get("tax_rate", 0.25), step=0.01, format="%.2f", key="tax_rate")
         with st.expander("WACC 参数 (可选覆盖)"):
-            wacc_weight_mode_ui_val = st.radio( "WACC 权重模式:", options=["使用目标债务比例", "使用最新市场价值计算权重"], index=1, key="wacc_weight_mode_selector", help="选择使用预设的目标资本结构，还是基于最新的市值和负债动态计算资本结构权重。" ) # Default index changed to 1
+            wacc_weight_mode_ui_val = st.radio( "WACC 权重模式:", options=["使用目标债务比例", "使用最新市场价值计算权重"], index=["使用目标债务比例", "使用最新市场价值计算权重"].index(st.session_state.get("wacc_weight_mode_selector", "使用最新市场价值计算权重")), key="wacc_weight_mode_selector", help="选择使用预设的目标资本结构，还是基于最新的市值和负债动态计算资本结构权重。" )
             target_debt_ratio_disabled_val = (wacc_weight_mode_ui_val == "使用最新市场价值计算权重")
-            target_debt_ratio_val = st.number_input( "目标债务比例 D/(D+E):", min_value=0.0, max_value=1.0, value=0.45, step=0.05, format="%.2f", help="仅在选择“使用目标债务比例”模式时有效。留空则使用后端默认值。", key="wacc_debt_ratio", disabled=target_debt_ratio_disabled_val )
-            cost_of_debt_val = st.number_input("税前债务成本 (Rd):", min_value=0.0, value=0.05, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_cost_debt")
-            risk_free_rate_val = st.number_input("无风险利率 (Rf):", min_value=0.0, value=0.03, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_rf")
-            beta_val = st.number_input("贝塔系数 (Beta):", value=1.0, step=0.1, format="%.2f", help="留空则使用数据库最新值或默认值", key="wacc_beta")
-            market_risk_premium_val = st.number_input("市场风险溢价 (MRP):", min_value=0.0, value=0.06, step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_mrp")
+            target_debt_ratio_val = st.number_input( "目标债务比例 D/(D+E):", min_value=0.0, max_value=1.0, value=st.session_state.get("wacc_debt_ratio", 0.45), step=0.05, format="%.2f", help="仅在选择“使用目标债务比例”模式时有效。留空则使用后端默认值。", key="wacc_debt_ratio", disabled=target_debt_ratio_disabled_val )
+            cost_of_debt_val = st.number_input("税前债务成本 (Rd):", min_value=0.0, value=st.session_state.get("wacc_cost_debt", 0.05), step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_cost_debt")
+            risk_free_rate_val = st.number_input("无风险利率 (Rf):", min_value=0.0, value=st.session_state.get("wacc_rf", 0.03), step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_rf")
+            beta_val = st.number_input("贝塔系数 (Beta):", value=st.session_state.get("wacc_beta", 1.0), step=0.1, format="%.2f", help="留空则使用数据库最新值或默认值", key="wacc_beta")
+            market_risk_premium_val = st.number_input("市场风险溢价 (MRP):", min_value=0.0, value=st.session_state.get("wacc_mrp", 0.06), step=0.005, format="%.3f", help="留空则使用默认值", key="wacc_mrp")
         with st.expander("终值计算假设"):
-            terminal_value_method_val = st.selectbox("终值计算方法:", options=['exit_multiple', 'perpetual_growth'], index=0, key="tv_method")
-            exit_multiple_val = st.number_input("退出乘数 (EBITDA):", min_value=0.1, value=7.0, step=0.5, format="%.1f", key="tv_exit_multiple", disabled=(terminal_value_method_val != 'exit_multiple'), on_change=update_sensitivity_ui_elements) if terminal_value_method_val == 'exit_multiple' else None
-            perpetual_growth_rate_val = st.number_input("永续增长率:", min_value=0.0, max_value=0.05, value=0.025, step=0.001, format="%.3f", key="tv_pg_rate", disabled=(terminal_value_method_val != 'perpetual_growth'), on_change=update_sensitivity_ui_elements) if terminal_value_method_val == 'perpetual_growth' else None
+            terminal_value_method_val = st.selectbox("终值计算方法:", options=['exit_multiple', 'perpetual_growth'], index=['exit_multiple', 'perpetual_growth'].index(st.session_state.get("tv_method", 'exit_multiple')), key="tv_method")
+            exit_multiple_val = st.number_input("退出乘数 (EBITDA):", min_value=0.1, value=st.session_state.get("tv_exit_multiple", 7.0), step=0.5, format="%.1f", key="tv_exit_multiple", disabled=(terminal_value_method_val != 'exit_multiple'), on_change=update_sensitivity_ui_elements) if terminal_value_method_val == 'exit_multiple' else None
+            perpetual_growth_rate_val = st.number_input("永续增长率:", min_value=0.0, max_value=0.05, value=st.session_state.get("tv_pg_rate", 0.025), step=0.001, format="%.3f", key="tv_pg_rate", disabled=(terminal_value_method_val != 'perpetual_growth'), on_change=update_sensitivity_ui_elements) if terminal_value_method_val == 'perpetual_growth' else None
         st.divider()
         st.subheader("敏感性分析")
-        enable_sensitivity_val = st.checkbox("启用敏感性分析", value=True, key="enable_sensitivity_cb")
+        enable_sensitivity_val = st.checkbox("启用敏感性分析", value=st.session_state.get("enable_sensitivity_cb", True), key="enable_sensitivity_cb")
         if enable_sensitivity_val:
             st.markdown("**行轴设置**")
-            row_param_display_val = st.selectbox( "选择行轴参数:", options=list(supported_axis_params.keys()), index=0, key="sens_row_param", on_change=update_sensitivity_ui_elements )
-            # row_step_val = st.number_input("步长:", value=st.session_state.get("sens_row_step"), step=0.001 if supported_axis_params.get(row_param_display_val) != "exit_multiple" else 0.1, format="%.4f" if supported_axis_params.get(row_param_display_val) != "exit_multiple" else "%.1f", key="sens_row_step", on_change=update_sensitivity_ui_elements)
-            # row_points_val = st.slider("点数 (奇数):", min_value=3, max_value=9, value=st.session_state.get("sens_row_points"), step=2, key="sens_row_points", on_change=update_sensitivity_ui_elements)
+            row_param_display_val = st.selectbox( "选择行轴参数:", options=list(supported_axis_params.keys()), index=list(supported_axis_params.keys()).index(st.session_state.get("sens_row_param", "WACC")), key="sens_row_param", on_change=update_sensitivity_ui_elements )
             st.number_input("步长:", value=st.session_state.get("sens_row_step"), step=0.001 if supported_axis_params.get(row_param_display_val) != "exit_multiple" else 0.1, format="%.4f" if supported_axis_params.get(row_param_display_val) != "exit_multiple" else "%.1f", key="sens_row_step", on_change=update_sensitivity_ui_elements)
-            st.slider("点数 (奇数):", min_value=3, max_value=9, value=st.session_state.get("sens_row_points"), step=2, key="sens_row_points", on_change=update_sensitivity_ui_elements)
+            st.slider("点数 (奇数):", min_value=3, max_value=9, value=st.session_state.get("sens_row_points", 5), step=2, key="sens_row_points", on_change=update_sensitivity_ui_elements)
             if st.session_state.sens_row_param == "WACC":
                 st.caption("提示: WACC轴的中心将基于实际计算的WACC值，步长和点数将用于后端重新生成分析轴。")
             st.number_input(f"中心值 ({row_param_display_val}):", value=float(st.session_state.get('sens_row_center_value', 0.0)), key="sens_row_center_display", disabled=True, format="%.4f" if supported_axis_params.get(row_param_display_val) == "wacc" or supported_axis_params.get(row_param_display_val) == "perpetual_growth_rate" else "%.1f")
@@ -709,50 +826,41 @@ def render_sidebar_inputs():
             current_col_display_val = st.session_state.get("sens_col_param", available_col_params_options_val[0] if available_col_params_options_val else list(supported_axis_params.keys())[0])
             col_default_index_val = available_col_params_options_val.index(current_col_display_val) if current_col_display_val in available_col_params_options_val else 0
             col_param_display_val = st.selectbox( "选择列轴参数:", options=available_col_params_options_val, index=col_default_index_val, key="sens_col_param", on_change=update_sensitivity_ui_elements )
-            # col_step_val = st.number_input("步长:", value=st.session_state.get("sens_col_step"), step=0.001 if supported_axis_params.get(col_param_display_val) != "exit_multiple" else 0.1, format="%.4f" if supported_axis_params.get(col_param_display_val) != "exit_multiple" else "%.1f", key="sens_col_step", on_change=update_sensitivity_ui_elements)
-            # col_points_val = st.slider("点数 (奇数):", min_value=3, max_value=9, value=st.session_state.get("sens_col_points"), step=2, key="sens_col_points", on_change=update_sensitivity_ui_elements)
             st.number_input("步长:", value=st.session_state.get("sens_col_step"), step=0.001 if supported_axis_params.get(col_param_display_val) != "exit_multiple" else 0.1, format="%.4f" if supported_axis_params.get(col_param_display_val) != "exit_multiple" else "%.1f", key="sens_col_step", on_change=update_sensitivity_ui_elements)
-            st.slider("点数 (奇数):", min_value=3, max_value=9, value=st.session_state.get("sens_col_points"), step=2, key="sens_col_points", on_change=update_sensitivity_ui_elements)
+            st.slider("点数 (奇数):", min_value=3, max_value=9, value=st.session_state.get("sens_col_points", 5), step=2, key="sens_col_points", on_change=update_sensitivity_ui_elements)
             if st.session_state.sens_col_param == "WACC":
                 st.caption("提示: WACC轴的中心将基于实际计算的WACC值，步长和点数将用于后端重新生成分析轴。")
             st.number_input(f"中心值 ({col_param_display_val}):", value=float(st.session_state.get('sens_col_center_value', 0.0)), key="sens_col_center_display", disabled=True, format="%.4f" if supported_axis_params.get(col_param_display_val) == "wacc" or supported_axis_params.get(col_param_display_val) == "perpetual_growth_rate" else "%.1f")
             st.text_area( "列轴值列表 (逗号分隔):", value=st.session_state.get('sens_col_values_str', ""), key="sens_col_values_input" )
             st.markdown("**输出指标**")
-            st.multiselect( "选择要显示的敏感性表格指标:", options=list(supported_output_metrics.keys()), default=list(supported_output_metrics.keys()), key="sens_output_metrics_select" )
+            st.multiselect( "选择要显示的敏感性表格指标:", options=list(supported_output_metrics.keys()), default=st.session_state.get("sens_output_metrics_select", list(supported_output_metrics.keys())), key="sens_output_metrics_select" )
             if 'sensitivity_initialized' in st.session_state and st.session_state.sensitivity_initialized:
                  if 'sens_ui_initialized_run' not in st.session_state:
                      update_sensitivity_ui_elements()
                      st.session_state.sens_ui_initialized_run = True
         st.divider()
         st.subheader("其他选项")
-        llm_toggle_value_val = st.checkbox("启用 LLM 分析总结", value=False, key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。") # Default to False
+        llm_toggle_value_val = st.checkbox("启用 LLM 分析总结", value=st.session_state.get("llm_toggle", False), key="llm_toggle", help="控制是否请求并显示 LLM 生成的分析摘要。")
         
-        # --- 新增 LLM 配置 UI ---
-        if llm_toggle_value_val: # 仅在启用LLM分析时显示这些选项
+        if llm_toggle_value_val:
             st.markdown("---")
             st.subheader("LLM 配置")
             llm_provider_options = ["DeepSeek", "自定义 (OpenAI 兼容)"]
-            # 从 .env 读取默认 provider，如果未设置，则默认为 "DeepSeek"
             default_provider_from_env = os.getenv("LLM_PROVIDER", "deepseek").lower()
-            default_provider_index = 0 # Default to DeepSeek
-            if default_provider_from_env == "custom_openai": # Check if default is custom
-                 # This case is tricky as "自定义 (OpenAI 兼容)" is not a direct env value.
-                 # For simplicity, we'll default to DeepSeek if LLM_PROVIDER is not explicitly "custom_openai" in a way that maps to the UI option.
-                 # A more robust mapping might be needed if .env could store "自定义 (OpenAI 兼容)" directly.
-                 # For now, if LLM_PROVIDER is 'custom_openai', we assume the user wants the custom option selected.
-                 # However, the UI option is "自定义 (OpenAI 兼容)". Let's assume if .env is 'custom_openai', it maps to the second option.
-                 # This part of the logic for default_provider_index might need refinement based on exact .env values.
-                 # A simpler approach: always default UI to DeepSeek unless user changes it.
-                 # Or, if os.getenv("LLM_PROVIDER") == "custom_openai_placeholder_for_ui", then index = 1.
-                 # For now, let's default to DeepSeek in UI and let user change.
-                 pass # Keep default_provider_index = 0 (DeepSeek) or adjust if a clear mapping from .env is desired for "自定义"
-
+            default_provider_index = 0 
+            if default_provider_from_env == "custom_openai":
+                 # This needs a more robust mapping if .env stores "custom_openai"
+                 # For now, assume UI default is DeepSeek unless explicitly set in session_state
+                 default_provider_index = llm_provider_options.index("自定义 (OpenAI 兼容)") if "自定义 (OpenAI 兼容)" in llm_provider_options else 0
+            
             llm_provider_select_val = st.selectbox(
                 "选择 LLM 提供商:", 
                 options=llm_provider_options, 
-                index=default_provider_index, # Default to DeepSeek in UI
+                index=st.session_state.get("llm_provider_select_index", default_provider_index), # Use session state or calculated default
                 key="llm_provider_select"
             )
+            st.session_state.llm_provider_select_index = llm_provider_options.index(llm_provider_select_val)
+
 
             deepseek_model_id_val = None
             custom_llm_api_base_url_val = None
@@ -761,20 +869,20 @@ def render_sidebar_inputs():
             if llm_provider_select_val == "DeepSeek":
                 deepseek_model_id_val = st.text_input(
                     "DeepSeek 模型 ID (可选):", 
-                    value=os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat"), 
+                    value=st.session_state.get("deepseek_model_id", os.getenv("DEEPSEEK_MODEL_NAME", "deepseek-chat")), 
                     key="deepseek_model_id",
                     help="留空则使用 .env 中的 DEEPSEEK_MODEL_NAME 或 deepseek-chat"
                 )
             elif llm_provider_select_val == "自定义 (OpenAI 兼容)":
                 custom_llm_api_base_url_val = st.text_input(
                     "自定义模型 API Base URL:", 
-                    value=os.getenv("CUSTOM_LLM_API_BASE_URL", ""), 
+                    value=st.session_state.get("custom_base_url", os.getenv("CUSTOM_LLM_API_BASE_URL", "")), 
                     key="custom_base_url", 
                     help="例如: http://localhost:1234/v1"
                 )
                 custom_llm_model_id_val = st.text_input(
                     "自定义模型 ID:", 
-                    value=os.getenv("CUSTOM_LLM_MODEL_ID", ""), 
+                    value=st.session_state.get("custom_model_id", os.getenv("CUSTOM_LLM_MODEL_ID", "")), 
                     key="custom_model_id",
                     help="例如: my-custom-model"
                 )
@@ -782,29 +890,90 @@ def render_sidebar_inputs():
             llm_temperature_val = st.slider(
                 "Temperature:", 
                 min_value=0.0, max_value=2.0, 
-                value=float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7")), 
+                value=st.session_state.get("llm_temp", float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7"))), 
                 step=0.1, key="llm_temp"
             )
             llm_top_p_val = st.slider(
                 "Top-P:", 
                 min_value=0.0, max_value=1.0, 
-                value=float(os.getenv("LLM_DEFAULT_TOP_P", "0.9")), 
+                value=st.session_state.get("llm_top_p", float(os.getenv("LLM_DEFAULT_TOP_P", "0.9"))), 
                 step=0.05, key="llm_top_p"
             )
             llm_max_tokens_val = st.number_input(
                 "Max Tokens (最大完成长度):", 
-                min_value=50, max_value=32000, # Adjusted max based on common models
-                value=int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000")), 
+                min_value=50, max_value=32000, 
+                value=st.session_state.get("llm_max_tokens", int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000"))), 
                 step=100, key="llm_max_tokens",
                 help="LLM 生成内容的最大 token 数。"
             )
-        # --- End of LLM 配置 UI ---
         
         st.divider()
         st.caption("未来功能：情景分析")
         st.info("未来版本将支持对关键假设进行情景分析。")
     
-    return {
+        # --- 股票筛选器侧边栏 ---
+        st.sidebar.divider() 
+        st.sidebar.header("股票筛选器参数") 
+
+        # Data Update Section for Screener
+        st.sidebar.subheader("数据管理 (筛选器)") 
+        if st.sidebar.button("更新股票基础数据", key="update_stock_basic_main"):
+            if pro:
+                with st.spinner("正在更新股票基础数据 (筛选器)... 请稍候..."):
+                    load_stock_basic(pro, force_update=True)
+                st.sidebar.success("股票基础数据更新完成！(筛选器)") 
+                update_screener_data_status() 
+                st.rerun()
+            else:
+                st.sidebar.error("Tushare API 未初始化 (筛选器)。") 
+
+        selected_trade_date_input_val = st.sidebar.text_input(
+            "行情数据交易日 (YYYYMMDD)", 
+            value=st.session_state.get('latest_trade_date', datetime.now().strftime('%Y%m%d')), 
+            key="screener_trade_date_input",
+            help="输入您想获取行情数据的交易日，默认为最新可获取交易日。"
+        )
+
+        if st.sidebar.button("更新每日行情指标", key="update_daily_basic_main"):
+            if pro and selected_trade_date_input_val:
+                try:
+                    datetime.strptime(selected_trade_date_input_val, '%Y%m%d')
+                    with st.spinner(f"正在更新交易日 {selected_trade_date_input_val} 的每日行情指标 (筛选器)... 请稍候..."):
+                        load_daily_basic(pro, selected_trade_date_input_val, force_update=True)
+                    st.session_state.latest_trade_date = selected_trade_date_input_val
+                    st.sidebar.success(f"交易日 {selected_trade_date_input_val} 的每日行情指标更新完成！(筛选器)") 
+                    update_screener_data_status()
+                    st.rerun()
+                except ValueError:
+                    st.sidebar.error("日期格式无效，请输入 YYYYMMDD 格式。(筛选器)") 
+            elif not pro:
+                st.sidebar.error("Tushare API 未初始化。(筛选器)") 
+            else:
+                st.sidebar.error("请输入有效的交易日期。(筛选器)") 
+        
+        st.sidebar.caption(f"基础数据最后更新: {st.session_state.stock_basic_last_update}") 
+        st.sidebar.caption(f"行情数据日期: {st.session_state.daily_basic_data_date}") 
+        st.sidebar.caption(f"行情缓存最后更新: {st.session_state.daily_basic_last_update}") 
+        st.sidebar.divider() 
+
+        # Filter Criteria for Screener
+        st.sidebar.subheader("筛选指标") 
+        pe_min_val = st.sidebar.number_input("最低PE (市盈率)", min_value=0.0, value=st.session_state.get("screener_pe_min", 0.1), step=0.1, format="%.2f", key="screener_pe_min")
+        pe_max_val = st.sidebar.number_input("最高PE (市盈率)", min_value=0.0, value=st.session_state.get("screener_pe_max", 30.0), step=1.0, format="%.2f", key="screener_pe_max")
+
+        pb_min_val = st.sidebar.number_input("最低PB (市净率)", min_value=0.0, value=st.session_state.get("screener_pb_min", 0.1), step=0.1, format="%.2f", key="screener_pb_min")
+        pb_max_val = st.sidebar.number_input("最高PB (市净率)", min_value=0.0, value=st.session_state.get("screener_pb_max", 3.0), step=0.1, format="%.2f", key="screener_pb_max")
+
+        market_cap_min_billion_val = st.sidebar.number_input("最低市值 (亿元)", min_value=0.0, value=st.session_state.get("screener_mcap_min", 50.0), step=10.0, format="%.2f", key="screener_mcap_min")
+        market_cap_max_billion_val = st.sidebar.number_input("最高市值 (亿元)", min_value=0.0, value=st.session_state.get("screener_mcap_max", 10000.0), step=100.0, format="%.2f", key="screener_mcap_max")
+
+        # "开始筛选" 按钮的逻辑将在主程序区处理，这里只收集参数
+        # if st.button("开始筛选", type="primary", key="filter_stocks_main"):
+            # This button will now be in the screener tab, its action will use these sidebar values.
+            # The actual filtering logic will be triggered from the main application body within the screener tab.
+            # st.session_state.screener_filter_button_clicked = True # Flag that button was clicked
+
+    returned_params = {
         "ts_code": ts_code_val,
         "valuation_date": valuation_date_val,
         "forecast_years": forecast_years_val,
@@ -850,120 +1019,256 @@ def render_sidebar_inputs():
         "custom_llm_model_id_input": st.session_state.get("custom_model_id") if llm_toggle_value_val and st.session_state.get("llm_provider_select") == "自定义 (OpenAI 兼容)" else None,
         "llm_temperature_input": st.session_state.get("llm_temp", float(os.getenv("LLM_DEFAULT_TEMPERATURE", "0.7"))) if llm_toggle_value_val else None,
         "llm_top_p_input": st.session_state.get("llm_top_p", float(os.getenv("LLM_DEFAULT_TOP_P", "0.9"))) if llm_toggle_value_val else None,
-        "llm_max_tokens_input": st.session_state.get("llm_max_tokens", int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000"))) if llm_toggle_value_val else None
+        "llm_max_tokens_input": st.session_state.get("llm_max_tokens", int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "4000"))) if llm_toggle_value_val else None,
+        # Add screener inputs to the return dict
+        "screener_pe_min": pe_min_val,
+        "screener_pe_max": pe_max_val,
+        "screener_pb_min": pb_min_val,
+        "screener_pb_max": pb_max_val,
+        "screener_market_cap_min_billion": market_cap_min_billion_val,
+        "screener_market_cap_max_billion": market_cap_max_billion_val,
+        "screener_selected_trade_date": selected_trade_date_input_val
     }
+    # Ensure all keys exist in session state for persistence across reruns
+    for key, value in returned_params.items():
+        if key not in st.session_state: # Initialize if not present
+            st.session_state[key] = value
+        # For inputs that might be None initially but get a value (like from text_input)
+        # and we want to preserve that user-entered value or the default.
+        # This is mostly handled by setting `value=st.session_state.get(key, default_value)` in the widget itself.
+    return returned_params
 
 # --- 主程序逻辑 ---
+
+# Handle pending ts_code update from screener button before rendering sidebar
+if st.session_state.get('pending_ts_code_update'):
+    st.session_state.ts_code_input = st.session_state.pending_ts_code_update
+    del st.session_state.pending_ts_code_update # Clear after use
+
 # 调用侧边栏渲染函数并获取输入值
 sidebar_inputs = render_sidebar_inputs()
 
-if st.button("🚀 开始估值计算", key="start_valuation_button"): 
-    base_request_payload = {
-        "ts_code": sidebar_inputs["ts_code"],
-        "valuation_date": sidebar_inputs["valuation_date"].strftime('%Y-%m-%d') if sidebar_inputs["valuation_date"] else None,
-        "forecast_years": sidebar_inputs["forecast_years"],
-        "cagr_decay_rate": sidebar_inputs["cagr_decay_rate"],
-        "op_margin_forecast_mode": sidebar_inputs["op_margin_forecast_mode"],
-        "target_operating_margin": sidebar_inputs["target_operating_margin"],
-        "op_margin_transition_years": sidebar_inputs["op_margin_transition_years"],
-        "sga_rd_ratio_forecast_mode": sidebar_inputs["sga_rd_ratio_forecast_mode"],
-        "target_sga_rd_to_revenue_ratio": sidebar_inputs["target_sga_rd_to_revenue_ratio"],
-        "sga_rd_transition_years": sidebar_inputs["sga_rd_transition_years"],
-        "da_ratio_forecast_mode": sidebar_inputs["da_ratio_forecast_mode"], 
-        "target_da_to_revenue_ratio": sidebar_inputs["target_da_to_revenue_ratio"],
-        "da_ratio_transition_years": sidebar_inputs["da_ratio_transition_years"],
-        "capex_ratio_forecast_mode": sidebar_inputs["capex_ratio_forecast_mode"], 
-        "target_capex_to_revenue_ratio": sidebar_inputs["target_capex_to_revenue_ratio"],
-        "capex_ratio_transition_years": sidebar_inputs["capex_ratio_transition_years"],
-        "nwc_days_forecast_mode": sidebar_inputs["nwc_days_forecast_mode"],
-        "target_accounts_receivable_days": sidebar_inputs["target_accounts_receivable_days"],
-        "target_inventory_days": sidebar_inputs["target_inventory_days"],
-        "target_accounts_payable_days": sidebar_inputs["target_accounts_payable_days"],
-        "nwc_days_transition_years": sidebar_inputs["nwc_days_transition_years"],
-        "other_nwc_ratio_forecast_mode": sidebar_inputs["other_nwc_ratio_forecast_mode"],
-        "target_other_current_assets_to_revenue_ratio": sidebar_inputs["target_other_current_assets_to_revenue_ratio"],
-        "target_other_current_liabilities_to_revenue_ratio": sidebar_inputs["target_other_current_liabilities_to_revenue_ratio"],
-        "other_nwc_ratio_transition_years": sidebar_inputs["other_nwc_ratio_transition_years"],
-        "target_effective_tax_rate": sidebar_inputs["target_effective_tax_rate"],
-        "wacc_weight_mode": "market" if sidebar_inputs["wacc_weight_mode_ui"] == "使用最新市场价值计算权重" else "target", 
-        "target_debt_ratio": sidebar_inputs["target_debt_ratio"] if not sidebar_inputs["target_debt_ratio_disabled"] else None, 
-        "cost_of_debt": sidebar_inputs["cost_of_debt"],
-        "risk_free_rate": sidebar_inputs["risk_free_rate"],
-        "beta": sidebar_inputs["beta"],
-        "market_risk_premium": sidebar_inputs["market_risk_premium"],
-        "terminal_value_method": sidebar_inputs["terminal_value_method"],
-        "exit_multiple": sidebar_inputs["exit_multiple"],
-        "perpetual_growth_rate": sidebar_inputs["perpetual_growth_rate"],
-        "request_llm_summary": sidebar_inputs["llm_toggle_value"],
-        # Add new LLM params to payload
-        "llm_provider": None, # Will be set below
-        "llm_model_id": None, # Will be set below
-        "llm_api_base_url": None, # Will be set below
-        "llm_temperature": None, # Will be set below
-        "llm_top_p": None, # Will be set below
-        "llm_max_tokens": None, # Will be set below
-    }
+# --- 定义股票筛选器标签页渲染函数 (占位符) ---
+def render_stock_screener_tab():
+    st.header("股票筛选器")
+    st.markdown("使用侧边栏设置筛选条件并管理数据，然后点击下方的“开始筛选”按钮。")
 
-    if sidebar_inputs["llm_toggle_value"]:
-        provider_ui_value = sidebar_inputs.get("llm_provider_selected")
-        if provider_ui_value == "DeepSeek":
-            base_request_payload["llm_provider"] = "deepseek"
-            base_request_payload["llm_model_id"] = sidebar_inputs.get("deepseek_model_id_input") or os.getenv("DEEPSEEK_MODEL_NAME") # Fallback to env if input is empty
-        elif provider_ui_value == "自定义 (OpenAI 兼容)":
-            base_request_payload["llm_provider"] = "custom_openai"
-            base_request_payload["llm_api_base_url"] = sidebar_inputs.get("custom_llm_api_base_url_input")
-            base_request_payload["llm_model_id"] = sidebar_inputs.get("custom_llm_model_id_input")
-        
-        base_request_payload["llm_temperature"] = sidebar_inputs.get("llm_temperature_input")
-        base_request_payload["llm_top_p"] = sidebar_inputs.get("llm_top_p_input")
-        base_request_payload["llm_max_tokens"] = sidebar_inputs.get("llm_max_tokens_input")
-
-    sensitivity_payload = None
-    # The following block was erroneously duplicated and caused a SyntaxError.
-    # It is being removed as the logic for sensitivity_payload construction
-    # is handled further down within the "if sidebar_inputs["enable_sensitivity"]:" block.
-    # if sidebar_inputs["enable_sensitivity"]: 
-    #     "valuation_date": valuation_date.strftime('%Y-%m-%d') if valuation_date else None,
-    #     "forecast_years": forecast_years,
-    #     ... (rest of duplicated block)
-    #     "request_llm_summary": llm_toggle_value, # Add the toggle state to the payload
-    # } # This was the unmatched '}'
-
-    # Corrected logic for handling sensitivity payload starts here:
-    if sidebar_inputs["enable_sensitivity"]: 
-        try:
-            row_param_key_final = supported_axis_params.get(st.session_state.get("sens_row_param", "WACC"), "wacc")
-            col_param_key_final = supported_axis_params.get(st.session_state.get("sens_col_param", "退出乘数 (EBITDA)"), "exit_multiple")
-            row_values_input_str = st.session_state.get("sens_row_values_input", st.session_state.get("sens_row_values_str", ""))
-            col_values_input_str = st.session_state.get("sens_col_values_input", st.session_state.get("sens_col_values_str", ""))
-            row_values_parsed = [float(x.strip()) for x in row_values_input_str.split(',') if x.strip()] 
-            col_values_parsed = [float(x.strip()) for x in col_values_input_str.split(',') if x.strip()] 
-            selected_output_metric_displays_final = st.session_state.get("sens_output_metrics_select", list(supported_output_metrics.keys()))
-            selected_output_metric_keys_final = [supported_output_metrics[d] for d in selected_output_metric_displays_final]
-            if not row_values_parsed or not col_values_parsed:
-                 st.error("敏感性分析的行轴和列轴值列表不能为空或解析失败。")
-            elif not selected_output_metric_keys_final:
-                 st.error("请至少选择一个敏感性分析输出指标。")
+    if st.button("开始筛选", type="primary", key="filter_stocks_main_tab_button"):
+        if pro and sidebar_inputs.get("screener_selected_trade_date"):
+            with st.spinner("正在加载并合并数据进行筛选..."):
+                current_trade_date_for_screener = st.session_state.get('screener_trade_date_input', st.session_state.latest_trade_date)
+                st.session_state.screener_merged_data = get_merged_stock_data(
+                    pro, 
+                    current_trade_date_for_screener,
+                    force_update_basic=False,
+                    force_update_daily=False
+                )
+            
+            if st.session_state.screener_merged_data is not None and not st.session_state.screener_merged_data.empty:
+                df_to_filter = st.session_state.screener_merged_data.copy()
+                conditions = (
+                    (df_to_filter['pe'] >= sidebar_inputs["screener_pe_min"]) & (df_to_filter['pe'] <= sidebar_inputs["screener_pe_max"]) & (df_to_filter['pe'] > 0) &
+                    (df_to_filter['pb'] >= sidebar_inputs["screener_pb_min"]) & (df_to_filter['pb'] <= sidebar_inputs["screener_pb_max"]) & (df_to_filter['pb'] > 0) &
+                    (df_to_filter['market_cap_billion'] >= sidebar_inputs["screener_market_cap_min_billion"]) &
+                    (df_to_filter['market_cap_billion'] <= sidebar_inputs["screener_market_cap_max_billion"])
+                )
+                st.session_state.screener_filtered_data = df_to_filter[conditions]
+                st.success(f"筛选完成！找到 {len(st.session_state.screener_filtered_data)} 只符合条件的股票。")
+                st.session_state.screener_filter_button_clicked = True
             else:
-                sensitivity_payload = {
-                    "row_axis": { "parameter_name": row_param_key_final, "values": row_values_parsed, "step": st.session_state.get("sens_row_step"), "points": st.session_state.get("sens_row_points") },
-                    "column_axis": { "parameter_name": col_param_key_final, "values": col_values_parsed, "step": st.session_state.get("sens_col_step"), "points": st.session_state.get("sens_col_points") },
-                }
-                base_request_payload["sensitivity_analysis"] = sensitivity_payload
-        except ValueError:
-            st.error("无法解析敏感性分析的值列表，请确保输入的是逗号分隔的有效数字。")
-            sensitivity_payload = None 
-            base_request_payload["sensitivity_analysis"] = None 
-        except Exception as e: 
-             st.error(f"处理敏感性分析输入时出错: {e}")
-             sensitivity_payload = None
-             base_request_payload["sensitivity_analysis"] = None
-    request_payload_filtered = {k: v for k, v in base_request_payload.items() if v is not None}
-    selected_metrics_keys_for_render = []
-    # Use sidebar_inputs to get the value of enable_sensitivity
-    if sidebar_inputs["enable_sensitivity"] and sensitivity_payload: 
-        selected_output_metric_displays_render = st.session_state.get("sens_output_metrics_select", list(supported_output_metrics.keys()))
-        selected_metrics_keys_for_render = [supported_output_metrics[d] for d in selected_output_metric_displays_render]
-    elif sidebar_inputs["enable_sensitivity"]: 
-         selected_metrics_keys_for_render = []
-    render_valuation_results(request_payload_filtered, sidebar_inputs["ts_code"], base_assumptions=base_request_payload, selected_output_metric_keys_from_ui=selected_metrics_keys_for_render)
+                st.error("未能加载或合并数据，无法进行筛选。请先尝试在侧边栏更新数据。")
+                st.session_state.screener_filtered_data = pd.DataFrame() # Clear previous results
+                st.session_state.screener_filter_button_clicked = True
+        elif not pro:
+            st.error("Tushare API 未初始化。")
+        else:
+            st.error("未能确定行情数据的交易日，请先在侧边栏更新每日行情指标。")
+        
+    if 'screener_filtered_data' in st.session_state and not st.session_state.screener_filtered_data.empty:
+        st.subheader(f"筛选结果 ({len(st.session_state.screener_filtered_data)} 只股票)")
+        
+        # 定义要显示的列和格式化方式
+        display_columns_config = {
+            'ts_code': {"name": "代码", "format": None, "width": 1},
+            'name': {"name": "名称", "format": None, "width": 1.3},
+            'industry': {"name": "行业", "format": None, "width": 1.7},
+            'close': {"name": "收盘价", "format": "{:.2f}", "width": 0.8},
+            'pe': {"name": "PE", "format": "{:.2f}", "width": 0.7},
+            'pb': {"name": "PB", "format": "{:.2f}", "width": 0.7},
+            'turnover_rate': {"name": "换手率(%)", "format": "{:.2f}%", "width": 1},
+            'market_cap_billion': {"name": "市值(亿)", "format": "{:,.1f}", "width": 1.2},
+            'action': {"name": "操作", "format": None, "width": 1.1}
+        }
+        
+        # 表头
+        header_cols = st.columns([cfg["width"] for cfg in display_columns_config.values()])
+        for i, col_key in enumerate(display_columns_config.keys()):
+            header_cols[i].markdown(f"**{display_columns_config[col_key]['name']}**")
+
+        st.divider()
+
+        # 数据行
+        for index, row_data in st.session_state.screener_filtered_data.iterrows():
+            row_cols = st.columns([cfg["width"] for cfg in display_columns_config.values()])
+            for i, col_key in enumerate(display_columns_config.keys()):
+                if col_key == 'action':
+                    button_key = f"valuate_{row_data['ts_code']}_{index}"
+                    if row_cols[i].button("进行估值", key=button_key, help=f"对 {row_data['name']} ({row_data['ts_code']}) 进行DCF估值"):
+                        st.session_state.pending_ts_code_update = row_data['ts_code']
+                        # Store relevant metrics from screener for DCF tab display
+                        st.session_state.screener_metrics_for_dcf = {
+                            "ts_code": row_data.get('ts_code'),
+                            "trade_date": row_data.get('trade_date'), # Make sure trade_date is in screener_filtered_data
+                            "close": row_data.get('close'),
+                            "pe": row_data.get('pe'), # Or pe_ttm, decide which one
+                            "pb": row_data.get('pb'),
+                            "dv_ratio": row_data.get('dv_ratio'), # dv_ratio is usually % value without % sign
+                            "dv_ttm": row_data.get('dv_ttm') # dv_ttm is also % value without % sign
+                        }
+                        st.info(f"已将股票代码 {row_data['ts_code']} ({row_data['name']}) 的信息填充到DCF估值区，请切换到“DCF估值”标签页查看并开始计算。")
+                        st.rerun() 
+                else:
+                    cell_value = row_data.get(col_key)
+                    cell_format = display_columns_config[col_key]["format"]
+                    if cell_value is not None and cell_format:
+                        try:
+                            row_cols[i].markdown(cell_format.format(cell_value))
+                        except (ValueError, TypeError):
+                            row_cols[i].markdown(str(cell_value))
+                    else:
+                        row_cols[i].markdown(str(cell_value) if cell_value is not None else "N/A")
+            st.divider()
+
+    elif st.session_state.get('screener_filter_button_clicked', False):
+        st.info("没有找到符合当前筛选条件的股票。请尝试调整筛选范围或检查数据更新状态。")
+
+# --- 创建标签页 ---
+# active_tab_name = st.session_state.get('active_tab', "DCF估值") # Get active tab from session state
+# tabs_list = ["DCF估值", "股票筛选器"]
+# default_tab_index = tabs_list.index(active_tab_name) if active_tab_name in tabs_list else 0
+# tab_valuation, tab_screener = st.tabs(tabs_list) # default_index not directly supported, manage content visibility instead
+
+tab_valuation, tab_screener = st.tabs(["DCF估值", "股票筛选器"])
+
+with tab_valuation:
+    if st.button("🚀 开始估值计算", key="start_valuation_button"): 
+        # State cleanup: If the ts_code for valuation is different from what screener provided, clear screener metrics
+        current_valuation_ts_code = sidebar_inputs["ts_code"]
+        screener_metrics_for_dcf = st.session_state.get('screener_metrics_for_dcf')
+        if screener_metrics_for_dcf and screener_metrics_for_dcf.get('ts_code') != current_valuation_ts_code:
+            del st.session_state.screener_metrics_for_dcf
+            # Optionally, re-fetch or ensure valuation_results from API will be used fully
+            # For now, just deleting is fine, render_basic_info_section will fallback to API data
+
+        base_request_payload = {
+            "ts_code": current_valuation_ts_code, # Use the potentially updated ts_code
+            "valuation_date": sidebar_inputs["valuation_date"].strftime('%Y-%m-%d') if sidebar_inputs["valuation_date"] else None,
+            "forecast_years": sidebar_inputs["forecast_years"],
+            "cagr_decay_rate": sidebar_inputs["cagr_decay_rate"],
+            "op_margin_forecast_mode": sidebar_inputs["op_margin_forecast_mode"],
+            "target_operating_margin": sidebar_inputs["target_operating_margin"],
+            "op_margin_transition_years": sidebar_inputs["op_margin_transition_years"],
+            "sga_rd_ratio_forecast_mode": sidebar_inputs["sga_rd_ratio_forecast_mode"],
+            "target_sga_rd_to_revenue_ratio": sidebar_inputs["target_sga_rd_to_revenue_ratio"],
+            "sga_rd_transition_years": sidebar_inputs["sga_rd_transition_years"],
+            "da_ratio_forecast_mode": sidebar_inputs["da_ratio_forecast_mode"], 
+            "target_da_to_revenue_ratio": sidebar_inputs["target_da_to_revenue_ratio"],
+            "da_ratio_transition_years": sidebar_inputs["da_ratio_transition_years"],
+            "capex_ratio_forecast_mode": sidebar_inputs["capex_ratio_forecast_mode"], 
+            "target_capex_to_revenue_ratio": sidebar_inputs["target_capex_to_revenue_ratio"],
+            "capex_ratio_transition_years": sidebar_inputs["capex_ratio_transition_years"],
+            "nwc_days_forecast_mode": sidebar_inputs["nwc_days_forecast_mode"],
+            "target_accounts_receivable_days": sidebar_inputs["target_accounts_receivable_days"],
+            "target_inventory_days": sidebar_inputs["target_inventory_days"],
+            "target_accounts_payable_days": sidebar_inputs["target_accounts_payable_days"],
+            "nwc_days_transition_years": sidebar_inputs["nwc_days_transition_years"],
+            "other_nwc_ratio_forecast_mode": sidebar_inputs["other_nwc_ratio_forecast_mode"],
+            "target_other_current_assets_to_revenue_ratio": sidebar_inputs["target_other_current_assets_to_revenue_ratio"],
+            "target_other_current_liabilities_to_revenue_ratio": sidebar_inputs["target_other_current_liabilities_to_revenue_ratio"],
+            "other_nwc_ratio_transition_years": sidebar_inputs["other_nwc_ratio_transition_years"],
+            "target_effective_tax_rate": sidebar_inputs["target_effective_tax_rate"],
+            "wacc_weight_mode": "market" if sidebar_inputs["wacc_weight_mode_ui"] == "使用最新市场价值计算权重" else "target", 
+            "target_debt_ratio": sidebar_inputs["target_debt_ratio"] if not sidebar_inputs["target_debt_ratio_disabled"] else None, 
+            "cost_of_debt": sidebar_inputs["cost_of_debt"],
+            "risk_free_rate": sidebar_inputs["risk_free_rate"],
+            "beta": sidebar_inputs["beta"],
+            "market_risk_premium": sidebar_inputs["market_risk_premium"],
+            "terminal_value_method": sidebar_inputs["terminal_value_method"],
+            "exit_multiple": sidebar_inputs["exit_multiple"],
+            "perpetual_growth_rate": sidebar_inputs["perpetual_growth_rate"],
+            "request_llm_summary": sidebar_inputs["llm_toggle_value"],
+            # Add new LLM params to payload
+            "llm_provider": None, # Will be set below
+            "llm_model_id": None, # Will be set below
+            "llm_api_base_url": None, # Will be set below
+            "llm_temperature": None, # Will be set below
+            "llm_top_p": None, # Will be set below
+            "llm_max_tokens": None, # Will be set below
+        }
+
+        if sidebar_inputs["llm_toggle_value"]:
+            provider_ui_value = sidebar_inputs.get("llm_provider_selected")
+            if provider_ui_value == "DeepSeek":
+                base_request_payload["llm_provider"] = "deepseek"
+                base_request_payload["llm_model_id"] = sidebar_inputs.get("deepseek_model_id_input") or os.getenv("DEEPSEEK_MODEL_NAME") # Fallback to env if input is empty
+            elif provider_ui_value == "自定义 (OpenAI 兼容)":
+                base_request_payload["llm_provider"] = "custom_openai"
+                base_request_payload["llm_api_base_url"] = sidebar_inputs.get("custom_llm_api_base_url_input")
+                base_request_payload["llm_model_id"] = sidebar_inputs.get("custom_llm_model_id_input")
+            
+            base_request_payload["llm_temperature"] = sidebar_inputs.get("llm_temperature_input")
+            base_request_payload["llm_top_p"] = sidebar_inputs.get("llm_top_p_input")
+            base_request_payload["llm_max_tokens"] = sidebar_inputs.get("llm_max_tokens_input")
+
+        sensitivity_payload = None
+        # The following block was erroneously duplicated and caused a SyntaxError.
+        # It is being removed as the logic for sensitivity_payload construction
+        # is handled further down within the "if sidebar_inputs["enable_sensitivity"]:" block.
+        # if sidebar_inputs["enable_sensitivity"]: 
+        #     "valuation_date": valuation_date.strftime('%Y-%m-%d') if valuation_date else None,
+        #     "forecast_years": forecast_years,
+        #     ... (rest of duplicated block)
+        #     "request_llm_summary": llm_toggle_value, # Add the toggle state to the payload
+        # } # This was the unmatched '}'
+
+        # Corrected logic for handling sensitivity payload starts here:
+        if sidebar_inputs["enable_sensitivity"]: 
+            try:
+                row_param_key_final = supported_axis_params.get(st.session_state.get("sens_row_param", "WACC"), "wacc")
+                col_param_key_final = supported_axis_params.get(st.session_state.get("sens_col_param", "退出乘数 (EBITDA)"), "exit_multiple")
+                row_values_input_str = st.session_state.get("sens_row_values_input", st.session_state.get("sens_row_values_str", ""))
+                col_values_input_str = st.session_state.get("sens_col_values_input", st.session_state.get("sens_col_values_str", ""))
+                row_values_parsed = [float(x.strip()) for x in row_values_input_str.split(',') if x.strip()] 
+                col_values_parsed = [float(x.strip()) for x in col_values_input_str.split(',') if x.strip()] 
+                selected_output_metric_displays_final = st.session_state.get("sens_output_metrics_select", list(supported_output_metrics.keys()))
+                selected_output_metric_keys_final = [supported_output_metrics[d] for d in selected_output_metric_displays_final]
+                if not row_values_parsed or not col_values_parsed:
+                     st.error("敏感性分析的行轴和列轴值列表不能为空或解析失败。")
+                elif not selected_output_metric_keys_final:
+                     st.error("请至少选择一个敏感性分析输出指标。")
+                else:
+                    sensitivity_payload = {
+                        "row_axis": { "parameter_name": row_param_key_final, "values": row_values_parsed, "step": st.session_state.get("sens_row_step"), "points": st.session_state.get("sens_row_points") },
+                        "column_axis": { "parameter_name": col_param_key_final, "values": col_values_parsed, "step": st.session_state.get("sens_col_step"), "points": st.session_state.get("sens_col_points") },
+                    }
+                    base_request_payload["sensitivity_analysis"] = sensitivity_payload
+            except ValueError:
+                st.error("无法解析敏感性分析的值列表，请确保输入的是逗号分隔的有效数字。")
+                sensitivity_payload = None 
+                base_request_payload["sensitivity_analysis"] = None 
+            except Exception as e: 
+                 st.error(f"处理敏感性分析输入时出错: {e}")
+                 sensitivity_payload = None
+                 base_request_payload["sensitivity_analysis"] = None
+        request_payload_filtered = {k: v for k, v in base_request_payload.items() if v is not None}
+        selected_metrics_keys_for_render = []
+        # Use sidebar_inputs to get the value of enable_sensitivity
+        if sidebar_inputs["enable_sensitivity"] and sensitivity_payload: 
+            selected_output_metric_displays_render = st.session_state.get("sens_output_metrics_select", list(supported_output_metrics.keys()))
+            selected_metrics_keys_for_render = [supported_output_metrics[d] for d in selected_output_metric_displays_render]
+        elif sidebar_inputs["enable_sensitivity"]: 
+             selected_metrics_keys_for_render = []
+        render_valuation_results(request_payload_filtered, sidebar_inputs["ts_code"], base_assumptions=base_request_payload, selected_output_metric_keys_from_ui=selected_metrics_keys_for_render)
+
+with tab_screener:
+    render_stock_screener_tab()

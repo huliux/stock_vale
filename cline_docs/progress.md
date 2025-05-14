@@ -187,47 +187,67 @@
         - [x] 更新 `api/models.py` 中的 `StockValuationRequest` 以包含新的 LLM 配置字段。
         - [x] 更新 `api/main.py` 以从请求中读取新的 LLM 配置并传递给 `call_llm_api`。
         - [x] 更新 `streamlit_app.py` 以添加新的 LLM 配置 UI 元素，并将用户选择传递到后端。
+    - [x] **LLM 功能重构 (已完成):**
+        - [x] 更新 `.env.example` 以包含新的 LLM 相关环境变量。
+        - [x] 重构 `api/llm_utils.py` 以支持 DeepSeek 和自定义 OpenAI 兼容模型，并处理新的配置参数。
+        - [x] 更新 `api/models.py` 中的 `StockValuationRequest` 以包含新的 LLM 配置字段。
+        - [x] 更新 `api/main.py` 以从请求中读取新的 LLM 配置并传递给 `call_llm_api`。
+        - [x] 更新 `streamlit_app.py` 以添加新的 LLM 配置 UI 元素，并将用户选择传递到后端。
     - [ ] **规则文件更新:** (可选) 检查并更新 `.clinerules/`。
     - [ ] **规范符合性检查:** (持续进行) 确保所有实现都已对照 `wiki/` 文档进行验证。
 
-- **新功能：股票筛选器开发 (新计划)**
-    - [ ] **阶段零：功能验证 (Proof of Concept)**
-        - [ ] 编写 `tushare_screener_poc.py` 验证脚本
-        - [ ] 验证 Tushare Pro API Token (`81eb13f7d031a9b20379eb72ebc057179c709d59549abfb08c78424d`) 及 `pro.stock_basic`, `pro.daily_basic` 接口调用
-        - [ ] 确认关键数据字段 (静态PE, PB, 市值) 的获取
-        - [ ] 初步测试数据合并与基于简单条件的筛选
-        - [ ] 向用户报告验证结果，确认技术路径可行性
-    - [ ] **阶段一：数据获取与缓存模块实现**
-        - [ ] 实现 `pro.stock_basic` 数据获取与本地文件缓存逻辑 (用户手动触发更新，UI显示更新日期)
-        - [ ] 实现 `pro.daily_basic` 数据获取与本地文件缓存逻辑 (用户手动触发更新，UI显示数据对应交易日和拉取日期)
-        - [ ] 实现 `stock_basic` 和 `daily_basic` 数据合并与预处理逻辑
-    - [ ] **阶段二：Streamlit UI 界面实现**
-        - [ ] 创建筛选器主页面结构 (`screener_app.py` 或在 `streamlit_app.py` 中新增页面/模块)
-        - [ ] 实现侧边栏筛选条件输入组件 (静态PE范围, PB范围, 市值范围)
-        - [ ] 实现数据更新按钮 (“更新股票基础数据”, “更新每日行情指标”)
-        - [ ] 实现数据显示更新状态的文本提示 (最后更新日期, 数据交易日)
-        - [ ] 实现主内容区筛选结果的表格展示 (`st.dataframe`)
-        - [ ] 实现“开始筛选”按钮及与筛选逻辑的交互
-    - [ ] **阶段三：筛选逻辑核心功能实现**
-        - [ ] 实现根据用户输入条件在合并的DataFrame上执行筛选的核心函数
-    - [ ] **阶段四：集成、测试与文档**
-        - [ ] 完整功能流程测试 (用户手动触发数据更新 -> 设置筛选条件 -> 查看结果)
-        - [ ] 用户界面和体验测试
-        - [ ] (可选) 补充必要的单元测试 (例如针对数据合并、筛选逻辑的纯函数部分)
-        - [ ] 更新所有相关的 `cline_docs/` 文档以反映筛选器功能的最终实现
+- **新功能：股票筛选器开发 (进行中)**
+    - [x] **阶段零：功能验证 (Proof of Concept)**
+        - [x] 编写 `tushare_screener_poc.py` 验证脚本。
+        - [x] 验证 Tushare Pro API Token 及 `pro.stock_basic`, `pro.daily_basic` 接口调用。
+        - [x] 确认关键数据字段 (静态PE, PB, 市值) 的获取。
+        - [x] 初步测试数据合并与基于简单条件的筛选。
+        - [x] 向用户报告验证结果，确认技术路径可行性。
+    - [x] **阶段一：数据获取与缓存模块实现 (`stock_screener_data.py`)**
+        - [x] 实现 `get_tushare_pro_api()`, `get_latest_valid_trade_date()`。
+        - [x] 实现 `load_stock_basic()` 数据获取与本地文件缓存逻辑 (用户手动触发更新，UI显示更新日期)。
+        - [x] 实现 `load_daily_basic()` 数据获取与本地文件缓存逻辑 (用户手动触发更新，UI显示数据对应交易日和拉取日期)。
+        - [x] 实现 `get_merged_stock_data()` 用于合并和预处理数据，修正市值单位，扩展字段。
+    - [x] **阶段二：独立 Streamlit UI 界面实现 (`stock_screener_app.py`)**
+        - [x] 创建筛选器主页面结构。
+        - [x] 实现侧边栏筛选条件输入组件 (静态PE范围, PB范围, 市值范围)。
+        - [x] 实现数据更新按钮 (“更新股票基础数据”, “更新每日行情指标”)。
+        - [x] 实现数据显示更新状态的文本提示 (最后更新日期, 数据交易日)。
+        - [x] 实现主内容区筛选结果的表格展示 (`st.dataframe`)，并根据用户反馈调整显示字段和格式。
+        - [x] 实现“开始筛选”按钮及与筛选逻辑的交互。
+        - [x] 用户确认独立筛选器功能运行正常。
+    - [x] **阶段三：整合筛选器到主估值应用 (`streamlit_app.py`) (已完成)**
+        - [x] **代码结构准备和UI框架搭建:**
+            - [x] 在 `streamlit_app.py` 中创建了“DCF估值”和“股票筛选器”两个标签页。
+            - [x] DCF估值功能完整保留在第一个标签页。
+            - [x] 股票筛选器的UI（数据显示表格、筛选按钮）和核心逻辑（数据获取、筛选、缓存状态显示）已成功整合到第二个标签页及共享侧边栏。
+            - [x] 侧边栏已更新，包含DCF估值参数和股票筛选器参数（数据管理、筛选条件输入），并使用分隔符进行了视觉区分。
+        - [x] **筛选器逻辑与数据流实现:**
+            - [x] 调整并统一了 `st.session_state` 管理。
+            - [x] 实现了“开始筛选”按钮在整合环境下的逻辑。
+            - [x] 确保了数据更新按钮功能正常。
+        - [x] **筛选结果与估值功能联动实现:**
+            - [x] 在筛选结果表格中为每行数据添加了“进行估值”按钮。
+            - [x] 实现了点击按钮后自动填充股票代码到估值输入区并切换标签页的逻辑。
+            - [x] 用户会收到提示，告知股票代码已更新，并引导其切换到DCF估值标签页。
+        - [x] **错误修复与代码优化:**
+            - [x] 解决了 `st.set_page_config()` 调用顺序错误导致的 `StreamlitSetPageConfigMustBeFirstCommandError`。
+            - [x] 解决了因在widget渲染后直接修改同名session state键值导致的 `StreamlitAPIException`。
+            - [x] 调整了筛选结果表格的显示列，移除了“股息率(%)”列。
+            - [x] 优化了DCF估值区基本信息显示，优先使用筛选器数据。
+    - [ ] **阶段四：测试与文档 (整合后)**
+        - [ ] 完整功能流程测试 (数据更新 -> 筛选 -> 点击联动按钮 -> 查看估值输入)。
+        - [ ] 用户界面和体验测试。
+        - [ ] (可选) 补充必要的单元测试。
+        - [x] 更新所有相关的 `cline_docs/` 文档以反映筛选器功能的最终实现和整合状态 (当前正在进行)。
 
 ## 当前状态
-- 后端 API 和 Streamlit 前端的主要功能已实现。
-- **LLM 功能 (正在重构):**
-    - **目标:** 支持 DeepSeek 和自定义 OpenAI 兼容模型，提供灵活的前端配置。
-    - **进展:**
-        - `.env.example` 已更新。
-        - `api/llm_utils.py` 已重构。
-        - `api/models.py` (StockValuationRequest) 已更新。
-        - `api/main.py` 已更新以适配新的 LLM 调用方式。
-        - `streamlit_app.py` 已更新以包含新的 LLM 配置界面和逻辑。
+- 后端 API 和 Streamlit 前端（DCF估值部分）的主要功能已实现。
+- **LLM 功能 (已完成重构):**
+    - 支持 DeepSeek 和自定义 OpenAI 兼容模型，提供灵活的前端配置。
     - Prompt 模板 (`config/llm_prompt_template.md`) 已优化至 V3.1。
-    - 旧的 LLM 提供商 (Anthropic, Gemini, direct OpenAI) 将被移除。
+- **股票筛选器 (已完成整合):**
+    - 股票筛选器功能已成功整合到主应用 `streamlit_app.py` 中，作为独立的标签页，并实现了与DCF估值功能的联动。
 - **DeepSeek API 调用 `UnicodeEncodeError` 问题已解决** (在之前的迭代中)。
 - 敏感性分析功能已实现。
 - 后端 API 服务可正常运行。
