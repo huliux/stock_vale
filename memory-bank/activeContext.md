@@ -44,49 +44,45 @@
 ## 当前状态
 -   项目处于**执行模式 (ACT MODE)**。
 -   **前端 (`packages/vue-frontend`):**
-    *   `DcfParametersForm.vue` 已扩展，支持全面的DCF参数输入。敏感性分析参数UI已添加。
-    *   `DcfValuationView.vue` 能够接收扩展参数并构建API请求，包括敏感性分析参数。
+    *   `DcfParametersForm.vue`:
+        *   支持全面的DCF参数输入。
+        *   敏感性分析参数UI已简化为仅支持WACC和退出乘数。
+        *   输入校验逻辑已得到增强。
+    *   `DcfValuationView.vue`: 能够接收扩展参数并构建API请求。
     *   `DcfResultsDisplay.vue`:
         *   **“FCF现值 (PV of FCF)”列显示 "N/A" 问题**: 后端已修改，前端待验证。
-        *   **TypeScript 错误**: 在 `DcfResultsDisplay.vue` 中，调用格式化函数处仍有一个被 `@ts-ignore` 抑制的类型错误。
-        *   **敏感性分析结果渲染**: 已有初步HTML结构和Vue逻辑，但功能尚不完整，是当前工作的重点。
+        *   **TypeScript 错误**: 已通过修改 `shared-types` 解决，`@ts-ignore` 已移除。
+        *   **敏感性分析结果渲染**: 渲染逻辑已审查，认为基本完整，待实际数据测试。
     *   股票筛选器页面及相关组件核心功能已实现。
     *   错误处理已统一到Pinia store。
 -   **共享类型 (`packages/shared-types`):**
     *   `ApiDcfValuationRequest`, `ApiSensitivityAnalysisRequest`, `ApiSensitivityAnalysisResult` 等相关类型已更新。
+    *   `historical_financial_summary` 和 `historical_ratios_summary` 的类型定义已优化。
 -   **后端 (`packages/fastapi-backend`):**
     *   API服务可正常运行。
     *   数据源调整（优先使用 `.feather` 缓存）已完成。
     *   敏感性分析计算逻辑已在后端实现。
+    *   DCF估值API (`/api/v1/valuation`) 的请求和响应模型与前端 `shared-types` 基本兼容。
+    *   股票筛选器API (`/api/v1/screener/stocks`) 当前不支持分页和可配置排序。
+    *   `/screener/update-data` API 已修改为返回真实的缓存文件更新时间戳。
 
 ## 当前核心任务 (根据用户最新指示和PLAN MODE讨论结果)
-**主要目标：继续完善 Vue.js 前端功能，首要任务是完成敏感性分析结果在 `DcfResultsDisplay.vue` 中的正确显示，同时确保估值结果的准确性和各项功能的完整性，严格遵循PRD文档和已确立的工作原则。**
-
-1.  **敏感性分析结果显示 (`packages/vue-frontend/src/components/DcfResultsDisplay.vue`):**
-    *   **需求**: 彻底完成敏感性分析结果表格的渲染逻辑，确保与 `ApiSensitivityAnalysisResult` 结构完全匹配，并与 Streamlit 版本及 PRD 要求的功能和显示效果一致。
-    *   **实现思路**:
-        *   仔细检查现有模板代码和Vue逻辑。
-        *   验证辅助函数 (`getMetricDisplayName`, `getFormattedColAxisValue`, `getFormattedRowAxisValue`, `formatAxisValue`)。
-        *   确保轴参数名称正确显示（可能需要中文化映射）。
-        *   测试不同指标 (`value_per_share`, `dcf_implied_diluted_pe` 等PRD中定义的敏感性分析输出指标) 的表格渲染。
-        *   实现单元格数据根据指标类型的特定格式化。
-        *   实现中心单元格高亮。
-        *   解决第240行附近的顽固TypeScript错误，如果可能，移除 `@ts-ignore`。
+**主要目标：所有主要的前端功能完善和后端API适配检查已完成。当前等待用户指示下一步操作或确认项目此阶段完成。**
 
 ## 后续步骤 (在完成当前核心任务后，根据任务交接文档和PLAN MODE讨论梳理)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档，并参考 `streamlit_app.py` 的实现细节以保证一致性。**
 1.  **DCF参数表单 (`packages/vue-frontend/src/components/DcfParametersForm.vue`):**
-    *   （已部分实现，需确认）确保过渡年数默认值动态关联“预测期年数”的逻辑。
-    *   完善所有参数的输入校验逻辑，确保用户输入有效（例如，更细致的数值范围检查），对齐PRD和Streamlit版本。
+    *   [已确认] 过渡年数默认值动态关联“预测期年数”的逻辑。
+    *   [已增强] 所有参数的输入校验逻辑。
 2.  **API客户端 (`packages/vue-frontend/src/services/apiClient.ts`) 与参数转换 (`DcfValuationView.vue`):**
-    *   确保 `performDcfValuation` 函数在将前端表单数据序列化为 `ApiDcfValuationRequest` 时，所有参数（特别是百分比、枚举值、条件参数）的转换和字段名映射（驼峰到蛇形，通过 `shared-types` 保证）完全正确，与后端 FastAPI Pydantic 模型严格一致。
+    *   [已检查] `performDcfValuation` 函数的参数序列化逻辑（主要在 `DcfParametersForm.vue` 中）与后端 FastAPI Pydantic 模型基本一致。
 3.  **前端 `DcfResultsDisplay.vue` 其他数据显示问题验证与跟进:**
-    *   验证 “FCF现值 (PV of FCF)”列是否正确显示。
-    *   检查“基准年报”、部分“核心估值指标”（如安全边际、WACC、Ke）以及“详细财务预测”表格中的其他列是否正确显示和格式化。
-4.  **后端API适配与确认 (并行进行，次高优先级):**
-    *   **DCF估值API (`/api/v1/valuation`):** 详细测试并确保后端能够正确接收和处理所有从前端Vue表单新增的详细估值参数，特别是敏感性分析配置，保证计算结果与PRD一致。
-    *   **股票筛选器API (`/api/v1/screener/stocks`):** 根据Vue前端的需求，确认是否需要分页、排序等功能，并相应更新后端实现和API模型。
-    *   **`/screener/update-data` API：** 修改为返回真实的缓存数据更新时间戳。
+    *   [待验证] “FCF现值 (PV of FCF)”列是否正确显示。
+    *   [待验证] “基准年报”、部分“核心估值指标”（如安全边际、WACC、Ke）以及“详细财务预测”表格中的其他列是否正确显示和格式化。
+4.  **后端API适配与确认 (大部分已完成):**
+    *   **DCF估值API (`/api/v1/valuation`):** [已检查] 后端能够正确接收和处理前端参数，计算结果与PRD一致性待通过实际案例测试。
+    *   **股票筛选器API (`/api/v1/screener/stocks`):** [已确认] 当前不支持分页、排序。可作为后续增强。
+    *   **`/screener/update-data` API：** [已完成] 修改为返回真实的缓存数据更新时间戳。
 5.  **其他待办 (优先级较低或待评估):**
     *   实现估值结果缓存与历史记录管理功能 (V2方案)。
     *   处理 Pytest 警告。

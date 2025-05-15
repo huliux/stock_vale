@@ -215,6 +215,51 @@ def load_daily_basic(trade_date, force_update=False):
         logger.error(f"从 Tushare API 获取 daily_basic 数据时出错 (交易日: {trade_date}): {e}")
         raise StockScreenerServiceError(f"获取 daily_basic API数据出错 (交易日: {trade_date}): {e}")
 
+def get_cache_file_timestamps() -> dict:
+    """
+    获取主要缓存文件的最后修改时间戳。
+    Returns:
+        dict: 包含 'stock_basic' 和 'daily_basic' 键及其ISO格式时间戳字符串的字典。
+              如果文件不存在或无法获取时间，对应值为 None。
+    """
+    timestamps = {
+        "stock_basic": None,
+        "daily_basic": None # This will represent the latest daily_basic file found
+    }
+
+    # Stock Basic
+    stock_basic_path = os.path.join(CACHE_DIR, "stock_basic.feather")
+    if os.path.exists(stock_basic_path):
+        try:
+            mtime = os.path.getmtime(stock_basic_path)
+            timestamps["stock_basic"] = datetime.fromtimestamp(mtime).isoformat()
+        except Exception as e:
+            logger.error(f"无法获取 stock_basic.feather 的修改时间: {e}")
+
+    # Daily Basic - Find the most recent daily_basic file
+    latest_daily_mtime = None
+    # latest_daily_file_date_iso = None # Not strictly needed for the return value
+
+    try:
+        ensure_cache_dir_exists() # Make sure cache dir exists before listing
+        for filename in os.listdir(CACHE_DIR):
+            if filename.startswith("daily_basic_") and filename.endswith(".feather"):
+                file_path = os.path.join(CACHE_DIR, filename)
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    if latest_daily_mtime is None or mtime > latest_daily_mtime:
+                        latest_daily_mtime = mtime
+                except Exception as e_file:
+                    logger.warning(f"无法获取文件 {filename} 的修改时间: {e_file}")
+        
+        if latest_daily_mtime is not None:
+            timestamps["daily_basic"] = datetime.fromtimestamp(latest_daily_mtime).isoformat()
+            
+    except Exception as e_dir:
+        logger.error(f"遍历缓存目录 {CACHE_DIR} 以查找每日数据文件时出错: {e_dir}")
+        
+    return timestamps
+
 def get_merged_stock_data(trade_date, force_update_basic=False, force_update_daily=False):
     """
     Loads, merges, and pre-processes stock_basic and daily_basic data.

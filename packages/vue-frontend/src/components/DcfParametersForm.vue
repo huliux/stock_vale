@@ -328,24 +328,8 @@
                         <div class="form-group">
                             <label for="sensitivity-wacc-points">WACC 分析点数:</label>
                             <input type="number" id="sensitivity-wacc-points"
-                                v-model.number="params.sensitivity_wacc_points" min="1" step="2" />
-                            <span class="hint">例如: 3 (中心值, 中心值-步长, 中心值+步长) 或 5。建议奇数。</span>
-                        </div>
-                    </div>
-
-                    <div class="form-subsection">
-                        <h5>永续增长率 (g) 敏感性</h5>
-                        <div class="form-group">
-                            <label for="sensitivity-g-step">永续增长率 变动步长 (%):</label>
-                            <input type="number" id="sensitivity-g-step" v-model.number="params.sensitivity_g_step"
-                                step="0.01" />
-                            <span class="hint">例如: 0.25 代表围绕中心增长率上下浮动0.25个百分点。</span>
-                        </div>
-                        <div class="form-group">
-                            <label for="sensitivity-g-points">永续增长率 分析点数:</label>
-                            <input type="number" id="sensitivity-g-points" v-model.number="params.sensitivity_g_points"
-                                min="1" step="2" />
-                            <span class="hint">例如: 3 或 5。建议奇数。</span>
+                                v-model.number="params.sensitivity_wacc_points" min="1" max="11" step="2" />
+                            <span class="hint">例如: 3 (中心值, 中心值-步长, 中心值+步长) 或 5。建议奇数, 最大11。</span>
                         </div>
                     </div>
 
@@ -360,8 +344,8 @@
                         <div class="form-group">
                             <label for="sensitivity-exit-multiple-points">退出乘数 分析点数:</label>
                             <input type="number" id="sensitivity-exit-multiple-points"
-                                v-model.number="params.sensitivity_exit_multiple_points" min="1" step="2" />
-                            <span class="hint">例如: 3 或 5。建议奇数。</span>
+                                v-model.number="params.sensitivity_exit_multiple_points" min="1" max="11" step="2" />
+                            <span class="hint">例如: 3 或 5。建议奇数, 最大11。</span>
                         </div>
                     </div>
                 </div>
@@ -382,6 +366,12 @@ import { reactive, watch } from 'vue';
 import type { ApiDcfValuationRequest, ApiSensitivityAnalysisRequest, ApiSensitivityAxis } from '../../../shared-types/src'; // Adjust path as needed
 
 // defineEmits and defineProps are compiler macros and no longer need to be imported.
+
+const simpleAxisParamDisplayNames: Record<string, string> = {
+    "wacc": "WACC",
+    "exit_multiple": "退出乘数",
+    "terminal_growth_rate": "永续增长率"
+};
 
 // 表单使用的参数结构，百分比按用户输入习惯（例如8.5代表8.5%）
 export interface DcfFormParameters {
@@ -457,8 +447,6 @@ export interface DcfFormParameters {
     enable_sensitivity_analysis: boolean;
     sensitivity_wacc_step?: number | null; // e.g., 0.5 for 0.5% step
     sensitivity_wacc_points?: number | null; // e.g., 3 or 5 points
-    sensitivity_g_step?: number | null; // e.g., 0.25 for 0.25% step
-    sensitivity_g_points?: number | null;
     sensitivity_exit_multiple_step?: number | null; // e.g., 0.5 for absolute step
     sensitivity_exit_multiple_points?: number | null;
 }
@@ -537,8 +525,6 @@ const params = reactive<DcfFormParameters>({
     enable_sensitivity_analysis: false,
     sensitivity_wacc_step: 0.5, // 用户输入 0.5 代表 0.5%
     sensitivity_wacc_points: 3,
-    sensitivity_g_step: 0.25, // 用户输入 0.25 代表 0.25%
-    sensitivity_g_points: 3,
     sensitivity_exit_multiple_step: 0.5,
     sensitivity_exit_multiple_points: 3,
 });
@@ -623,62 +609,76 @@ const submitValuationRequest = () => {
     // Otherwise, apiPayload.size_premium remains undefined and won't be sent
 
     if (params.enable_sensitivity_analysis) {
+        // Validation for sensitivity steps and points before constructing the objects for the payload
+        const maxSensitivityPoints = 11;
+        if (params.sensitivity_wacc_points && params.sensitivity_wacc_points > 1 && (params.sensitivity_wacc_step === 0 || params.sensitivity_wacc_step === null || params.sensitivity_wacc_step === undefined)) {
+            emit('validation-error', `当 ${simpleAxisParamDisplayNames['wacc']} 的分析点数大于1时，其变动步长不能为空且不能为0。`);
+            return;
+        }
+        if (params.sensitivity_wacc_points && params.sensitivity_wacc_points > maxSensitivityPoints) {
+            emit('validation-error', `${simpleAxisParamDisplayNames['wacc']} 的分析点数不能超过 ${maxSensitivityPoints}。`);
+            return;
+        }
+
+        // Axis2 is always exit_multiple for sensitivity analysis as per user request
+        if (params.sensitivity_exit_multiple_points && params.sensitivity_exit_multiple_points > 1 && (params.sensitivity_exit_multiple_step === 0 || params.sensitivity_exit_multiple_step === null || params.sensitivity_exit_multiple_step === undefined)) {
+            emit('validation-error', `当 ${simpleAxisParamDisplayNames['exit_multiple']} 的分析点数大于1时，其变动步长不能为空且不能为0。`);
+            return;
+        }
+        if (params.sensitivity_exit_multiple_points && params.sensitivity_exit_multiple_points > maxSensitivityPoints) {
+            emit('validation-error', `${simpleAxisParamDisplayNames['exit_multiple']} 的分析点数不能超过 ${maxSensitivityPoints}。`);
+            return;
+        }
+
         const axis1: ApiSensitivityAxis = {
             parameter_name: 'wacc',
             step: (typeof params.sensitivity_wacc_step === 'number' && !isNaN(params.sensitivity_wacc_step)) ? params.sensitivity_wacc_step / 100 : 0,
             points: (typeof params.sensitivity_wacc_points === 'number' && !isNaN(params.sensitivity_wacc_points)) ? params.sensitivity_wacc_points : 1,
             value_type: 'percentage',
-            values: [] // Send empty list instead of null
+            values: []
         };
 
-        let axis2: ApiSensitivityAxis;
-        if (params.terminal_value_method === 'perpetual_growth') {
-            axis2 = {
-                parameter_name: 'terminal_growth_rate',
-                step: (typeof params.sensitivity_g_step === 'number' && !isNaN(params.sensitivity_g_step)) ? params.sensitivity_g_step / 100 : 0,
-                points: (typeof params.sensitivity_g_points === 'number' && !isNaN(params.sensitivity_g_points)) ? params.sensitivity_g_points : 1,
-                value_type: 'percentage',
-                values: [] // Send empty list instead of null
-            };
-        } else { // exit_multiple
-            axis2 = {
-                parameter_name: 'exit_multiple',
-                step: (typeof params.sensitivity_exit_multiple_step === 'number' && !isNaN(params.sensitivity_exit_multiple_step)) ? params.sensitivity_exit_multiple_step : 0,
-                points: (typeof params.sensitivity_exit_multiple_points === 'number' && !isNaN(params.sensitivity_exit_multiple_points)) ? params.sensitivity_exit_multiple_points : 1,
-                value_type: 'absolute',
-                values: [] // Send empty list instead of null
-            };
-        }
+        const axis2: ApiSensitivityAxis = {
+            parameter_name: 'exit_multiple',
+            step: (typeof params.sensitivity_exit_multiple_step === 'number' && !isNaN(params.sensitivity_exit_multiple_step)) ? params.sensitivity_exit_multiple_step : 0,
+            points: (typeof params.sensitivity_exit_multiple_points === 'number' && !isNaN(params.sensitivity_exit_multiple_points)) ? params.sensitivity_exit_multiple_points : 1,
+            value_type: 'absolute',
+            values: []
+        };
 
-        // Ensure points are odd and >= 1
+        // Ensure points are odd and >= 1 
         if (axis1.points && axis1.points < 1) axis1.points = 1;
-        if (axis1.points && axis1.points % 2 === 0) axis1.points += 1; // Make it odd if even
+        if (axis1.points && axis1.points % 2 === 0) axis1.points += 1;
         if (axis2.points && axis2.points < 1) axis2.points = 1;
         if (axis2.points && axis2.points % 2 === 0) axis2.points += 1;
 
 
         apiPayload.sensitivity_analysis = {
-            row_axis: axis1, // Renamed from axis1
-            column_axis: axis2, // Renamed from axis2
+            row_axis: axis1,
+            column_axis: axis2,
             output_metrics: [
                 'value_per_share',
                 'enterprise_value',
                 'equity_value',
                 'ev_ebitda',
-                'dcf_implied_diluted_pe', // Assuming this is what "DCF隐含PE" table refers to
+                'dcf_implied_diluted_pe',
                 'tv_ev_ratio'
             ]
         };
     } else {
-        apiPayload.sensitivity_analysis = null; // Ensure it's null if not enabled
+        apiPayload.sensitivity_analysis = null;
     }
 
-    if (typeof apiPayload.prediction_years === 'number' && (apiPayload.prediction_years < 1 || apiPayload.prediction_years > 20)) { // Backend allows 1-20
+    if (typeof apiPayload.prediction_years === 'number' && (apiPayload.prediction_years < 1 || apiPayload.prediction_years > 20)) {
         emit('validation-error', '预测年限必须在1到20年之间（如果填写）。');
         return;
     }
 
-    // 校验过渡年数不超过预测年数
+    if (typeof apiPayload.cagr_decay_rate === 'number' && (apiPayload.cagr_decay_rate < 0 || apiPayload.cagr_decay_rate > 1)) {
+        emit('validation-error', '历史CAGR年衰减率必须在0到1之间（如果填写）。');
+        return;
+    }
+
     const checkTransitionYears = (transitionYears: number | null | undefined, predictionYears: number | null | undefined, fieldName: string): boolean => {
         if (predictionYears !== null && predictionYears !== undefined &&
             transitionYears !== null && transitionYears !== undefined &&
@@ -754,7 +754,6 @@ const submitValuationRequest = () => {
     }
 
     if (params.nwc_days_forecast_mode === 'transition_to_target') {
-        // Target days can be null if user doesn't want to set a specific one, but transition years needs to be valid if any target day is set.
         const anyNwcTargetDaySet = params.target_accounts_receivable_days !== null || params.target_inventory_days !== null || params.target_accounts_payable_days !== null;
         if (anyNwcTargetDaySet && (params.nwc_days_transition_years === null || params.nwc_days_transition_years === undefined || params.nwc_days_transition_years < 1)) {
             emit('validation-error', '当NWC周转天数预测模式为“过渡到目标值”且设置了任一目标天数时，过渡年数必须大于等于1。');
@@ -796,8 +795,6 @@ const submitValuationRequest = () => {
         }
     }
 
-    // 可以为其他 *_forecast_mode === 'transition_to_target' 的情况添加类似校验
-
     if (params.terminal_value_method === 'exit_multiple' && (params.exit_multiple === null || params.exit_multiple === undefined || params.exit_multiple < 0)) {
         emit('validation-error', '当终值计算方法为“退出乘数法”时，退出乘数不能为空且必须大于等于0。');
         return;
@@ -816,56 +813,65 @@ const submitValuationRequest = () => {
         emit('validation-error', '目标债务比例应在 0% 到 100% 之间。');
         return;
     }
-    // 补充一些WACC和终值参数的范围校验
-    if (typeof params.risk_free_rate === 'number' && params.risk_free_rate < 0) {
-        emit('validation-error', '无风险利率不能为负数。');
+
+    // WACC参数范围校验 (用户输入值)
+    if (typeof params.risk_free_rate === 'number' && (params.risk_free_rate < 0 || params.risk_free_rate > 10)) {
+        emit('validation-error', '无风险利率应在 0% 到 10% 之间。');
         return;
     }
-    if (typeof params.market_risk_premium === 'number' && params.market_risk_premium <= 0) {
-        emit('validation-error', '市场风险溢价必须为正数。');
+    if (typeof params.market_risk_premium === 'number' && (params.market_risk_premium < 0 || params.market_risk_premium > 15)) {
+        emit('validation-error', '市场风险溢价应在 0% 到 15% 之间。');
         return;
     }
-    if (typeof params.cost_of_debt === 'number' && params.cost_of_debt < 0) {
-        emit('validation-error', '税前债务成本不能为负数。');
+    if (typeof params.cost_of_debt === 'number' && (params.cost_of_debt < 0 || params.cost_of_debt > 20)) {
+        emit('validation-error', '税前债务成本应在 0% 到 20% 之间。');
         return;
     }
+    if (typeof params.beta === 'number' && (params.beta < 0 || params.beta > 3)) {
+        emit('validation-error', '贝塔系数应在 0 到 3 之间。');
+        return;
+    }
+    if (typeof params.size_premium === 'number' && (params.size_premium < -5 || params.size_premium > 5)) {
+        emit('validation-error', '规模溢价应在 -5% 到 5% 之间。');
+        return;
+    }
+
+    // 终值参数范围校验 (用户输入值)
     if (params.terminal_value_method === 'perpetual_growth' && typeof params.terminal_growth_rate === 'number') {
-        if (typeof params.risk_free_rate === 'number' && params.terminal_growth_rate >= params.risk_free_rate) {
-            // This is a soft warning, as some models might allow g >= rf in specific short term high growth scenarios,
-            // but generally, for perpetual growth, g < discount rate (and often g < rf is a heuristic).
-            // For now, let's just ensure it's not excessively high.
-        }
-        if (params.terminal_growth_rate > 15) { // Arbitrary upper limit for sensibility e.g. 15%
-            emit('validation-error', '永续增长率过高，请检查输入。');
+        if (params.terminal_growth_rate < 0 || params.terminal_growth_rate > 5) {
+            emit('validation-error', '永续增长率应在 0% 到 5% 之间。');
             return;
         }
     }
-    if (params.terminal_value_method === 'exit_multiple' && typeof params.exit_multiple === 'number' && params.exit_multiple > 50) { // Arbitrary upper limit
-        emit('validation-error', '退出乘数过高，请检查输入。');
-        return;
-    }
-    if (typeof params.beta === 'number' && (params.beta < -5 || params.beta > 5)) { // Wide but sensible range
-        emit('validation-error', '贝塔系数超出常见范围，请检查输入。');
-        return;
+    if (params.terminal_value_method === 'exit_multiple' && typeof params.exit_multiple === 'number') {
+        if (params.exit_multiple < 1 || params.exit_multiple > 30) {
+            emit('validation-error', '退出乘数应在 1 到 30 之间。');
+            return;
+        }
     }
 
-
-    // If a field was initially required but now optional, ensure it's handled:
-    // Example: if discount_rate became truly optional and could be omitted for backend default
-    // if (payload.discount_rate === null && /* some condition that it's okay to be null */) {
-    //   // allow submission
-    // } else if (payload.discount_rate === null) {
-    //   emit('validation-error', '贴现率为必填项！'); // If it's still considered mandatory by form logic
-    //   return;
-    // }
-    // For now, we assume null is acceptable for discount_rate, terminal_growth_rate, prediction_years
-    // as per ApiDcfValuationRequest in shared-types.
+    // LLM Parameters Validation
+    if (params.request_llm_summary) {
+        if (typeof params.llm_temperature === 'number' && (params.llm_temperature < 0 || params.llm_temperature > 2)) {
+            emit('validation-error', 'LLM Temperature 必须在 0 到 2 之间。');
+            return;
+        }
+        if (typeof params.llm_top_p === 'number' && (params.llm_top_p < 0 || params.llm_top_p > 1)) {
+            emit('validation-error', 'LLM Top P 必须在 0 到 1 之间。');
+            return;
+        }
+        if (typeof params.llm_max_tokens === 'number' && params.llm_max_tokens < 1) {
+            emit('validation-error', 'LLM Max Tokens 必须大于等于 1。');
+            return;
+        }
+        if (params.llm_provider === 'custom_openai' && (!params.llm_api_base_url || params.llm_api_base_url.trim() === '')) {
+            emit('validation-error', '当选择自定义OpenAI兼容模型时，LLM API Base URL 不能为空。');
+            return;
+        }
+    }
 
     emit('submit-valuation', apiPayload);
 };
-
-// Watch for changes in initialStockCode prop to update the form
-// import { watch } from 'vue'; // Already imported
 
 watch(() => props.initialStockCode, (newVal) => {
     if (newVal) {
@@ -875,8 +881,6 @@ watch(() => props.initialStockCode, (newVal) => {
 
 watch(() => params.prediction_years, (newPredictionYears) => {
     if (typeof newPredictionYears === 'number' && newPredictionYears >= 1) {
-        // Update transition years only if they are currently set or if the mode is 'transition_to_target'
-        // A simpler approach: always update them to the new prediction_years, user can override later.
         params.op_margin_transition_years = newPredictionYears;
         params.sga_rd_transition_years = newPredictionYears;
         params.da_ratio_transition_years = newPredictionYears;
@@ -884,11 +888,7 @@ watch(() => params.prediction_years, (newPredictionYears) => {
         params.nwc_days_transition_years = newPredictionYears;
         params.other_nwc_ratio_transition_years = newPredictionYears;
     }
-}, { immediate: false }); // 'immediate: false' to avoid running on initial component setup if not desired,
-// but current default values are already aligned with initial prediction_years.
-// Let's set it to true to ensure consistency if prediction_years itself has a non-default initial value.
-// Actually, the default values in reactive `params` are already set.
-// The watch should trigger on user change of prediction_years.
+}, { immediate: false });
 
 </script>
 

@@ -214,8 +214,8 @@ export interface ApiValuationResultsContainer {
     data_warnings: string[] | null;
     detailed_forecast_table: ApiDetailedForecastYear[] | null;
     sensitivity_analysis_result: ApiSensitivityAnalysisResult | null;
-    historical_financial_summary: Record<string, any>[] | null; // or more specific type
-    historical_ratios_summary: Record<string, any>[] | null; // or more specific type
+    historical_financial_summary: Record<string, string | number | null>[] | null;
+    historical_ratios_summary: { metric_name: string; value: string | number | null }[] | null;
     special_industry_warning: string | null;
 }
 

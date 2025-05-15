@@ -142,13 +142,13 @@ async def update_screener_data(
             logger.info(f"交易日 {trade_date} 的每日行情指标已触发更新。")
 
         # TODO: 获取更精确的更新时间戳
+        # Get actual timestamps AFTER updates are triggered
+        actual_timestamps = stock_screener_service.get_cache_file_timestamps()
+
         return ApiUpdateScreenerDataResponseModel(
             status="success", 
-            message=f"数据更新任务 ({request_body.data_type}) 已触发。",
-            last_update_times= { # 示例，实际应从缓存文件获取
-                "stock_basic": datetime.now().isoformat(),
-                "daily_basic": datetime.now().isoformat()
-            }
+            message=f"数据更新任务 ({request_body.data_type}) 已成功触发。",
+            last_update_times=actual_timestamps
         )
     except stock_screener_service.StockScreenerServiceError as e:
         logger.error(f"数据更新服务错误: {e}")

@@ -187,8 +187,6 @@
                                         {{ cellValue }}
                                     </span>
                                     <span v-else>
-                                        <!-- eslint-disable-next-line @typescript-eslint/ban-ts-comment -->
-                                        <!-- @ts-ignore -->
                                         {{ formatNumber(cellValue, typeof cellValue === 'number' &&
                                             !Number.isInteger(cellValue) ? 2 : 0) }}
                                     </span>
@@ -246,7 +244,7 @@
                                         {{
                                             getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
                                         }}
-                                        \
+                                        /
                                         {{
                                             getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
                                         }}
@@ -455,7 +453,7 @@ const formatPercentage = (value: number | null | undefined | string): string => 
     return `${(numValue * 100).toFixed(2)}%`;
 };
 
-const formatSensitivityCellValue = (value: any, metricKey: string): string => {
+const formatSensitivityCellValue = (value: string | number | null | undefined, metricKey: string): string => {
     if (value === null || value === undefined) {
         return 'N/A';
     }
