@@ -60,7 +60,7 @@ class ValuationService:
         override_wacc: Optional[float] = None,
         override_exit_multiple: Optional[float] = None,
         override_perpetual_growth_rate: Optional[float] = None
-    ) -> Tuple[Optional[DcfForecastDetails], Optional[pd.DataFrame], List[str]]:
+    ) -> Tuple[Optional[DcfForecastDetails], Optional[pd.DataFrame], List[str]]: # Return signature remains the same externally for now
         """
         执行单次估值计算的核心逻辑。
         接收请求参数字典、总股本，以及可选的覆盖参数。
@@ -250,10 +250,17 @@ class ValuationService:
 
             self.logger.debug("  Running single valuation: Step 6 - Calculating Present Values...")
             pv_calculator = PresentValueCalculator()
-            pv_forecast_ufcf, pv_terminal_value, pv_error = pv_calculator.calculate_present_values(
+            # pv_calculator.calculate_present_values now returns 4 items
+            pv_forecast_ufcf, pv_terminal_value, forecast_df_with_pv, pv_error = pv_calculator.calculate_present_values(
                 forecast_df=final_forecast_df, terminal_value=terminal_value, wacc=wacc
             )
             if pv_error: raise ValueError(f"现值计算失败: {pv_error}")
+            
+            # Update final_forecast_df to the one that includes 'pv_ufcf' column
+            if forecast_df_with_pv is not None:
+                final_forecast_df = forecast_df_with_pv
+                self.logger.debug("  Updated final_forecast_df with pv_ufcf column from PresentValueCalculator.")
+            
             self.logger.debug(f"  Present Values calculated. PV(UFCF): {pv_forecast_ufcf:.2f}, PV(TV): {pv_terminal_value:.2f}")
 
             self.logger.debug("  Running single valuation: Step 7 - Calculating Equity Value...")

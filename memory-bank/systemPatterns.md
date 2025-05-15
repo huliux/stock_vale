@@ -1,16 +1,28 @@
 # 系统架构模式
 
-## 核心架构 (Streamlit 应用 + FastAPI 后端)
-- **前端 UI (Streamlit):**
-    - 使用 Streamlit 构建交互式用户界面。
-    - **交互模式:** 主内容区域用于展示核心估值结果和LLM分析，侧边栏 (`st.sidebar`) 用于集中的参数输入和复杂配置（如敏感性分析的详细设置）。
-    - 通过调用后端 API 获取数据和计算结果。
+## 核心架构 (Vue.js 前端 + FastAPI 后端 - Monorepo)
+- **前端 UI (Vue.js):**
+    - 使用 Vue.js (Vite, TypeScript, Pinia, Vue Router) 构建现代化的、交互式的用户界面。
+    - 部署在 `packages/vue-frontend/`。
+    - 通过 `packages/vue-frontend/src/services/apiClient.ts` 调用后端 API 获取数据和计算结果。
+    - 使用 Pinia (`packages/vue-frontend/src/stores/`)进行状态管理。
 - **后端 API (FastAPI):**
-    - **职责:** 提供数据获取、核心 DCF 计算（支持单次计算和敏感性分析）、LLM 分析调用等服务。
-    - **分层架构:** API 层 (Routers), 服务层 (包含估值协调、敏感性分析循环处理、LLM 调用), 数据访问层 (Data Fetchers), 计算模块 (拆分后的 DCF 逻辑)。(注：敏感性分析可能需要进一步封装核心估值流程以便重复调用)。
+    - 部署在 `packages/fastapi-backend/`。
+    - **职责:** 提供数据获取、核心 DCF 计算（支持单次计算和敏感性分析）、LLM 分析调用、股票筛选等服务。
+    - **分层架构:** API 层 (Routers), 服务层 (包含估值协调、敏感性分析循环处理、LLM 调用、股票筛选服务), 数据访问层 (Data Fetchers), 计算模块 (拆分后的 DCF 逻辑)。
     - **依赖注入:** FastAPI 内建支持。
     - **数据验证/序列化:** 使用 Pydantic 模型。
     - **实现约束:** **所有模块的实现细节（特别是数据处理、计算公式和逻辑）必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档。**
+- **共享类型 (`packages/shared-types/`):**
+    - 使用 TypeScript 定义前后端共享的 API 数据结构接口，确保类型一致性。
+
+## 前后端交互模式
+- **API 通信:** 前端通过 RESTful API (JSON) 与后端 FastAPI 服务通信。
+- **Pydantic 模型序列化与别名:**
+    - FastAPI 后端使用 Pydantic 模型进行数据验证和序列化。
+    - **关键行为:** 当 Pydantic 模型字段定义了别名 (e.g., `Field(alias="some_alias")`) 时，FastAPI 在将模型序列化为 JSON 响应时，**默认使用该别名作为 JSON 对象的键名**。
+    - **前端影响:** 前端接收到的 JSON 对象的键名将是后端 Pydantic 模型中定义的别名（如果存在），而非原始字段名。
+    - **共享类型的重要性:** `packages/shared-types/` 中定义的接口必须与前端实际接收到的 JSON 结构（即后端 Pydantic 模型序列化后的键名）保持一致。如果后端使用了别名，共享类型和前端组件逻辑中也必须使用这些别名作为属性/字段名。
 
 ## 设计模式应用
 - **数据获取:** **策略模式 (Strategy Pattern)** (保持) 用于支持多市场数据源。
@@ -20,30 +32,30 @@
     - **支持的提供商:**
         - **DeepSeek:** 通过 `requests`库直接调用其 API。
         - **自定义 OpenAI 兼容模型:** 通过 `openai` Python SDK 调用，允许用户指定 API Base URL 和模型 ID。
-    - **配置驱动:** API 密钥、默认模型 ID、默认 API Base URL（用于自定义模型）、以及 Temperature/Top-P/Max Tokens 等默认参数均从 `.env` 文件加载。前端 UI 提供选项以覆盖这些默认参数。
+    - **配置驱动:** API 密钥、默认模型 ID、默认 API Base URL（用于自定义模型）、以及 Temperature/Top-P/Max Tokens 等默认参数均从 `.env` 文件加载。前端 Vue.js UI 提供了详细的选项以覆盖这些默认参数，并将用户的选择传递给后端。
 - **报告生成:** (已移除) 不再需要旧的报告生成模式。
 
 ## 数据处理
-- **数据标准化:** 在 Data Fetcher 层将不同来源的数据转换为统一内部结构。
 - **数据标准化:** (保持) 在 Data Fetcher 和 Data Processor 层进行。
 - **配置管理:** **外部化配置** (新) 使用 `.env` 文件管理数据库凭证、API Keys、默认参数；使用配置文件管理 LLM Prompt 模板。
 
-## 股票筛选器模块 (新功能 - 已整合)
-- **定位:** 作为主 Streamlit 应用 (`streamlit_app.py`) 内的一个**标签页 (Tab)**，与“DCF估值”功能并列。
-- **UI布局:**
-    - **筛选条件输入与数据管理:** 统一放置在应用的侧边栏 (`st.sidebar`)，与DCF估值的参数输入共享侧边栏空间，并使用UI分隔符（例如 `st.divider()` 或视觉上的区隔）进行组织。包括PE、PB、市值范围输入，以及“更新股票基础数据”、“更新每日行情指标”按钮和数据显示状态。
-    - **筛选结果展示:** 在“股票筛选器”标签页的主内容区域使用 `st.dataframe` 展示。
-- **数据源与处理 (`stock_screener_data.py`):**
-    - 直接调用 Tushare Pro API 获取股票基本信息 (`pro.stock_basic`) 和每日行情指标 (`pro.daily_basic`)。
-    - `stock_basic` 数据：首次获取后进行本地文件 (`.feather`) 持久化缓存，后续由用户手动触发更新。
-    - `daily_basic` 数据：按交易日进行本地文件 (`.feather`) 持久化缓存，后续由用户手动选择日期并触发更新。
-    - 数据合并 (Pandas DataFrame) 和基础预处理（如数值类型转换、市值单位转换）在 `stock_screener_data.py` 中完成。
-- **与核心估值服务的关系与联动:**
-    - **数据流独立:** 筛选器的数据获取和处理不直接依赖或影响后端FastAPI估值服务。
+## 股票筛选器模块 (已整合到 FastAPI 后端和 Vue.js 前端)
+- **定位:** 作为 Vue.js 前端应用的一个核心功能页面/视图，与“DCF估值”功能并列。
+- **UI布局 (Vue.js):**
+    - 筛选条件输入、数据显示状态、数据更新触发等 UI 元素在 `StockScreenerView.vue` 及其子组件中实现。
+    - 筛选结果通过表格 (`StockScreenerResultsTable.vue`) 展示。
+- **数据源与处理 (FastAPI 后端):**
+    - 后端提供专门的 API 端点 (例如 `/api/v1/screener/stocks`) 处理股票筛选请求。
+    - 该 API 端点封装了原 `stock_screener_data.py` 的逻辑，包括：
+        - 调用 Tushare Pro API 获取股票基本信息 (`pro.stock_basic`) 和每日行情指标 (`pro.daily_basic`)。
+        - `stock_basic` 和 `daily_basic` 数据在后端进行本地文件 (`.feather`) 持久化缓存，更新机制由API控制或前端触发。
+        - 数据合并 (Pandas DataFrame) 和基础预处理在后端服务中完成。
+- **与核心估值服务的关系与联动 (Vue.js 前端):**
+    - **数据流:** 前端筛选器调用后端筛选API获取数据。
     - **功能联动:**
         - 筛选器用于初步筛选股票代码。
-        - 在筛选结果表格的每一行，提供“进行估值”按钮。
-        - 点击按钮后，自动将该股票的 `ts_code` 填充到“DCF估值”标签页的股票代码输入框，并自动切换到“DCF估值”标签页，方便用户进行后续的详细估值。填充代码后不自动触发估值计算，等待用户确认参数后手动发起。
+        - 在筛选结果表格的每一行，提供“进行估值”按钮或类似交互。
+        - 点击后，前端路由导航到DCF估值页面，并将选定股票的 `ts_code` (或其他标识符) 作为参数传递或通过状态管理共享，预填充到DCF估值表单中。
 
 ## 错误处理
 - **API 错误处理:** (保持) 定义统一的 HTTP 错误响应模型。

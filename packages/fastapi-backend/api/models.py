@@ -90,6 +90,7 @@ class StockBasicInfoModel(BaseModel):
     exchange: Optional[str] = None
     currency: Optional[str] = None
     market: Optional[str] = Field(None, description="市场类型") # 新增 market
+    latest_price: Optional[float] = Field(None, description="最新股价") # 新增字段以匹配前端ApiStockInfo
     latest_pe_ttm: Optional[float] = None
     latest_pb_mrq: Optional[float] = None
     total_shares: Optional[float] = None # Store as float for JSON consistency
@@ -178,12 +179,12 @@ class ApiStockScreenerRequestModel(BaseModel):
 class ApiScreenedStockModel(BaseModel):
     ts_code: str
     name: Optional[str] = None
-    latest_price: Optional[float] = None
+    latest_price: Optional[float] = Field(None, alias='close') # Mapped from 'close' column
     pe_ttm: Optional[float] = None
     pb: Optional[float] = None
-    total_market_cap: Optional[float] = None # 单位：亿元
+    total_market_cap: Optional[float] = Field(None, alias='market_cap_billion') # Mapped from 'market_cap_billion'
     industry: Optional[str] = None
-    model_config = ConfigDict(extra="ignore") # Allow extra fields from merged data
+    model_config = ConfigDict(extra="ignore", populate_by_name=True) # Allow extra fields and use alias
 
 class ApiStockScreenerResponseModel(BaseModel):
     results: List[ApiScreenedStockModel]

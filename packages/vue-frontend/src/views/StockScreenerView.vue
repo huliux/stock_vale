@@ -11,13 +11,13 @@
 import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import StockScreenerFilters, { type ScreenerFilters } from '@/components/StockScreenerFilters.vue';
-import StockScreenerResultsTable, { type ScreenedStock } from '@/components/StockScreenerResultsTable.vue';
+import StockScreenerResultsTable from '@/components/StockScreenerResultsTable.vue'; // Removed ScreenedStock import from here
 import { screenerApi, ApiClientError } from '@/services/apiClient';
-import type { ApiStockScreenerRequest } from '@shared-types/index'; // For request payload type
+import type { ApiStockScreenerRequest, ApiScreenedStock } from '@shared-types/index'; // Added ApiScreenedStock import
 
 const router = useRouter();
 
-const screenedStocks = reactive<ScreenedStock[]>([]);
+const screenedStocks = reactive<ApiScreenedStock[]>([]); // Use ApiScreenedStock type
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 const hasSearched = ref(false); // 标记是否执行过搜索
@@ -43,9 +43,8 @@ const handleApplyFilters = async (filters: Partial<ScreenerFilters>) => {
 
     try {
         const response = await screenerApi.getScreenedStocks(requestPayload);
-        // ScreenedStock (front-end) and ApiScreenedStock (shared-type) should be compatible
-        // If not, mapping might be needed here. For now, assume direct compatibility.
-        screenedStocks.push(...response.results as ScreenedStock[]);
+        // Ensure the type assertion matches the updated type
+        screenedStocks.push(...response.results as ApiScreenedStock[]);
         // TODO: Handle pagination if implemented (response.total, response.page, etc.)
         if (response.results.length === 0) {
             console.log('API returned no stocks matching criteria.');

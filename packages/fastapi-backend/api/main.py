@@ -96,6 +96,8 @@ app.add_middleware(
 from .routers import screener as screener_router
 app.include_router(screener_router.router, prefix="/api/v1")
 
+# Import functions from StockScreenerService to load data from .feather files
+from services.stock_screener_service import get_latest_valid_trade_date, load_stock_basic, load_daily_basic, StockScreenerServiceError
 
 # Note: _run_single_valuation, format_llm_input_data, and call_llm_api
 # have been moved to services/valuation_service.py and api/llm_utils.py respectively.
@@ -126,9 +128,63 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         # --- Step 1 & 2: Data Fetching and Processing (Common for all scenarios) ---
         logger.info("Step 1: Fetching data...")
         fetcher = AshareDataFetcher(ts_code=request.ts_code)
-        base_stock_info_dict = fetcher.get_stock_info() # 获取基本信息 (dict)
-        latest_price = fetcher.get_latest_price() # 获取最新价格 (float)
-        latest_pe_pb = fetcher.get_latest_pe_pb(request.valuation_date) # 获取最新 PE/PB (dict)
+        # Initial fetch from database
+        db_stock_info_dict = fetcher.get_stock_info() 
+        db_latest_price = fetcher.get_latest_price() 
+        db_latest_pe_pb = fetcher.get_latest_pe_pb(request.valuation_date)
+        
+        # Attempt to load data from .feather files and override/supplement DB data
+        feather_stock_info_dict = {}
+        feather_latest_price_val = None
+        feather_pe_val = None
+        feather_pb_val = None
+
+        try:
+            logger.info(f"Attempting to load data from .feather cache for {request.ts_code}")
+            latest_trade_date_for_cache = get_latest_valid_trade_date()
+            
+            stock_basic_df = load_stock_basic(force_update=False)
+            daily_basic_df = load_daily_basic(latest_trade_date_for_cache, force_update=False)
+
+            if not stock_basic_df.empty:
+                stock_specific_basic = stock_basic_df[stock_basic_df['ts_code'] == request.ts_code]
+                if not stock_specific_basic.empty:
+                    feather_stock_info_dict['name'] = stock_specific_basic['name'].iloc[0]
+                    feather_stock_info_dict['industry'] = stock_specific_basic['industry'].iloc[0]
+                    feather_stock_info_dict['market'] = stock_specific_basic['market'].iloc[0]
+                    # ts_code is already known from request
+                    logger.info(f"Loaded basic info from stock_basic.feather for {request.ts_code}: {feather_stock_info_dict}")
+
+            if not daily_basic_df.empty:
+                stock_specific_daily = daily_basic_df[daily_basic_df['ts_code'] == request.ts_code]
+                if not stock_specific_daily.empty:
+                    feather_latest_price_val = stock_specific_daily['close'].iloc[0]
+                    feather_pe_val = stock_specific_daily['pe_ttm'].iloc[0] # Assuming pe_ttm is the desired PE
+                    feather_pb_val = stock_specific_daily['pb'].iloc[0]
+                    logger.info(f"Loaded daily info from daily_basic.feather for {request.ts_code}: Price={feather_latest_price_val}, PE={feather_pe_val}, PB={feather_pb_val}")
+        
+        except StockScreenerServiceError as sse:
+            logger.warning(f"Could not load data from .feather files for {request.ts_code}: {sse}. Will use database data as primary or fallback.")
+        except Exception as e_feather:
+            logger.error(f"Unexpected error loading from .feather files for {request.ts_code}: {e_feather}. Will use database data.")
+
+        # Merge DB data with .feather data, prioritizing .feather data
+        base_stock_info_dict = {**db_stock_info_dict, **feather_stock_info_dict} # Feather overrides DB for common keys
+        latest_price = feather_latest_price_val if feather_latest_price_val is not None and pd.notna(feather_latest_price_val) else db_latest_price
+        
+        # For PE/PB, construct the dict similar to how db_latest_pe_pb is structured
+        latest_pe_pb = db_latest_pe_pb.copy() if db_latest_pe_pb else {} # Start with DB data or empty dict
+        if feather_pe_val is not None and pd.notna(feather_pe_val):
+            latest_pe_pb['pe_ttm'] = feather_pe_val # Or 'pe' if that's the key used by DataProcessor
+        if feather_pb_val is not None and pd.notna(feather_pb_val):
+            latest_pe_pb['pb'] = feather_pb_val
+        # Ensure 'pe' key exists if 'pe_ttm' was used from feather, for DataProcessor compatibility
+        if 'pe_ttm' in latest_pe_pb and 'pe' not in latest_pe_pb:
+             latest_pe_pb['pe'] = latest_pe_pb['pe_ttm']
+
+
+        logger.info(f"Final merged basic info for {request.ts_code}: Name={base_stock_info_dict.get('name')}, Price={latest_price}, PE/PB={latest_pe_pb}")
+
         total_shares = fetcher.get_latest_total_shares(request.valuation_date) # 获取最新总股本 (float or None)
         total_shares_actual = total_shares * 100000000 if total_shares is not None and total_shares > 0 else None
         
@@ -197,14 +253,11 @@ async def calculate_valuation_endpoint_v2(request: StockValuationRequest):
         logger.info("Running base case valuation...")
         
         # Adjust terminal_value_method based on provided terminal_growth_rate
-        if request.terminal_growth_rate is not None and request.terminal_value_method == 'exit_multiple':
-            logger.info(f"Terminal growth rate ({request.terminal_growth_rate}) provided, but method is exit_multiple. Switching to perpetual_growth.")
-            request.terminal_value_method = 'perpetual_growth'
-        elif request.terminal_growth_rate is None and request.terminal_value_method == 'perpetual_growth':
+        # Removed: Problematic if block that switched method if terminal_growth_rate was present with exit_multiple
+        if request.terminal_growth_rate is None and request.terminal_value_method == 'perpetual_growth':
             logger.warning("Perpetual growth method selected, but terminal_growth_rate is not provided. This might lead to errors or default behavior in calculation.")
-            # Or, force a default if this state is invalid:
-            # request.terminal_value_method = 'exit_multiple' 
-            # request.terminal_growth_rate = 0.02 # Example default, or let validation handle it
+            # Consider if a default should be forced here or if validation should catch it earlier.
+            # For now, just a warning. The calculator might use its own default or error out.
 
         base_request_dict = request.model_dump() 
         

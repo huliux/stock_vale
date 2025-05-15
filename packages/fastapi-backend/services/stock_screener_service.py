@@ -243,6 +243,10 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
         
         merged_df = pd.merge(df_basic, df_daily, on='ts_code', how='inner', suffixes=('_basic', '_daily'))
         logger.info(f"数据合并完成。合并后共有 {len(merged_df)} 条记录。")
+        
+        # Log some sample data after merge, before rename and conversion
+        if not merged_df.empty:
+            logger.info(f"合并后数据样本 (前5行，关注 close, total_mv, ts_code):\n{merged_df[['ts_code', 'name', 'close', 'total_mv']].head()}")
 
         if 'trade_date_daily' in merged_df.columns:
             merged_df.rename(columns={'trade_date_daily': 'trade_date'}, inplace=True)
@@ -256,17 +260,42 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
         ]
         for metric in metrics_to_convert:
             if metric in merged_df.columns:
+                # Log before conversion for problematic columns
+                if metric in ['close', 'total_mv'] and not merged_df.empty:
+                    logger.info(f"列 '{metric}' 转换前数据样本 (前5行):\n{merged_df[['ts_code', 'name', metric]].head()}")
                 merged_df[metric] = pd.to_numeric(merged_df[metric], errors='coerce')
+                # Log after conversion for problematic columns
+                if metric in ['close', 'total_mv'] and not merged_df.empty:
+                    logger.info(f"列 '{metric}' 转换后数据样本 (前5行):\n{merged_df[['ts_code', 'name', metric]].head()}")
+                    # Check for NaNs introduced by conversion
+                    if merged_df[metric].isnull().any():
+                        logger.warning(f"列 '{metric}' 在 to_numeric 转换后包含 NaN 值。")
             else:
                 logger.warning(f"警告: 列 '{metric}' 在合并后的DataFrame中不存在，跳过转换。")
         
         if 'total_mv' in merged_df.columns:
             merged_df['market_cap_billion'] = merged_df['total_mv'] / 10000 
+            if not merged_df.empty:
+                 logger.info(f"列 'market_cap_billion' 计算后数据样本 (前5行):\n{merged_df[['ts_code', 'name', 'total_mv', 'market_cap_billion']].head()}")
         
         if 'circ_mv' in merged_df.columns:
             merged_df['circ_market_cap_billion'] = merged_df['circ_mv'] / 10000
 
         logger.info("数据预处理完成 (指标转换为数值型，市值单位转换)。")
+        
+        # Log final sample data for the relevant columns before returning
+        if not merged_df.empty:
+            logger.info(f"返回前最终数据样本 (前5行，关注 close, market_cap_billion, ts_code):\n{merged_df[['ts_code', 'name', 'close', 'market_cap_billion']].head()}")
+            
+            # Specifically check if 'close' or 'market_cap_billion' are all NaN for some reason
+            if merged_df['close'].isnull().all():
+                logger.error("错误：处理后 'close' 列全部为 NaN。")
+            if 'market_cap_billion' in merged_df.columns and merged_df['market_cap_billion'].isnull().all():
+                logger.error("错误：处理后 'market_cap_billion' 列全部为 NaN。")
+            elif 'market_cap_billion' not in merged_df.columns:
+                 logger.error("错误：处理后 'market_cap_billion' 列不存在。")
+
+
         return merged_df
 
     except Exception as e:

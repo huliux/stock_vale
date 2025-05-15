@@ -71,9 +71,40 @@ async def get_screened_stocks(
         # paged_df = filtered_df.iloc[start_index:end_index]
         paged_df = filtered_df # 暂时不分页
 
-        results = [
-            ApiScreenedStockModel(**row) for row in paged_df.to_dict(orient='records')
-        ]
+        # Log sample of paged_df before converting to dicts
+        if not paged_df.empty:
+            logger.info(f"Paged DataFrame 样本 (前3行，关注 close, market_cap_billion):\n{paged_df[['ts_code', 'name', 'close', 'market_cap_billion']].head(3)}")
+
+        records_list = paged_df.to_dict(orient='records')
+        
+        # Log sample of records_list (list of dicts)
+        if records_list:
+            logger.info(f"转换后的字典列表样本 (前2条记录中关注 close, market_cap_billion):")
+            for i, record_sample in enumerate(records_list[:2]):
+                sample_to_log = {k: record_sample.get(k) for k in ['ts_code', 'name', 'close', 'market_cap_billion']}
+                logger.info(f"记录 {i}: {sample_to_log}")
+        
+        results = []
+        for row_idx, row_data in enumerate(records_list):
+            try:
+                model_instance = ApiScreenedStockModel(**row_data)
+                results.append(model_instance)
+            except Exception as pydantic_exc:
+                logger.error(f"Pydantic 模型转换错误，行索引 {row_idx}，数据: {row_data}, 错误: {pydantic_exc}")
+                # Optionally, append a default/error model or skip
+                # For now, let's re-raise if critical, or log and continue if some can be salvaged
+                # Depending on strictness, this could be a place to add more robust error handling
+                # For now, if one fails, the whole request might fail due to the list comprehension style before.
+                # This loop allows individual logging.
+                # If a row fails validation, it won't be added to results.
+                # Consider if this is the desired behavior or if an error should be raised.
+                pass # Silently skip problematic rows for now, or handle as needed
+
+        # Log sample of results (list of Pydantic models)
+        if results:
+            logger.info(f"转换后的 Pydantic 模型列表样本 (前2条记录中关注 latest_price, total_market_cap):")
+            for i, model_sample in enumerate(results[:2]):
+                 logger.info(f"模型 {i}: ts_code={model_sample.ts_code}, name={model_sample.name}, latest_price={model_sample.latest_price}, total_market_cap={model_sample.total_market_cap}")
         
         logger.info(f"筛选完成，返回 {len(results)} 条记录 (总计 {total_results} 条)。")
         return ApiStockScreenerResponseModel(

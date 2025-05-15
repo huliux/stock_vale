@@ -25,10 +25,10 @@
                 <tr v-for="stock in results" :key="stock.ts_code">
                     <td>{{ stock.ts_code }}</td>
                     <td>{{ stock.name }}</td>
-                    <td>{{ stock.latest_price?.toFixed(2) ?? 'N/A' }}</td>
+                    <td>{{ stock.close?.toFixed(2) ?? 'N/A' }}</td>
                     <td>{{ stock.pe_ttm?.toFixed(2) ?? 'N/A' }}</td>
                     <td>{{ stock.pb?.toFixed(2) ?? 'N/A' }}</td>
-                    <td>{{ stock.total_market_cap?.toFixed(2) ?? 'N/A' }}</td>
+                    <td>{{ stock.market_cap_billion?.toFixed(2) ?? 'N/A' }}</td>
                     <td>
                         <button @click="goToValuation(stock.ts_code)">进行估值</button>
                     </td>
@@ -40,20 +40,11 @@
 
 <script setup lang="ts">
 // defineProps and defineEmits are compiler macros and no longer need to be imported.
-
-// 假设的股票数据结构，后续会从 shared-types 引入或在此定义更准确的类型
-export interface ScreenedStock {
-    ts_code: string;
-    name: string;
-    latest_price?: number | null;
-    pe_ttm?: number | null;
-    pb?: number | null;
-    total_market_cap?: number | null; // 单位：亿元
-    // 可以根据实际从API获取的数据添加更多字段
-}
+import type { ApiScreenedStock } from '@shared-types/index'; // Import the shared type
+import { watchEffect } from 'vue';
 
 interface Props {
-    results: ScreenedStock[];
+    results: ApiScreenedStock[]; // Use the imported shared type
     isLoading: boolean;
     error: string | null;
     hasSearched: boolean; // 用于区分初始状态和搜索后无结果的状态
@@ -61,6 +52,15 @@ interface Props {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const props = defineProps<Props>();
+
+// Remove local ScreenedStock interface as we are using the shared one now.
+
+watchEffect(() => {
+    console.log('StockScreenerResultsTable received results:', JSON.parse(JSON.stringify(props.results)));
+    if (props.results && props.results.length > 0) {
+        console.log('First stock item in results:', JSON.parse(JSON.stringify(props.results[0])));
+    }
+});
 
 const emit = defineEmits(['go-to-valuation']);
 
