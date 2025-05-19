@@ -4,59 +4,49 @@
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       <span class="ml-2 text-muted-foreground">加载中...</span>
     </div>
-    
-    <div v-else-if="!sensitivityData || !Object.keys(sensitivityData.result_tables || {}).length" 
-         class="flex items-center justify-center h-60 text-muted-foreground">
-      没有敏感性分析数据可显示
+
+    <div
+      v-else-if="!sensitivityData || !sensitivityData.result_tables || !Object.keys(sensitivityData.result_tables || {}).length"
+      class="flex items-center justify-center h-60 text-muted-foreground flex-col">
+      <div>没有敏感性分析数据可显示</div>
+      <pre v-if="sensitivityData"
+        class="text-xs mt-2 text-left max-w-full overflow-auto">{{ JSON.stringify(sensitivityData, null, 2) }}</pre>
     </div>
-    
+
     <div v-else>
       <div class="mb-4 flex flex-wrap gap-2">
-        <Button 
-          v-for="metric in availableMetrics" 
-          :key="metric.key"
-          :variant="selectedMetric === metric.key ? 'default' : 'outline'"
-          @click="selectedMetric = metric.key"
-          size="sm"
-        >
+        <Button v-for="metric in availableMetrics" :key="metric.key"
+          :variant="selectedMetric === metric.key ? 'default' : 'outline'" @click="selectedMetric = metric.key"
+          size="sm">
           {{ metric.label }}
         </Button>
       </div>
-      
-      <div class="flex flex-col md:flex-row gap-4">
+
+      <div class="flex flex-col md:flex-row gap-4 w-full overflow-hidden">
         <!-- 热力图 -->
-        <div class="flex-1 min-h-[300px]" ref="heatmapContainer"></div>
-        
+        <div class="flex-1 min-h-[300px] w-full max-w-full" ref="heatmapContainer"></div>
+
         <!-- 控制面板 -->
         <div class="w-full md:w-64 space-y-4 bg-muted/20 p-3 rounded-md">
           <h4 class="text-sm font-medium">调整参数</h4>
-          
+
           <div class="space-y-2">
             <label class="text-xs text-muted-foreground">{{ rowParamLabel }}</label>
-            <Slider
-              :model-value="rowParamValue"
-              @update:model-value="updateRowParam"
-              :min="rowParamMin"
-              :max="rowParamMax"
-              :step="rowParamStep"
-              class="my-6"
-            />
+            <Slider :model-value="rowParamValue"
+              @update:model-value="(val: number | number[]) => updateRowParam(Number(val))" :min="rowParamMin"
+              :max="rowParamMax" :step="rowParamStep" class="my-6" />
             <div class="text-xs text-right">{{ formatParamValue(rowParamValue, sensitivityData.row_parameter) }}</div>
           </div>
-          
+
           <div class="space-y-2">
             <label class="text-xs text-muted-foreground">{{ colParamLabel }}</label>
-            <Slider
-              :model-value="colParamValue"
-              @update:model-value="updateColParam"
-              :min="colParamMin"
-              :max="colParamMax"
-              :step="colParamStep"
-              class="my-6"
-            />
-            <div class="text-xs text-right">{{ formatParamValue(colParamValue, sensitivityData.column_parameter) }}</div>
+            <Slider :model-value="colParamValue"
+              @update:model-value="(val: number | number[]) => updateColParam(Number(val))" :min="colParamMin"
+              :max="colParamMax" :step="colParamStep" class="my-6" />
+            <div class="text-xs text-right">{{ formatParamValue(colParamValue, sensitivityData.column_parameter) }}
+            </div>
           </div>
-          
+
           <div class="pt-4 border-t border-border">
             <h4 class="text-sm font-medium mb-2">导出</h4>
             <div class="flex flex-col gap-2">
@@ -101,7 +91,7 @@ const colParamValue = ref<number>(0);
 // 可用指标列表
 const availableMetrics = computed(() => {
   if (!props.sensitivityData?.result_tables) return [];
-  
+
   return Object.keys(props.sensitivityData.result_tables).map(key => {
     const label = getMetricLabel(key);
     return { key, label };
@@ -149,10 +139,10 @@ watch(() => props.sensitivityData, (newData) => {
     // 设置为中间值
     const rowMiddleIndex = Math.floor(newData.row_values.length / 2);
     const colMiddleIndex = Math.floor(newData.column_values.length / 2);
-    
+
     rowParamValue.value = Number(newData.row_values[rowMiddleIndex]);
     colParamValue.value = Number(newData.column_values[colMiddleIndex]);
-    
+
     // 如果有可用指标，选择第一个
     if (availableMetrics.value.length > 0) {
       selectedMetric.value = availableMetrics.value[0].key;
@@ -168,20 +158,23 @@ watch([selectedMetric, () => props.sensitivityData], () => {
 // 渲染热力图
 const renderHeatmap = () => {
   if (!heatmapContainer.value || !props.sensitivityData || !props.sensitivityData.result_tables) return;
-  
+
   if (!chart) {
-    chart = echarts.init(heatmapContainer.value);
+    chart = echarts.init(heatmapContainer.value, undefined, {
+      renderer: 'canvas',
+      useDirtyRect: false
+    });
   }
-  
+
   const data = props.sensitivityData;
   const tableData = data.result_tables[selectedMetric.value];
-  
+
   if (!tableData) return;
-  
+
   // 准备数据
   const rowValues = data.row_values.map(v => formatParamValue(Number(v), data.row_parameter));
   const colValues = data.column_values.map(v => formatParamValue(Number(v), data.column_parameter));
-  
+
   // 转换为热力图数据
   const heatmapData: [number, number, number | string][] = [];
   tableData.forEach((row, i) => {
@@ -191,11 +184,11 @@ const renderHeatmap = () => {
       }
     });
   });
-  
+
   // 高亮当前选中的参数值
   const rowIndex = data.row_values.findIndex(v => Number(v) === rowParamValue.value);
   const colIndex = data.column_values.findIndex(v => Number(v) === colParamValue.value);
-  
+
   // 设置图表选项
   const option: echarts.EChartsOption = {
     tooltip: {
@@ -204,13 +197,16 @@ const renderHeatmap = () => {
         const rowValue = rowValues[params.data[1]];
         const colValue = colValues[params.data[0]];
         const value = formatMetricValue(params.data[2], selectedMetric.value);
-        
+
         return `${rowParamLabel.value}: ${rowValue}<br>${colParamLabel.value}: ${colValue}<br>${getMetricLabel(selectedMetric.value)}: ${value}`;
       }
     },
     grid: {
       height: '70%',
-      top: '10%'
+      top: '10%',
+      containLabel: true,
+      left: '3%',
+      right: '4%'
     },
     xAxis: {
       type: 'category',
@@ -240,7 +236,7 @@ const renderHeatmap = () => {
       left: 'center',
       bottom: '0%',
       formatter: (value: number) => formatMetricValue(value, selectedMetric.value)
-    },
+    } as any,
     series: [{
       name: getMetricLabel(selectedMetric.value),
       type: 'heatmap',
@@ -259,9 +255,9 @@ const renderHeatmap = () => {
           { coord: [colIndex, rowIndex], symbol: 'circle', symbolSize: 10 }
         ]
       } : undefined
-    }]
+    }] as any
   };
-  
+
   chart.setOption(option);
 };
 
@@ -286,7 +282,7 @@ const getMetricLabel = (metricKey: string): string => {
     'dcf_implied_diluted_pe': 'DCF隐含PE',
     'ev_ebitda': 'EV/EBITDA'
   };
-  
+
   return labels[metricKey] || metricKey;
 };
 
@@ -297,7 +293,7 @@ const getParamLabel = (paramKey: string): string => {
     'terminal_growth_rate': '永续增长率',
     'perpetual_growth_rate': '永续增长率'
   };
-  
+
   return labels[paramKey] || paramKey;
 };
 
@@ -312,7 +308,7 @@ const formatParamValue = (value: number, paramType: string | undefined): string 
 
 const formatMetricValue = (value: number | string, metricType: string): string => {
   const numValue = Number(value);
-  
+
   if (metricType === 'value_per_share') {
     return numValue.toFixed(2);
   } else if (metricType === 'enterprise_value' || metricType === 'equity_value') {
@@ -322,26 +318,26 @@ const formatMetricValue = (value: number | string, metricType: string): string =
   } else if (metricType === 'dcf_implied_diluted_pe' || metricType === 'ev_ebitda') {
     return `${numValue.toFixed(2)}x`;
   }
-  
+
   return String(value);
 };
 
 // 导出功能
 const exportToCSV = () => {
   if (!props.sensitivityData || !props.sensitivityData.result_tables || !selectedMetric.value) return;
-  
+
   const data = props.sensitivityData;
   const tableData = data.result_tables[selectedMetric.value];
-  
+
   if (!tableData) return;
-  
+
   // 创建CSV内容
   let csvContent = `${colParamLabel.value}/${rowParamLabel.value},${data.column_values.join(',')}\n`;
-  
+
   tableData.forEach((row, i) => {
     csvContent += `${data.row_values[i]},${row.join(',')}\n`;
   });
-  
+
   // 创建下载链接
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -356,13 +352,13 @@ const exportToCSV = () => {
 
 const exportImage = () => {
   if (!chart) return;
-  
+
   const url = chart.getDataURL({
     type: 'png',
     pixelRatio: 2,
     backgroundColor: '#fff'
   });
-  
+
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', `敏感性分析_${getMetricLabel(selectedMetric.value)}.png`);

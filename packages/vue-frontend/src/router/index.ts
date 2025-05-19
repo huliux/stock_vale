@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import ComponentsShowcaseView from '../views/ComponentsShowcaseView.vue'
 import DcfValuationView from '../views/DcfValuationView.vue'
+import SensitivityTestView from '../views/SensitivityTestView.vue'
 import StockScreenerView from '../views/StockScreenerView.vue'
 
 const router = createRouter({
@@ -14,6 +16,16 @@ const router = createRouter({
       path: '/screener',
       name: 'stock-screener',
       component: StockScreenerView
+    },
+    {
+      path: '/components',
+      name: 'components-showcase',
+      component: ComponentsShowcaseView
+    },
+    {
+      path: '/sensitivity-test',
+      name: 'sensitivity-test',
+      component: SensitivityTestView
     },
     {
       path: '/valuation-assistant',

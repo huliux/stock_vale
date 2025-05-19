@@ -15,20 +15,7 @@
 
             <!-- Right Panel: Results Table -->
             <div class="flex-grow bg-card p-4 rounded-md border border-border shadow-sm overflow-y-auto">
-                <TestComponent />
-                <SimpleStockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
-                <BasicStockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
-                <ButtonTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
-                <SelectTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
-                <ToggleTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
-                <DialogTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
-                <ChartTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                <StockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
                     :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
             </div>
         </div>
@@ -39,15 +26,7 @@
 import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import StockScreenerFilters, { type ScreenerFilters } from '@/components/StockScreenerFilters.vue';
-// import StockScreenerResultsTable from '@/components/StockScreenerResultsTable.vue';
-import SimpleStockScreenerResultsTable from '@/components/SimpleStockScreenerResultsTable.vue';
-import BasicStockScreenerResultsTable from '@/components/BasicStockScreenerResultsTable.vue';
-import ButtonTestTable from '@/components/ButtonTestTable.vue';
-import SelectTestTable from '@/components/SelectTestTable.vue';
-import ToggleTestTable from '@/components/ToggleTestTable.vue';
-import DialogTestTable from '@/components/DialogTestTable.vue';
-import ChartTestTable from '@/components/ChartTestTable.vue';
-import TestComponent from '@/components/TestComponent.vue';
+import StockScreenerResultsTable from '@/components/StockScreenerResultsTable.vue';
 import { screenerApi, ApiClientError } from '@/services/apiClient';
 import type { ApiStockScreenerRequest, ApiScreenedStock } from '@shared-types/index';
 

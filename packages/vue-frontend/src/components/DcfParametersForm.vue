@@ -286,6 +286,19 @@
                             class="text-sm font-medium text-foreground">启用敏感性分析</Label>
                     </div>
 
+                    <div class="p-3 bg-muted/20 border border-border rounded-md">
+                        <p class="text-sm font-medium text-foreground">敏感性分析状态:</p>
+                        <p class="text-xs text-muted-foreground">启用状态: {{ params.enable_sensitivity_analysis ? '已启用' :
+                            '未启用' }}</p>
+                        <p class="text-xs text-muted-foreground">WACC步长: {{ formStringValues.sensitivity_wacc_step }}
+                        </p>
+                        <p class="text-xs text-muted-foreground">WACC点数: {{ params.sensitivity_wacc_points }}</p>
+                        <p class="text-xs text-muted-foreground">退出乘数步长: {{
+                            formStringValues.sensitivity_exit_multiple_step }}</p>
+                        <p class="text-xs text-muted-foreground">退出乘数点数: {{ params.sensitivity_exit_multiple_points }}
+                        </p>
+                    </div>
+
                     <div v-if="params.enable_sensitivity_analysis" class="space-y-6 mt-4">
                         <div class="space-y-3 py-3 pl-3 border-l-2 border-border/60 rounded-r-md bg-muted/20">
                             <h6 class="text-base font-medium text-foreground mb-3">WACC 敏感性</h6>
@@ -455,7 +468,7 @@ const params = reactive<DcfFormParameters>({
     terminal_value_method: 'exit_multiple',
     request_llm_summary: false,
     llm_provider: '', // Default to empty string for Select's "undefined" equivalent
-    enable_sensitivity_analysis: false,
+    enable_sensitivity_analysis: true,
     // Numeric fields that will be handled by formStringValues initially
     terminal_growth_rate: 2.5,
     prediction_years: 5,
@@ -646,6 +659,16 @@ const submitValuationRequest = () => {
         const maxSensitivityPoints = 11;
         const waccStepForApi = typeof finalParams.sensitivity_wacc_step === 'number' ? finalParams.sensitivity_wacc_step / 100 : undefined;
 
+        console.log('敏感性分析参数:', {
+            enable: finalParams.enable_sensitivity_analysis,
+            wacc_step: finalParams.sensitivity_wacc_step,
+            wacc_step_for_api: waccStepForApi,
+            wacc_points: finalParams.sensitivity_wacc_points,
+            exit_multiple_step: finalParams.sensitivity_exit_multiple_step,
+            exit_multiple_points: finalParams.sensitivity_exit_multiple_points,
+            terminal_value_method: finalParams.terminal_value_method
+        });
+
         if (finalParams.sensitivity_wacc_points && finalParams.sensitivity_wacc_points > 1 && (waccStepForApi === 0 || waccStepForApi === null || waccStepForApi === undefined)) {
             emit('validation-error', `当 ${simpleAxisParamDisplayNames['wacc']} 的分析点数大于1时，其变动步长不能为空且不能为0。`);
             return;
@@ -691,6 +714,10 @@ const submitValuationRequest = () => {
             row_axis: axis1, column_axis: axis2,
             output_metrics: ['value_per_share', 'enterprise_value', 'equity_value', 'ev_ebitda', 'dcf_implied_diluted_pe', 'tv_ev_ratio']
         };
+
+        console.log('构建的敏感性分析参数:', apiPayload.sensitivity_analysis);
+    } else {
+        console.log('敏感性分析未启用');
     }
 
     emit('submit-valuation', apiPayload);

@@ -88,6 +88,7 @@ import type {
     ApiDcfValuationRequest, // Assuming this is defined for valuation
     ApiDcfValuationResponse // Assuming this is defined for valuation
     ,
+
     ApiStockScreenerRequest,
     ApiStockScreenerResponse,
     ApiUpdateScreenerDataRequest,
@@ -105,9 +106,17 @@ export const screenerApi = {
 };
 
 export const valuationApi = {
-    performDcfValuation: (params: ApiDcfValuationRequest): Promise<ApiDcfValuationResponse> => {
+    performDcfValuation: async (params: ApiDcfValuationRequest): Promise<ApiDcfValuationResponse> => {
         // Ensure the endpoint matches your FastAPI valuation endpoint, e.g., /valuation
-        return apiClient.post<ApiDcfValuationResponse, ApiDcfValuationRequest>('/valuation', params);
+        console.log('发送估值请求，敏感性分析参数:', params.sensitivity_analysis);
+        try {
+            const response = await apiClient.post<ApiDcfValuationResponse, ApiDcfValuationRequest>('/valuation', params);
+            console.log('估值响应中的敏感性分析结果:', response.valuation_results?.sensitivity_analysis_result);
+            return response;
+        } catch (error) {
+            console.error('估值请求失败:', error);
+            throw error;
+        }
     }
 };
 
