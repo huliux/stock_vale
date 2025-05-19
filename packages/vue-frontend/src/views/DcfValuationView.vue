@@ -7,7 +7,6 @@
         <SidebarInset>
             <header class="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background p-4">
                 <SidebarTrigger class="-ml-1" />
-                <h2 class="text-lg font-semibold text-foreground ml-2">估值结果</h2>
             </header>
             <main class="flex-1 overflow-auto p-4">
                 <DcfResultsDisplay :valuation-data="computedValuationResult" :is-loading="computedIsLoading"
