@@ -1,5 +1,12 @@
 {
   "files": [],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared-types/*": ["../shared-types/src/*"]
+    }
+  },
   "references": [
     {
       "path": "./tsconfig.node.json"

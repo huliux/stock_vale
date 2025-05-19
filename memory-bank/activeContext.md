@@ -40,6 +40,12 @@
     *   **代码质量与可维护性：** 遵循最佳实践。
     *   **严格遵循文档：** PRD为最高权威。
     *   **沟通与验证：** 持续与用户确认，通过案例测试。
+12. **UI/UX 优化与技术升级 (新决策):**
+    *   **技术选型**: 引入 Tailwind CSS 和 `shadcn-vue` (基于 `/unovue/shadcn-vue` 移植版) 以改进UI样式和组件。
+    *   **导航结构调整**:
+        *   一级导航：头部横向排列（股票筛选、绝对估值、深度研究、策略研究、回测模拟、实操记录）。
+        *   二级导航/参数操作区：页面左侧。
+        *   内容区：页面右侧。
 
 ## 当前状态
 -   项目处于**执行模式 (ACT MODE)**。
@@ -55,6 +61,7 @@
         *   **敏感性分析结果渲染**: 渲染逻辑已审查，认为基本完整，待实际数据测试。
     *   股票筛选器页面及相关组件核心功能已实现。
     *   错误处理已统一到Pinia store。
+    *   **当前布局**: 采用简单的Flexbox布局，侧边栏固定宽度，内容区可滚动，尚未实现完全的响应式设计。
 -   **共享类型 (`packages/shared-types`):**
     *   `ApiDcfValuationRequest`, `ApiSensitivityAnalysisRequest`, `ApiSensitivityAnalysisResult` 等相关类型已更新。
     *   `historical_financial_summary` 和 `historical_ratios_summary` 的类型定义已优化。
@@ -67,7 +74,17 @@
     *   `/screener/update-data` API 已修改为返回真实的缓存文件更新时间戳。
 
 ## 当前核心任务 (根据用户最新指示和PLAN MODE讨论结果)
-**主要目标：所有主要的前端功能完善和后端API适配检查已完成。当前等待用户指示下一步操作或确认项目此阶段完成。**
+**主要目标：优化前端UI/UX，实现页面自适应，并引入 `shadcn-vue` 组件库和Tailwind CSS。**
+1.  **基础环境搭建**:
+    *   在 `packages/vue-frontend` 中安装和配置 Tailwind CSS。
+    *   初始化 `shadcn-vue` CLI 并配置。
+2.  **全局布局重构 (`App.vue`)**:
+    *   实现新的头部一级导航。
+    *   调整主内容区域布局，为各模块内部的两栏布局做准备。
+3.  **核心视图布局重构**:
+    *   在 `DcfValuationView.vue`, `StockScreenerView.vue` 等一级模块视图内部实现“左侧参数/二级导航 + 右侧内容”的响应式两栏布局。
+4.  **组件替换与样式美化**:
+    *   逐步将现有HTML元素和自定义组件替换为 `shadcn-vue` 组件，并使用Tailwind CSS进行样式调整。
 
 ## 后续步骤 (在完成当前核心任务后，根据任务交接文档和PLAN MODE讨论梳理)
 0.  **严格遵循规范:** **所有开发和修复工作必须严格遵循 `wiki/` 目录下的 PRD 和数据定义文档，并参考 `streamlit_app.py` 的实现细节以保证一致性。**

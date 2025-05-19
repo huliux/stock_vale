@@ -14,6 +14,31 @@ const router = createRouter({
       path: '/screener',
       name: 'stock-screener',
       component: StockScreenerView
+    },
+    {
+      path: '/valuation-assistant',
+      name: 'valuation-assistant',
+      component: () => import('../views/ValuationAssistantView.vue')
+    },
+    {
+      path: '/deep-research',
+      name: 'deep-research',
+      component: DcfValuationView // Placeholder
+    },
+    {
+      path: '/strategy-research',
+      name: 'strategy-research',
+      component: DcfValuationView // Placeholder
+    },
+    {
+      path: '/backtest',
+      name: 'backtest',
+      component: DcfValuationView // Placeholder
+    },
+    {
+      path: '/trading-log',
+      name: 'trading-log',
+      component: DcfValuationView // Placeholder
     }
   ]
 })

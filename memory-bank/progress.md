@@ -62,32 +62,34 @@
     - [x] 更新 `memory-bank/activeContext.md`。
     - [x] 更新 `memory-bank/progress.md` (当前文件)。
     - [ ] (可选) 整理 `raw_reflection_log.md` 到 `consolidated_learnings.md`。
-- **Vue.js 前端功能完善:**
+- **UI/UX 优化与技术升级 (新核心任务):**
+    - [ ] **基础环境搭建**:
+        - [ ] 在 `packages/vue-frontend` 中安装和配置 Tailwind CSS。
+        - [ ] 初始化 `shadcn-vue` CLI 并配置。
+    - [ ] **全局布局重构 (`App.vue`)**:
+        - [ ] 实现新的头部一级导航（股票筛选、绝对估值、深度研究、策略研究、回测模拟、实操记录）。
+        - [ ] 调整主内容区域布局，移除旧的全局侧边栏。
+    - [ ] **核心视图布局重构**:
+        - [ ] 在 `DcfValuationView.vue`, `StockScreenerView.vue` 等一级模块视图内部实现“左侧参数/二级导航 + 右侧内容”的响应式两栏布局。
+    - [ ] **组件替换与样式美化**:
+        - [ ] 逐步将现有HTML元素和自定义组件（如表单、按钮、表格、卡片等）替换为 `shadcn-vue` 组件。
+        - [ ] 使用Tailwind CSS进行样式调整和确保自适应。
+- **Vue.js 前端功能完善 (状态更新):**
     - [x] **敏感性分析结果显示 (`packages/vue-frontend/src/components/DcfResultsDisplay.vue`):**
-        - [x] **需求**: 审查敏感性分析结果表格的渲染逻辑，确保与 `ApiSensitivityAnalysisResult` 结构匹配。
-        - [x] **实现思路**:
-            - [x] 已检查现有模板代码和Vue逻辑。
-            - [x] 已验证辅助函数。
-            - [x] 已确认轴参数名称正确显示。
-            - [x] 已确认不同指标的表格渲染逻辑。
-            - [x] 已确认单元格数据根据指标类型的特定格式化逻辑。
-            - [x] 已确认中心单元格高亮逻辑。
-            - [x] TypeScript错误已解决。
+        - [x] 渲染逻辑已审查，TypeScript错误已解决。待实际数据测试。
     - [x] **DCF参数表单 (`DcfParametersForm.vue`):**
-        - [x] （已确认）过渡年数默认值动态关联“预测期年数”的逻辑。
-        - [x] （已增强）完善所有参数的输入校验逻辑。
-        - [x] （已完成）敏感性分析参数UI简化。
+        - [x] 过渡年数逻辑已确认，输入校验已增强，敏感性分析UI已简化。
     - [x] **API客户端 (`apiClient.ts`) 与参数转换 (`DcfValuationView.vue`):**
-        - [x] 已确保 `performDcfValuation` 函数的参数序列化逻辑（主要在 `DcfParametersForm.vue`）与后端模型一致。
+        - [x] 参数序列化逻辑已检查并确认。
     - [ ] **前端 `DcfResultsDisplay.vue` 其他数据显示问题验证与跟进:**
         - [ ] 验证 “FCF现值 (PV of FCF)”列是否正确显示。
         - [ ] 检查“基准年报”、部分“核心估值指标”（如安全边际、WACC、Ke）以及“详细财务预测”表格中的其他列是否正确显示和格式化。
     - [ ] **股票筛选器 (`StockScreenerView.vue`, etc.):**
         - [ ] （大部分已完成）确认与后端API的完全对接。
         - [ ] 确认筛选条件、结果展示、加载状态、错误处理、页面联动功能。
-    - [ ] **UI/UX整体优化和测试。**
-- **后端API适配与确认:**
-    - [x] **DCF估值API (`/api/v1/valuation`):** 已检查请求和响应模型与前端的兼容性。计算结果与PRD一致性待通过实际案例测试。
+    - [ ] **UI/UX整体优化和测试 (此项已被新的UI/UX优化任务覆盖和扩展)。**
+- **后端API适配与确认 (状态更新):**
+    - [x] **DCF估值API (`/api/v1/valuation`):** 请求和响应模型与前端兼容性已检查。计算结果与PRD一致性待通过实际案例测试。
     - [x] **股票筛选器API (`/api/v1/screener/stocks`):** 已确认当前不支持分页、排序。可作为后续增强。
     - [x] **`/screener/update-data` API：** 已修改为返回真实的缓存数据更新时间戳。
 - **其他待办 (优先级较低或待评估):**

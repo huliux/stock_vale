@@ -1,9 +1,37 @@
 <template>
-    <div class="stock-screener-view">
-        <h2>股票筛选器</h2>
-        <StockScreenerFilters @apply-filters="handleApplyFilters" @update-data="handleUpdateData" />
-        <StockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-            :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+    <div class="flex flex-col h-full">
+        <!-- View-specific Header -->
+        <header class="p-4 border-b border-border bg-card flex-shrink-0">
+            <h2 class="text-xl font-semibold text-card-foreground">股票筛选器</h2>
+        </header>
+
+        <!-- Main content area for this view -->
+        <div class="flex-grow flex flex-col md:flex-row overflow-hidden p-4 gap-4">
+            <!-- Left Panel: Filters -->
+            <div
+                class="w-full md:w-1/3 lg:w-1/4 xl:w-1/5 flex-shrink-0 bg-card p-4 rounded-md border border-border shadow-sm overflow-y-auto">
+                <StockScreenerFilters @apply-filters="handleApplyFilters" @update-data="handleUpdateData" />
+            </div>
+
+            <!-- Right Panel: Results Table -->
+            <div class="flex-grow bg-card p-4 rounded-md border border-border shadow-sm overflow-y-auto">
+                <TestComponent />
+                <SimpleStockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+                <BasicStockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+                <ButtonTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+                <SelectTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+                <ToggleTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+                <DialogTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+                <ChartTestTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                    :has-searched="hasSearched" @go-to-valuation="handleGoToValuation" />
+            </div>
+        </div>
     </div>
 </template>
 
@@ -11,18 +39,24 @@
 import { ref, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import StockScreenerFilters, { type ScreenerFilters } from '@/components/StockScreenerFilters.vue';
-import StockScreenerResultsTable from '@/components/StockScreenerResultsTable.vue'; // Removed ScreenedStock import from here
+// import StockScreenerResultsTable from '@/components/StockScreenerResultsTable.vue';
+import SimpleStockScreenerResultsTable from '@/components/SimpleStockScreenerResultsTable.vue';
+import BasicStockScreenerResultsTable from '@/components/BasicStockScreenerResultsTable.vue';
+import ButtonTestTable from '@/components/ButtonTestTable.vue';
+import SelectTestTable from '@/components/SelectTestTable.vue';
+import ToggleTestTable from '@/components/ToggleTestTable.vue';
+import DialogTestTable from '@/components/DialogTestTable.vue';
+import ChartTestTable from '@/components/ChartTestTable.vue';
+import TestComponent from '@/components/TestComponent.vue';
 import { screenerApi, ApiClientError } from '@/services/apiClient';
-import type { ApiStockScreenerRequest, ApiScreenedStock } from '@shared-types/index'; // Added ApiScreenedStock import
+import type { ApiStockScreenerRequest, ApiScreenedStock } from '@shared-types/index';
 
 const router = useRouter();
 
-const screenedStocks = reactive<ApiScreenedStock[]>([]); // Use ApiScreenedStock type
+const screenedStocks = reactive<ApiScreenedStock[]>([]);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
-const hasSearched = ref(false); // 标记是否执行过搜索
-
-// 不再需要 allStocksData，数据将从API获取
+const hasSearched = ref(false);
 
 const handleApplyFilters = async (filters: Partial<ScreenerFilters>) => {
     isLoading.value = true;
@@ -33,35 +67,36 @@ const handleApplyFilters = async (filters: Partial<ScreenerFilters>) => {
     console.log('Applying filters to API:', filters);
 
     const requestPayload: ApiStockScreenerRequest = {
-        pe_min: filters.peMin,
-        pe_max: filters.peMax,
-        pb_min: filters.pbMin,
-        pb_max: filters.pbMax,
-        market_cap_min: filters.marketCapMin,
-        market_cap_max: filters.marketCapMax,
+        pe_min: filters.peMin ? Number(filters.peMin) : null,
+        pe_max: filters.peMax ? Number(filters.peMax) : null,
+        pb_min: filters.pbMin ? Number(filters.pbMin) : null,
+        pb_max: filters.pbMax ? Number(filters.pbMax) : null,
+        market_cap_min: filters.marketCapMin ? Number(filters.marketCapMin) : null,
+        market_cap_max: filters.marketCapMax ? Number(filters.marketCapMax) : null,
+        // Add other filters as they are implemented in ScreenerFilters and backend
     };
 
     try {
         const response = await screenerApi.getScreenedStocks(requestPayload);
-        // Ensure the type assertion matches the updated type
         screenedStocks.push(...response.results as ApiScreenedStock[]);
-        // TODO: Handle pagination if implemented (response.total, response.page, etc.)
         if (response.results.length === 0) {
             console.log('API returned no stocks matching criteria.');
         }
-    } catch (e: any) {
+    } catch (e) {
         console.error('Error fetching screened stocks:', e);
         if (e instanceof ApiClientError) {
             error.value = `API错误 (状态 ${e.status}): ${e.message}. ${typeof e.data?.detail === 'string' ? e.data.detail : JSON.stringify(e.data?.detail)}`;
-        } else {
+        } else if (e instanceof Error) {
             error.value = e.message || '筛选股票时发生未知错误。';
+        } else {
+            error.value = '筛选股票时发生未知错误。';
         }
     } finally {
         isLoading.value = false;
     }
 };
 
-const handleUpdateData = async () => { // Assuming this button triggers 'all' data update for now
+const handleUpdateData = async () => {
     isLoading.value = true;
     error.value = null;
     console.log('Requesting data update from API...');
@@ -69,16 +104,17 @@ const handleUpdateData = async () => { // Assuming this button triggers 'all' da
     try {
         const response = await screenerApi.updateScreenerData({ data_type: 'all' });
         console.log('Data update API response:', response);
-        alert(`数据更新任务已触发: ${response.message}`); // Simple feedback
-        // Optionally, refresh data or prompt user to re-apply filters
+        alert(`数据更新任务已触发: ${response.message}`);
         hasSearched.value = false;
         screenedStocks.splice(0, screenedStocks.length);
-    } catch (e: any) {
+    } catch (e) {
         console.error('Error updating screener data:', e);
         if (e instanceof ApiClientError) {
             error.value = `API错误 (状态 ${e.status}): ${e.message}. ${typeof e.data?.detail === 'string' ? e.data.detail : JSON.stringify(e.data?.detail)}`;
-        } else {
+        } else if (e instanceof Error) {
             error.value = e.message || '更新筛选器数据时发生未知错误。';
+        } else {
+            error.value = '更新筛选器数据时发生未知错误。';
         }
         alert(`数据更新失败: ${error.value}`);
     } finally {
@@ -88,20 +124,12 @@ const handleUpdateData = async () => { // Assuming this button triggers 'all' da
 
 const handleGoToValuation = (stockCode: string) => {
     console.log('Navigating to valuation for stock code:', stockCode);
-    // 实际导航逻辑，可能会将 stockCode 作为查询参数或状态管理传递
-    // 例如，使用 Pinia store 更新选中的股票代码，然后导航
-    // store.setSelectedStock(stockCode);
     router.push({ name: 'dcf-valuation', query: { stockCode: stockCode } });
-    // 或者直接在DCF估值页面监听 query.stockCode
 };
 
 </script>
 
 <style scoped>
-.stock-screener-view {
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
+/* All scoped styles should have been removed. */
+/* This block is intentionally empty. */
 </style>
