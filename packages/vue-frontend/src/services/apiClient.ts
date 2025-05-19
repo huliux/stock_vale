@@ -23,6 +23,8 @@ async function request<T>(
     options: RequestInit = {}
 ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
+    console.log(`API请求: ${options.method || 'GET'} ${url}`);
+
     const config: RequestInit = {
         ...options,
         headers: {
@@ -31,15 +33,23 @@ async function request<T>(
         },
     };
 
+    if (options.body) {
+        console.log('请求体:', options.body);
+    }
+
     try {
+        console.log('发送网络请求:', url, config);
         const response = await fetch(url, config);
+        console.log('收到网络响应:', response.status, response.statusText);
 
         if (!response.ok) {
             let errorData: ApiErrorData = {};
             try {
                 errorData = await response.json();
-            } catch (e) {
+                console.error('API错误响应:', errorData);
+            } catch (error) {
                 // If response is not JSON, use status text
+                console.error('API错误响应不是JSON格式:', response.statusText);
                 errorData = { detail: response.statusText };
             }
             throw new ApiClientError(
@@ -51,16 +61,20 @@ async function request<T>(
 
         // Handle cases where response might be empty (e.g., 204 No Content)
         if (response.status === 204) {
+            console.log('响应状态码204，无内容');
             return undefined as T; // Or handle as appropriate for your app
         }
 
-        return (await response.json()) as T;
+        const responseData = await response.json();
+        console.log('API响应数据:', responseData);
+        return responseData as T;
     } catch (error) {
         if (error instanceof ApiClientError) {
             throw error;
         }
         // Network errors or other fetch-related issues
         console.error('API Client Network Error:', error);
+        console.error('错误详情:', error instanceof Error ? error.message : String(error));
         throw new Error('Network error or API is unreachable.');
     }
 }
@@ -88,6 +102,11 @@ import type {
     ApiDcfValuationRequest, // Assuming this is defined for valuation
     ApiDcfValuationResponse // Assuming this is defined for valuation
     ,
+
+
+
+
+
 
     ApiStockScreenerRequest,
     ApiStockScreenerResponse,

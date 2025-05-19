@@ -50,11 +50,14 @@ onMounted(() => {
 });
 
 const handleValuationRequest = async (apiParams: ApiDcfValuationRequest) => {
+    console.log('DcfValuationView: handleValuationRequest被调用');
     hasCalculated.value = true;
     valuationStore.setLoading(true);
-    console.log('Requesting valuation with API params:', apiParams);
+    console.log('DcfValuationView: Requesting valuation with API params:', apiParams);
     try {
+        console.log('DcfValuationView: 调用valuationApi.performDcfValuation');
         const result = await valuationApi.performDcfValuation(apiParams);
+        console.log('DcfValuationView: API调用成功，结果:', result);
         valuationStore.setValuationResult(result);
     } catch (e: unknown) {
         console.error('Error during valuation request:', e);

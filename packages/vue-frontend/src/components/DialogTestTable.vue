@@ -55,7 +55,7 @@
     </div>
 
     <!-- 股票详情对话框 -->
-    <DialogRoot :open="!!selectedStock" @update:open="closeStockDetails">
+    <Dialog :open="!!selectedStock" @update:open="closeStockDetails">
       <DialogContent class="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle v-if="selectedStock">{{ selectedStock.name }} ({{ selectedStock.ts_code }})</DialogTitle>
@@ -99,10 +99,10 @@
           <Button @click="closeStockDetails" variant="outline">关闭</Button>
         </DialogFooter>
       </DialogContent>
-    </DialogRoot>
+    </Dialog>
 
     <!-- 测试对话框 -->
-    <DialogRoot :open="dialogOpen" @update:open="dialogOpen = $event">
+    <Dialog :open="dialogOpen" @update:open="dialogOpen = $event">
       <DialogContent>
         <DialogHeader>
           <DialogTitle>测试对话框</DialogTitle>
@@ -115,7 +115,7 @@
           <Button @click="dialogOpen = false" variant="outline">关闭</Button>
         </DialogFooter>
       </DialogContent>
-    </DialogRoot>
+    </Dialog>
   </div>
 </template>
 
@@ -123,7 +123,7 @@
 import type { ApiScreenedStock } from '@shared-types/index';
 import { ref } from 'vue';
 import { Button } from '@/components/ui/button';
-import { Dialog as DialogRoot, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface Props {
   results: ApiScreenedStock[];

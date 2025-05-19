@@ -15,7 +15,7 @@ try:
 except ImportError:
     # Fallback or define a placeholder if models are not accessible during standalone use
     # This is mainly for type hinting and might not be strictly necessary if only used by main.py
-    class DcfForecastDetails: pass 
+    class DcfForecastDetails: pass
 
 # 假设 decimal_default 辅助函数在 api.utils
 try:
@@ -70,7 +70,7 @@ def format_llm_input_data(
     other_analysis=None # Placeholder for potential future use
 ) -> str:
     """将数据格式化为 JSON 字符串以供 Prompt 使用，包含关键假设。"""
-    
+
     key_assumptions = {
         "forecast_years": request_assumptions_dict.get('forecast_years'),
         "wacc_parameters": {
@@ -113,7 +113,7 @@ def format_llm_input_data(
             "target_other_current_liabilities_to_revenue_ratio_pct": request_assumptions_dict.get('target_other_current_liabilities_to_revenue_ratio') * 100 if request_assumptions_dict.get('target_other_current_liabilities_to_revenue_ratio') is not None else None,
         }
     }
-    
+
     def clean_dict(d):
         if not isinstance(d, dict):
             return d
@@ -130,7 +130,7 @@ def format_llm_input_data(
         "dcf_results": dcf_results_dict,
         "reference_metrics": latest_metrics or {},
     }
-    
+
     if latest_metrics and 'latest_price' in latest_metrics:
          data_dict["stock_info"]["latest_price"] = latest_metrics['latest_price']
 
@@ -142,12 +142,12 @@ def format_llm_input_data(
         return "{}"
 
 def call_llm_api(
-    prompt: str, 
-    provider: str, 
-    model_id: Optional[str] = None, 
-    api_base_url: Optional[str] = None, 
-    temperature: Optional[float] = None, 
-    top_p: Optional[float] = None, 
+    prompt: str,
+    provider: str,
+    model_id: Optional[str] = None,
+    api_base_url: Optional[str] = None,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
     max_tokens: Optional[int] = None
 ) -> Optional[str]:
     """
@@ -163,8 +163,13 @@ def call_llm_api(
     Returns:
         Optional[str]: LLM 的响应或错误信息。
     """
-    selected_provider = provider.lower()
-    logger.info(f"--- Calling LLM ({selected_provider}) ---")
+    # 如果provider是'default'或None，使用环境变量中的默认提供商
+    if provider is None or provider.lower() == 'default':
+        selected_provider = os.getenv("LLM_PROVIDER", "deepseek").lower()
+        logger.info(f"--- Using default LLM provider from .env: {selected_provider} ---")
+    else:
+        selected_provider = provider.lower()
+        logger.info(f"--- Calling LLM ({selected_provider}) ---")
 
     api_key = LLM_API_KEYS.get(selected_provider)
     if not api_key:
@@ -201,11 +206,11 @@ def call_llm_api(
                 "max_tokens": current_max_tokens
             }
             logger.info(f"Calling DeepSeek API at {url} with model {current_model_id}, temp={current_temperature}, top_p={current_top_p}, max_tokens={current_max_tokens}")
-            
+
             json_payload_utf8 = json.dumps(payload_obj, ensure_ascii=False).encode('utf-8')
             response = requests.post(url, headers=headers, data=json_payload_utf8, timeout=180)
             response.raise_for_status()
-            
+
             response_data = response.json()
             if response_data and 'choices' in response_data and response_data['choices'] and 'message' in response_data['choices'][0] and 'content' in response_data['choices'][0]['message']:
                 llm_result = response_data['choices'][0]['message']['content']
@@ -229,14 +234,14 @@ def call_llm_api(
                 return "错误：自定义OpenAI模型的Model ID未配置。"
 
             logger.info(f"Initializing OpenAI client for custom provider: base_url={current_api_base_url}, model={current_model_id}")
-            
+
             client = openai.OpenAI(
                 api_key=api_key, # This will be CUSTOM_LLM_API_KEY or the dummy key
                 base_url=current_api_base_url
             )
-            
+
             logger.info(f"Calling Custom OpenAI API with model {current_model_id}, temp={current_temperature}, top_p={current_top_p}, max_tokens={current_max_tokens}...")
-            
+
             response = client.chat.completions.create(
                 model=current_model_id,
                 messages=[{"role": "user", "content": prompt}],
@@ -244,7 +249,7 @@ def call_llm_api(
                 top_p=current_top_p,
                 max_tokens=current_max_tokens
             )
-            
+
             if response.choices and response.choices[0].message and response.choices[0].message.content:
                 llm_result = response.choices[0].message.content
                 logger.info(f"Successfully received response from {selected_provider}.")

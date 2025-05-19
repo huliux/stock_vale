@@ -1,70 +1,55 @@
 <template>
-    <div class="space-y-6 min-w-0">
-        <h4 class="text-xl font-semibold text-foreground">DCF估值参数</h4>
+    <div class="space-y-2 min-w-0">
         <form @submit.prevent="submitValuationRequest" class="space-y-2">
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>基本参数</CardTitle>
-                    <!-- <CardDescription>输入估值所需的基本信息。</CardDescription> -->
+            <Card class="bg-background py-3 text-card-foreground flex flex-col gap-2 rounded-xl border">
+                <CardHeader class="px-3 py-2 cursor-pointer"
+                    @click="collapsedSections.prediction = !collapsedSections.prediction">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-base">业绩假设</CardTitle>
+                        <component :is="collapsedSections.prediction ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
-                    <div class="space-y-1">
-                        <Label for="stock-code">股票代码:</Label>
-                        <Input id="stock-code" type="text" v-model="params.stock_code" required
-                            placeholder="例如: 000001.SZ" class="mt-1 w-full" />
-                        <p class="mt-1 text-xs text-muted-foreground">例如: 000001.SZ 或 600519.SH</p>
-                    </div>
-                    <div class="space-y-1">
-                        <Label for="valuation-date">估值基准日期:</Label>
-                        <Input id="valuation-date" type="date" v-model="params.valuation_date" class="mt-1 w-full" />
-                        <p class="mt-1 text-xs text-muted-foreground">默认为今天</p>
-                    </div>
+                <CardContent v-show="!collapsedSections.prediction" class="flex flex-col gap-2 px-3 py-2">
                     <div class="space-y-1">
                         <Label for="prediction-years">预测年限:</Label>
-                        <Input id="prediction-years" type="text" v-model="formStringValues.prediction_years" :min="3"
-                            :max="15" class="mt-1 w-full" />
-                        <p class="mt-1 text-xs text-muted-foreground">范围: 3-15 年</p>
+                        <Input id="prediction-years" type="number" v-model="formStringValues.prediction_years" min="3"
+                            max="15" step="1" class="mt-1 w-full" placeholder="范围: 3-15 年" />
                     </div>
                     <div class="space-y-1">
-                        <Label for="cagr-decay-rate">历史CAGR年衰减率 (0-1):</Label>
-                        <Input id="cagr-decay-rate" type="text" v-model="formStringValues.cagr_decay_rate" :step="0.01"
-                            :min="0" :max="1" placeholder="例如: 0.1" class="mt-1 w-full" />
-                        <p class="mt-1 text-xs text-muted-foreground">例如: 0.1 代表10%。留空则使用后端默认。</p>
+                        <Label for="cagr-decay-rate">CAGR年衰减率 (0-1):</Label>
+                        <Input id="cagr-decay-rate" type="number" v-model="formStringValues.cagr_decay_rate" step="0.01"
+                            min="0" max="1" placeholder="例如: 0.1" class="mt-1 w-full" />
                     </div>
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>详细财务假设</CardTitle>
+            <Card class="bg-background py-3 text-card-foreground flex flex-col gap-2 rounded-xl border">
+                <CardHeader class="px-3 py-2 cursor-pointer"
+                    @click="collapsedSections.financial = !collapsedSections.financial">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-base">财务假设</CardTitle>
+                        <component :is="collapsedSections.financial ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
-                    <div v-for="section in financialAssumptionSections" :key="section.id"
-                        class="space-y-3 py-3 pl-3 border-l-2 border-border/60 rounded-r-md bg-muted/20">
-                        <h6 class="text-base font-medium text-foreground mb-3">{{ section.title }}</h6>
+                <CardContent v-show="!collapsedSections.financial" class="flex flex-col gap-2 px-3 py-2">
+                    <div v-for="section in financialAssumptionSections" :key="section.id" class="space-y-3 py-2">
+                        <h6 class="text-base font-medium text-foreground mb-2">{{ section.title }}</h6>
                         <div class="space-y-1">
                             <Label :for="`${section.id}-forecast-mode`"
                                 class="block text-xs font-medium text-muted-foreground">预测模式:</Label>
-                            <Select
-                                :model-value="String(params[section.modeKey as keyof DcfFormParameters] ?? 'historical_median')"
-                                @update:model-value="(value) => {
-                                    if (typeof value === 'string' && (value === 'historical_median' || value === 'transition_to_target')) {
-                                        setParamValue(section.modeKey as keyof DcfFormParameters, value as ('historical_median' | 'transition_to_target'));
-                                    }
-                                }">
-                                <SelectTrigger :id="`${section.id}-forecast-mode`" class="w-full mt-1">
-                                    <SelectValue placeholder="选择模式" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectGroup>
-                                        <SelectLabel class="text-xs text-muted-foreground px-2 py-1.5">选择预测模式
-                                        </SelectLabel>
+                            <div>
+                                <Select :model-value="getForecastMode(section)"
+                                    @update:model-value="(value) => setForecastMode(section, value as 'historical_median' | 'transition_to_target')">
+                                    <SelectTrigger :id="`${section.id}-forecast-mode`" class="w-full">
+                                        <SelectValue placeholder="选择预测模式" />
+                                    </SelectTrigger>
+                                    <SelectContent>
                                         <SelectItem value="historical_median">使用历史中位数</SelectItem>
                                         <SelectItem value="transition_to_target">过渡到目标值</SelectItem>
-                                    </SelectGroup>
-                                </SelectContent>
-                            </Select>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <div v-if="params[section.modeKey as keyof DcfFormParameters] === 'transition_to_target'"
                             class="space-y-3 mt-2">
@@ -85,10 +70,10 @@
                             </div>
                         </div>
                     </div>
-                    <div class="space-y-2 py-3 pl-3 border-l-2 border-border/60 rounded-r-md bg-muted/20">
-                        <h6 class="text-base font-medium text-foreground mb-3">税率</h6>
+                    <div class="space-y-2 py-2">
+                        <h6 class="text-base font-medium text-foreground mb-2">税率</h6>
                         <Label for="target-effective-tax-rate"
-                            class="block text-xs font-medium text-muted-foreground">目标有效所得税率 (%):</Label>
+                            class="block text-xs font-medium text-muted-foreground">有效所得税率 (%):</Label>
                         <Input id="target-effective-tax-rate" type="text"
                             v-model="formStringValues.target_effective_tax_rate" step="0.01" min="0" max="100"
                             class="mt-1 w-full" />
@@ -96,29 +81,24 @@
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>WACC 计算假设</CardTitle>
+            <Card class="bg-background py-3 text-card-foreground flex flex-col gap-2 rounded-xl border">
+                <CardHeader class="px-3 py-2 cursor-pointer" @click="collapsedSections.wacc = !collapsedSections.wacc">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-base">WACC假设</CardTitle>
+                        <component :is="collapsedSections.wacc ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
+                <CardContent v-show="!collapsedSections.wacc" class="flex flex-col gap-2 px-3 py-2">
                     <div class="space-y-2">
                         <Label for="wacc-weight-mode"
                             class="block text-sm font-medium text-foreground">WACC权重模式:</Label>
-                        <Select :model-value="params.wacc_weight_mode" @update:model-value="(value) => {
-                            if (typeof value === 'string' && (value === 'market' || value === 'target')) {
-                                setParamValue('wacc_weight_mode', value as ('market' | 'target'));
-                            }
-                        }">
-                            <SelectTrigger id="wacc-weight-mode" class="w-full mt-1">
-                                <SelectValue placeholder="选择模式" />
+                        <Select v-model="params.wacc_weight_mode">
+                            <SelectTrigger id="wacc-weight-mode" class="mt-1">
+                                <SelectValue placeholder="选择WACC权重模式" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectGroup>
-                                    <SelectLabel class="text-xs text-muted-foreground px-2 py-1.5">选择WACC权重模式
-                                    </SelectLabel>
-                                    <SelectItem value="market">使用最新市场价值计算权重</SelectItem>
-                                    <SelectItem value="target">使用目标债务比例</SelectItem>
-                                </SelectGroup>
+                                <SelectItem value="market">最新市场价值计算权重</SelectItem>
+                                <SelectItem value="target">目标债务比例</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -142,8 +122,7 @@
                                 min="0" class="mt-1 w-full" />
                         </div>
                         <div class="space-y-1">
-                            <Label for="beta" class="block text-xs font-medium text-muted-foreground">贝塔系数 (Levered
-                                Beta):</Label>
+                            <Label for="beta" class="block text-xs font-medium text-muted-foreground">贝塔系数:</Label>
                             <Input id="beta" type="text" v-model="formStringValues.beta" step="0.01"
                                 class="mt-1 w-full" />
                         </div>
@@ -164,77 +143,68 @@
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>终值计算假设</CardTitle>
+            <Card class="bg-background py-3 text-card-foreground flex flex-col gap-2 rounded-xl border">
+                <CardHeader class="px-3 py-2 cursor-pointer"
+                    @click="collapsedSections.terminal = !collapsedSections.terminal">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-base">终值计算假设</CardTitle>
+                        <component :is="collapsedSections.terminal ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
+                <CardContent v-show="!collapsedSections.terminal" class="flex flex-col gap-2 px-3 py-2">
                     <div class="space-y-2">
                         <Label for="terminal-value-method"
                             class="block text-sm font-medium text-foreground">终值计算方法:</Label>
-                        <Select :model-value="params.terminal_value_method" @update:model-value="(value) => {
-                            if (typeof value === 'string' && (value === 'perpetual_growth' || value === 'exit_multiple')) {
-                                setParamValue('terminal_value_method', value as ('perpetual_growth' | 'exit_multiple'));
-                            }
-                        }">
-                            <SelectTrigger id="terminal-value-method" class="w-full mt-1">
-                                <SelectValue placeholder="选择方法" />
+                        <Select v-model="params.terminal_value_method">
+                            <SelectTrigger id="terminal-value-method" class="mt-1">
+                                <SelectValue placeholder="选择终值计算方法" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectGroup>
-                                    <SelectLabel class="text-xs text-muted-foreground px-2 py-1.5">选择终值计算方法
-                                    </SelectLabel>
-                                    <SelectItem value="perpetual_growth">永续增长率法</SelectItem>
-                                    <SelectItem value="exit_multiple">退出乘数法</SelectItem>
-                                </SelectGroup>
+                                <SelectItem value="perpetual_growth">永续增长率法</SelectItem>
+                                <SelectItem value="exit_multiple">退出乘数法</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
                     <div v-if="params.terminal_value_method === 'exit_multiple'" class="space-y-2">
                         <Label for="exit-multiple" class="block text-sm font-medium text-foreground">退出乘数
                             (基于EBITDA):</Label>
-                        <Input id="exit-multiple" type="text" v-model="formStringValues.exit_multiple" step="0.1"
+                        <Input id="exit-multiple" type="number" v-model="formStringValues.exit_multiple" step="0.1"
                             min="0" class="mt-1 w-full" />
                     </div>
                     <div v-if="params.terminal_value_method === 'perpetual_growth'" class="space-y-2">
                         <Label for="terminal-growth-rate-conditional"
                             class="block text-sm font-medium text-foreground">永续增长率 (%):</Label>
-                        <Input id="terminal-growth-rate-conditional" type="text"
-                            v-model="formStringValues.terminal_growth_rate" step="0.01" class="mt-1 w-full" />
-                        <p class="mt-1 text-xs text-muted-foreground">例如: 2.5 代表2.5%</p>
+                        <Input id="terminal-growth-rate-conditional" type="number"
+                            v-model="formStringValues.terminal_growth_rate" step="0.1" min="0" max="10"
+                            class="mt-1 w-full" />
                     </div>
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>LLM 分析总结</CardTitle>
+            <Card class="bg-background py-3 text-card-foreground flex flex-col gap-2 rounded-xl border">
+                <CardHeader class="px-3 py-2 cursor-pointer" @click="collapsedSections.llm = !collapsedSections.llm">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-base">LLM分析总结</CardTitle>
+                        <component :is="collapsedSections.llm ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
+                <CardContent v-show="!collapsedSections.llm" class="flex flex-col gap-2 px-3 py-2">
                     <div class="flex items-center space-x-2">
-                        <Checkbox id="request-llm-summary" :checked="params.request_llm_summary"
-                            @update:checked="(val: boolean) => params.request_llm_summary = val" />
-                        <Label for="request-llm-summary" class="text-sm font-medium text-foreground">启用LLM分析总结</Label>
+                        <input type="checkbox" id="request-llm-summary" v-model="params.request_llm_summary"
+                            class="h-4 w-4 rounded border-input text-primary focus:ring-primary" />
+                        <Label for="request-llm-summary" class="text-sm font-medium text-foreground">启用LLM分析</Label>
                     </div>
                     <div v-if="params.request_llm_summary" class="space-y-4 mt-4">
                         <div class="space-y-2">
                             <Label for="llm-provider" class="block text-sm font-medium text-foreground">LLM提供商:</Label>
-                            <Select :model-value="params.llm_provider" @update:model-value="(value) => {
-                                if (typeof value === 'string' && (value === '' || value === 'deepseek' || value === 'custom_openai')) {
-                                    setParamValue('llm_provider', value as ('' | 'deepseek' | 'custom_openai' | undefined));
-                                }
-                            }">
-                                <SelectTrigger id="llm-provider" class="w-full mt-1">
-                                    <SelectValue placeholder="选择提供商" />
+                            <Select v-model="params.llm_provider">
+                                <SelectTrigger id="llm-provider" class="mt-1">
+                                    <SelectValue placeholder="选择LLM提供商" />
                                 </SelectTrigger>
-                                <SelectContent>
-                                    <SelectGroup>
-                                        <SelectLabel class="text-xs text-muted-foreground px-2 py-1.5">选择LLM提供商
-                                        </SelectLabel>
-                                        <SelectItem value="">后端默认</SelectItem>
-                                        <SelectItem value="deepseek">DeepSeek</SelectItem>
-                                        <SelectItem value="custom_openai">自定义OpenAI兼容模型</SelectItem>
-                                    </SelectGroup>
+                                <SelectContent position="popper">
+                                    <SelectItem value="default">后端默认</SelectItem>
+                                    <SelectItem value="deepseek">DeepSeek</SelectItem>
+                                    <SelectItem value="custom_openai">自定义OpenAI兼容模型</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -253,103 +223,84 @@
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
                             <div class="space-y-1">
                                 <Label for="llm-temperature"
-                                    class="block text-xs font-medium text-muted-foreground">Temperature (0-2):</Label>
-                                <Input id="llm-temperature" type="text" v-model="formStringValues.llm_temperature"
+                                    class="block text-xs font-medium text-muted-foreground">Temperature:</Label>
+                                <Input id="llm-temperature" type="number" v-model="formStringValues.llm_temperature"
                                     step="0.1" min="0" max="2" class="mt-1 w-full" />
                             </div>
                             <div class="space-y-1">
                                 <Label for="llm-top-p" class="block text-xs font-medium text-muted-foreground">Top P
                                     (0-1):</Label>
-                                <Input id="llm-top-p" type="text" v-model="formStringValues.llm_top_p" step="0.01"
+                                <Input id="llm-top-p" type="number" v-model="formStringValues.llm_top_p" step="0.01"
                                     min="0" max="1" class="mt-1 w-full" />
                             </div>
                             <div class="space-y-1">
                                 <Label for="llm-max-tokens" class="block text-xs font-medium text-muted-foreground">Max
                                     Tokens:</Label>
-                                <Input id="llm-max-tokens" type="text" v-model="formStringValues.llm_max_tokens" min="1"
-                                    class="mt-1 w-full" />
+                                <Input id="llm-max-tokens" type="number" v-model="formStringValues.llm_max_tokens"
+                                    min="1" step="1" class="mt-1 w-full" />
                             </div>
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>敏感性分析配置</CardTitle>
+            <Card class="bg-background py-3 text-card-foreground flex flex-col gap-2 rounded-xl border">
+                <CardHeader class="px-3 py-2 cursor-pointer"
+                    @click="collapsedSections.sensitivity = !collapsedSections.sensitivity">
+                    <div class="flex items-center justify-between">
+                        <CardTitle class="text-base">敏感性分析配置</CardTitle>
+                        <component :is="collapsedSections.sensitivity ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
                 </CardHeader>
-                <CardContent class="space-y-4">
+                <CardContent v-show="!collapsedSections.sensitivity" class="flex flex-col gap-2 px-3 py-2">
                     <div class="flex items-center space-x-2">
-                        <Checkbox id="enable-sensitivity-analysis" :checked="params.enable_sensitivity_analysis"
-                            @update:checked="(val: boolean) => params.enable_sensitivity_analysis = val" />
+                        <input type="checkbox" id="enable-sensitivity-analysis"
+                            v-model="params.enable_sensitivity_analysis"
+                            class="h-4 w-4 rounded border-input text-primary focus:ring-primary" />
                         <Label for="enable-sensitivity-analysis"
                             class="text-sm font-medium text-foreground">启用敏感性分析</Label>
                     </div>
 
-                    <div class="p-3 bg-muted/20 border border-border rounded-md">
-                        <p class="text-sm font-medium text-foreground">敏感性分析状态:</p>
-                        <p class="text-xs text-muted-foreground">启用状态: {{ params.enable_sensitivity_analysis ? '已启用' :
-                            '未启用' }}</p>
-                        <p class="text-xs text-muted-foreground">WACC步长: {{ formStringValues.sensitivity_wacc_step }}
-                        </p>
-                        <p class="text-xs text-muted-foreground">WACC点数: {{ params.sensitivity_wacc_points }}</p>
-                        <p class="text-xs text-muted-foreground">退出乘数步长: {{
-                            formStringValues.sensitivity_exit_multiple_step }}</p>
-                        <p class="text-xs text-muted-foreground">退出乘数点数: {{ params.sensitivity_exit_multiple_points }}
-                        </p>
-                    </div>
-
-                    <div v-if="params.enable_sensitivity_analysis" class="space-y-6 mt-4">
-                        <div class="space-y-3 py-3 pl-3 border-l-2 border-border/60 rounded-r-md bg-muted/20">
-                            <h6 class="text-base font-medium text-foreground mb-3">WACC 敏感性</h6>
+                    <div v-if="params.enable_sensitivity_analysis" class="space-y-4 mt-2">
+                        <div class="space-y-3 py-2">
+                            <h6 class="text-base font-medium text-foreground mb-2">WACC敏感性</h6>
                             <div class="space-y-1">
                                 <Label for="sensitivity-wacc-step"
-                                    class="block text-xs font-medium text-muted-foreground">WACC 变动步长 (%):</Label>
-                                <Input id="sensitivity-wacc-step" type="text"
+                                    class="block text-xs font-medium text-muted-foreground">WACC变动步长 (%):</Label>
+                                <Input id="sensitivity-wacc-step" type="number"
                                     v-model="formStringValues.sensitivity_wacc_step" step="0.01" class="mt-1 w-full" />
-                                <p class="mt-1 text-xs text-muted-foreground">例如: 0.5 代表围绕中心WACC上下浮动0.5个百分点。</p>
                             </div>
                             <div class="space-y-1">
                                 <Label for="sensitivity-wacc-points"
-                                    class="block text-xs font-medium text-muted-foreground">WACC 分析点数:</Label>
+                                    class="block text-xs font-medium text-muted-foreground">WACC分析点数:</Label>
                                 <Input id="sensitivity-wacc-points" type="number"
-                                    v-model.number="params.sensitivity_wacc_points" min="1" max="11" step="2"
+                                    v-model="formStringValues.sensitivity_wacc_points" min="1" max="11" step="2"
                                     class="mt-1 w-full" />
-                                <p class="mt-1 text-xs text-muted-foreground">例如: 3 (中心值, 中心值-步长, 中心值+步长) 或 5。建议奇数,
-                                    最大11。
-                                </p>
                             </div>
                         </div>
 
-                        <div class="space-y-3 py-3 pl-3 border-l-2 border-border/60 rounded-r-md bg-muted/20">
-                            <h6 class="text-base font-medium text-foreground mb-3">退出乘数 (Exit Multiple) 敏感性</h6>
+                        <div class="space-y-3 py-2">
+                            <h6 class="text-base font-medium text-foreground mb-2">退出乘数 (Exit Multiple) 敏感性</h6>
                             <div class="space-y-1">
                                 <Label for="sensitivity-exit-multiple-step"
                                     class="block text-xs font-medium text-muted-foreground">退出乘数 变动步长 (绝对值):</Label>
-                                <Input id="sensitivity-exit-multiple-step" type="text"
+                                <Input id="sensitivity-exit-multiple-step" type="number"
                                     v-model="formStringValues.sensitivity_exit_multiple_step" step="0.1"
                                     class="mt-1 w-full" />
-                                <p class="mt-1 text-xs text-muted-foreground">例如: 0.5 代表围绕中心乘数上下浮动0.5。</p>
                             </div>
                             <div class="space-y-1">
                                 <Label for="sensitivity-exit-multiple-points"
                                     class="block text-xs font-medium text-muted-foreground">退出乘数 分析点数:</Label>
                                 <Input id="sensitivity-exit-multiple-points" type="number"
-                                    v-model.number="params.sensitivity_exit_multiple_points" min="1" max="11" step="2"
-                                    class="mt-1 w-full" />
-                                <p class="mt-1 text-xs text-muted-foreground">例如: 3 或 5。建议奇数, 最大11。</p>
+                                    v-model="formStringValues.sensitivity_exit_multiple_points" min="1" max="11"
+                                    step="2" class="mt-1 w-full" />
                             </div>
                         </div>
                     </div>
                 </CardContent>
             </Card>
 
-            <p class="text-sm text-muted-foreground p-3 bg-muted/50 border-l-4 border-primary rounded">
-                更详细的财务预测假设（如收入增长模式、利润率等）将在后续版本中提供配置。</p>
 
-            <Button type="submit" :disabled="isLoading" class="w-full text-base py-3">
-                {{ isLoading ? '正在计算...' : '开始估值' }}
-            </Button>
         </form>
     </div>
 </template>
@@ -357,12 +308,11 @@
 <script setup lang="ts">
 import { reactive, watch } from 'vue';
 import type { ApiSensitivityAxis } from '../../../shared-types/src';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'; // Removed CardDescription, CardFooter
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChevronDown, ChevronRight } from 'lucide-vue-next';
 
 import type { ApiDcfValuationRequest as ValuationRequestPayload } from '../../../shared-types/src';
 
@@ -427,7 +377,7 @@ export interface DcfFormParameters {
     terminal_value_method: 'exit_multiple' | 'perpetual_growth'; // Stays string (select)
     exit_multiple?: number | undefined;
     request_llm_summary: boolean; // Stays boolean (checkbox)
-    llm_provider?: 'deepseek' | 'custom_openai' | '' | undefined; // Stays string (select), '' for default
+    llm_provider?: 'deepseek' | 'custom_openai' | 'default' | undefined; // Stays string (select), 'default' for backend default
     llm_model_id?: string | undefined; // Stays string
     llm_api_base_url?: string | undefined; // Stays string
     llm_temperature?: number | undefined;
@@ -443,21 +393,26 @@ export interface DcfFormParameters {
 
 const props = defineProps<{
     isLoading: boolean;
-    initialStockCode?: string | null;
+    stockCode: string;
+    valuationDate: string;
 }>();
 
-const getTodayDateString = () => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = (today.getMonth() + 1).toString().padStart(2, '0');
-    const day = today.getDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
-};
+
+
+// 添加折叠状态
+const collapsedSections = reactive({
+    prediction: false,
+    financial: false,
+    wacc: false,
+    terminal: false,
+    llm: false,
+    sensitivity: false
+});
 
 // Main reactive object for form state, including non-numeric strings
 const params = reactive<DcfFormParameters>({
-    stock_code: props.initialStockCode || '600519.SH',
-    valuation_date: getTodayDateString(),
+    stock_code: props.stockCode,
+    valuation_date: props.valuationDate,
     op_margin_forecast_mode: 'historical_median',
     sga_rd_ratio_forecast_mode: 'historical_median',
     da_ratio_forecast_mode: 'historical_median',
@@ -467,7 +422,7 @@ const params = reactive<DcfFormParameters>({
     wacc_weight_mode: 'market',
     terminal_value_method: 'exit_multiple',
     request_llm_summary: false,
-    llm_provider: '', // Default to empty string for Select's "undefined" equivalent
+    llm_provider: 'default', // Default to 'default' for backend default
     enable_sensitivity_analysis: true,
     // Numeric fields that will be handled by formStringValues initially
     terminal_growth_rate: 2.5,
@@ -557,6 +512,45 @@ const simpleAxisParamDisplayNames: Record<string, string> = {
     "terminal_growth_rate": "永续增长率"
 };
 
+// 辅助函数，用于获取财务假设部分的Select组件的值
+const getForecastMode = (section: FormSection) => {
+    if (section.modeKey === 'op_margin_forecast_mode') {
+        return params.op_margin_forecast_mode;
+    } else if (section.modeKey === 'sga_rd_ratio_forecast_mode') {
+        return params.sga_rd_ratio_forecast_mode;
+    } else if (section.modeKey === 'da_ratio_forecast_mode') {
+        return params.da_ratio_forecast_mode;
+    } else if (section.modeKey === 'capex_ratio_forecast_mode') {
+        return params.capex_ratio_forecast_mode;
+    } else if (section.modeKey === 'nwc_days_forecast_mode') {
+        return params.nwc_days_forecast_mode;
+    } else if (section.modeKey === 'other_nwc_ratio_forecast_mode') {
+        return params.other_nwc_ratio_forecast_mode;
+    }
+    return 'historical_median'; // 默认值
+};
+
+// 辅助函数，用于设置财务假设部分的Select组件的值
+const setForecastMode = (section: FormSection, value: 'historical_median' | 'transition_to_target') => {
+    if (section.modeKey === 'op_margin_forecast_mode') {
+        params.op_margin_forecast_mode = value;
+    } else if (section.modeKey === 'sga_rd_ratio_forecast_mode') {
+        params.sga_rd_ratio_forecast_mode = value;
+    } else if (section.modeKey === 'da_ratio_forecast_mode') {
+        params.da_ratio_forecast_mode = value;
+    } else if (section.modeKey === 'capex_ratio_forecast_mode') {
+        params.capex_ratio_forecast_mode = value;
+    } else if (section.modeKey === 'nwc_days_forecast_mode') {
+        params.nwc_days_forecast_mode = value;
+    } else if (section.modeKey === 'other_nwc_ratio_forecast_mode') {
+        params.other_nwc_ratio_forecast_mode = value;
+    }
+};
+
+
+
+
+
 const financialAssumptionSections: FormSection[] = [
     { id: 'op-margin', title: '营业利润率预测', modeKey: 'op_margin_forecast_mode', transitionYearsKey: 'op_margin_transition_years', fields: [{ id: 'target-operating-margin', modelKey: 'target_operating_margin', label: '目标营业利润率 (%)' }] },
     { id: 'sga-rd-ratio', title: 'SGA & RD 费用率预测', modeKey: 'sga_rd_ratio_forecast_mode', transitionYearsKey: 'sga_rd_transition_years', fields: [{ id: 'target-sga-rd-ratio', modelKey: 'target_sga_rd_to_revenue_ratio', label: '目标SGA & RD占收入比 (%)' }] },
@@ -577,10 +571,9 @@ const financialAssumptionSections: FormSection[] = [
     },
 ];
 
-function setParamValue<K extends keyof DcfFormParameters>(paramName: K, value: DcfFormParameters[K]) {
-    params[paramName] = value;
-}
 
+
+// 暴露给父组件调用
 const submitValuationRequest = () => {
     if (!params.stock_code) {
         emit('validation-error', '股票代码为必填项！');
@@ -601,8 +594,8 @@ const submitValuationRequest = () => {
         }
     }
 
-    // Handle llm_provider potentially being an empty string from Select
-    if (finalParams.llm_provider === '') {
+    // Handle llm_provider being 'default' for backend default
+    if (finalParams.llm_provider === 'default') {
         finalParams.llm_provider = undefined;
     }
 
@@ -720,13 +713,16 @@ const submitValuationRequest = () => {
         console.log('敏感性分析未启用');
     }
 
+    console.log('DcfParametersForm: 发出submit-valuation事件，payload:', apiPayload);
     emit('submit-valuation', apiPayload);
 };
 
-watch(() => props.initialStockCode, (newVal) => {
-    if (newVal) {
-        params.stock_code = newVal;
-    }
+watch(() => props.stockCode, (newVal) => {
+    params.stock_code = newVal;
+});
+
+watch(() => props.valuationDate, (newVal) => {
+    params.valuation_date = newVal;
 });
 
 watch(() => formStringValues.prediction_years, (newValStr) => {
@@ -748,6 +744,27 @@ watch(() => formStringValues.prediction_years, (newValStr) => {
     }
 }, { immediate: false });
 
+// 监听LLM分析状态变化
+watch(() => params.request_llm_summary, (newVal) => {
+    console.log('LLM分析状态变化:', newVal);
+
+    // 如果取消启用LLM分析，重置LLM相关参数
+    if (!newVal) {
+        params.llm_provider = 'default';
+        params.llm_model_id = undefined;
+        params.llm_api_base_url = undefined;
+    }
+});
+
+// 监听敏感性分析状态变化
+watch(() => params.enable_sensitivity_analysis, (newVal) => {
+    console.log('敏感性分析状态变化:', newVal);
+});
+
+// 暴露方法给父组件
+defineExpose({
+    submitValuationRequest
+});
 </script>
 
 <style scoped>

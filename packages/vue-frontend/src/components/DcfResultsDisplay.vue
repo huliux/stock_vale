@@ -68,7 +68,7 @@
                         <span class="text-muted-foreground">每股内在价值:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatNumber(valuationData.valuation_results?.dcf_forecast_details?.value_per_share, 2)
-                        }}</span>
+                            }}</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">上升空间:</span>
@@ -87,7 +87,7 @@
                         <span class="text-muted-foreground">隐含EV/EBITDA:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatNumber(valuationData.valuation_results?.dcf_forecast_details?.base_ev_ebitda, 2)
-                        }}x</span>
+                            }}x</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">WACC:</span>
@@ -98,44 +98,44 @@
                         <span class="text-muted-foreground">Ke (股权成本):</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.cost_of_equity_used)
-                        }}</span>
+                            }}</span>
                     </div>
 
                     <div>
                         <span class="text-muted-foreground">企业价值 (EV):</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.enterprise_value)
-                        }} 亿</span>
+                            }} 亿</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">股权价值:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.equity_value)
-                        }} 亿</span>
+                            }} 亿</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">UFCF现值:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.pv_forecast_ufcf)
-                        }} 亿</span>
+                            }} 亿</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">终值现值:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.pv_terminal_value)
-                        }} 亿</span>
+                            }} 亿</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">终值:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.terminal_value)
-                        }} 亿</span>
+                            }} 亿</span>
                     </div>
                     <div>
                         <span class="text-muted-foreground">净债务:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.net_debt)
-                        }} 亿</span>
+                            }} 亿</span>
                     </div>
 
                     <div>
@@ -152,156 +152,7 @@
                         <span class="text-muted-foreground">隐含永续增长率:</span>
                         <span class="font-medium text-foreground ml-1">{{
                             formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.implied_perpetual_growth_rate)
-                        }}</span>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <!-- 详细财务预测表格 -->
-            <Card
-                v-if="valuationData.valuation_results?.detailed_forecast_table && valuationData.valuation_results?.detailed_forecast_table.length > 0">
-                <CardHeader>
-                    <CardTitle>高级分析 - 详细财务预测 (单位：元)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div class="w-full overflow-hidden">
-                        <div class="w-full max-w-full">
-                            <Table class="w-full table-fixed">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead class="w-[10%] break-words">年份 (Year)</TableHead>
-                                        <TableHead class="w-[10%] break-words">营业收入 (Revenue)</TableHead>
-                                        <TableHead class="w-[10%] break-words">息税前利润 (EBIT)</TableHead>
-                                        <TableHead class="w-[10%] break-words">税后净营业利润 (NOPAT)</TableHead>
-                                        <TableHead class="w-[10%] break-words">折旧与摊销 (D&A)</TableHead>
-                                        <TableHead class="w-[10%] break-words">资本性支出 (CapEx)</TableHead>
-                                        <TableHead class="w-[10%] break-words">净营运资本变动 (ΔNWC)</TableHead>
-                                        <TableHead class="w-[15%] break-words">无杠杆自由现金流 (FCF)</TableHead>
-                                        <TableHead class="w-[15%] break-words">FCF现值 (PV of FCF)</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    <TableRow v-for="row in valuationData.valuation_results.detailed_forecast_table"
-                                        :key="row.year">
-                                        <TableCell class="break-words">{{ row.year }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.revenue) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.ebit) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.nopat) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.d_a) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.capex) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.delta_nwc) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.ufcf) }}</TableCell>
-                                        <TableCell class="break-words">{{ formatNumber(row.pv_ufcf) }}</TableCell>
-                                    </TableRow>
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <!-- 历史财务摘要 -->
-            <Card
-                v-if="valuationData.valuation_results?.historical_financial_summary && valuationData.valuation_results?.historical_financial_summary.length > 0">
-                <CardHeader>
-                    <CardTitle>高级分析 - 历史财务摘要</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div class="w-full overflow-hidden">
-                        <div class="w-full max-w-full">
-                            <Table class="w-full table-fixed">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead class="break-words"
-                                            v-for="(_, colKey) in valuationData.valuation_results.historical_financial_summary[0]"
-                                            :key="`hist-summary-header-${String(colKey)}`"
-                                            :style="{ width: `${100 / Object.keys(valuationData.valuation_results.historical_financial_summary[0]).length}%` }">
-                                            {{ getHistoricalHeaderName(String(colKey)) }}
-                                        </TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    <TableRow
-                                        v-for="(row, rowIndex) in valuationData.valuation_results.historical_financial_summary"
-                                        :key="`hist-summary-row-${rowIndex}`">
-                                        <TableCell class="break-words" v-for="(cellValue, cellKey) in row"
-                                            :key="`hist-summary-cell-${rowIndex}-${String(cellKey)}`">
-                                            <span v-if="String(cellKey) === '科目' || String(cellKey) === '报表类型'">
-                                                {{ cellValue }}
-                                            </span>
-                                            <span v-else>
-                                                {{ formatNumber(cellValue, typeof cellValue === 'number' &&
-                                                    !Number.isInteger(cellValue) ? 2 : 0) }}
-                                            </span>
-                                        </TableCell>
-                                    </TableRow>
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <!-- 历史财务比率 -->
-            <Card
-                v-if="valuationData.valuation_results?.historical_ratios_summary && valuationData.valuation_results?.historical_ratios_summary.length > 0">
-                <CardHeader>
-                    <CardTitle>高级分析 - 历史财务比率</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div class="w-full overflow-hidden">
-                        <div class="w-full max-w-full">
-                            <Table class="w-full table-fixed">
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead class="w-[70%] break-words">{{ getHistoricalHeaderName('metric_name')
-                                        }}
-                                        </TableHead>
-                                        <TableHead class="w-[30%] break-words">{{ getHistoricalHeaderName('value') }}
-                                        </TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    <TableRow
-                                        v-for="(row, rowIndex) in valuationData.valuation_results.historical_ratios_summary"
-                                        :key="`hist-ratios-row-${rowIndex}`">
-                                        <TableCell class="break-words">
-                                            {{ getHistoricalHeaderName(String(row.metric_name)) }}
-                                        </TableCell>
-                                        <TableCell class="break-words">
-                                            {{ formatNumber(row.value, typeof row.value === 'number' &&
-                                                !Number.isInteger(row.value) ? 2 : 0) }}
-                                        </TableCell>
-                                    </TableRow>
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <!-- 敏感性分析 -->
-            <Card>
-                <CardHeader>
-                    <CardTitle>敏感性分析数据状态</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div class="text-sm space-y-2">
-                        <p>敏感性分析结果存在: {{ !!valuationData.valuation_results?.sensitivity_analysis_result }}</p>
-                        <p v-if="valuationData.valuation_results?.sensitivity_analysis_result">
-                            结果表存在: {{ !!valuationData.valuation_results?.sensitivity_analysis_result.result_tables }}
-                        </p>
-                        <p v-if="valuationData.valuation_results?.sensitivity_analysis_result?.result_tables">
-                            结果表数量: {{
-                                Object.keys(valuationData.valuation_results?.sensitivity_analysis_result.result_tables).length
-                            }}
-                        </p>
-                        <p v-if="valuationData.valuation_results?.sensitivity_analysis_result">
-                            行参数: {{ valuationData.valuation_results?.sensitivity_analysis_result.row_parameter }}
-                        </p>
-                        <p v-if="valuationData.valuation_results?.sensitivity_analysis_result">
-                            列参数: {{ valuationData.valuation_results?.sensitivity_analysis_result.column_parameter }}
-                        </p>
+                            }}</span>
                     </div>
                 </CardContent>
             </Card>
@@ -310,82 +161,186 @@
             <Card
                 v-if="valuationData.valuation_results?.sensitivity_analysis_result && valuationData.valuation_results?.sensitivity_analysis_result.result_tables && Object.keys(valuationData.valuation_results?.sensitivity_analysis_result.result_tables).length > 0">
                 <CardHeader>
-                    <CardTitle>高级分析 - 敏感性分析</CardTitle>
+                    <CardTitle>敏感性分析</CardTitle>
                 </CardHeader>
                 <CardContent class="space-y-4">
-                    <Tabs defaultValue="simple" class="w-full">
-                        <TabsList>
-                            <TabsTrigger value="heatmap">热力图</TabsTrigger>
-                            <TabsTrigger value="simple">简易表格</TabsTrigger>
-                            <TabsTrigger value="table">详细表格</TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="heatmap">
-                            <SensitivityHeatmap
-                                :sensitivity-data="valuationData.valuation_results.sensitivity_analysis_result"
-                                :is-loading="false" />
-                        </TabsContent>
-                        <TabsContent value="simple">
-                            <SimpleSensitivityDisplay
-                                :sensitivity-data="valuationData.valuation_results.sensitivity_analysis_result"
-                                :is-loading="false" />
-                        </TabsContent>
-                        <TabsContent value="table">
-                            <div v-for="(tableData, metricKey) in valuationData.valuation_results.sensitivity_analysis_result.result_tables"
-                                :key="String(metricKey)" class="border p-3 rounded-md bg-muted/20 mb-4">
-                                <h4 class="text-md font-medium mb-2">{{ getMetricDisplayName(String(metricKey)) }} ({{
-                                    getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
-                                }} vs {{
-                                        getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
-                                    }})</h4>
-                                <div class="w-full overflow-hidden">
-                                    <div class="w-full max-w-full">
-                                        <Table class="w-full table-fixed">
-                                            <TableHeader>
-                                                <TableRow>
-                                                    <TableHead class="w-[15%] break-words">
-                                                        {{
-                                                            getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
-                                                        }}
-                                                        /
-                                                        {{
-                                                            getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
-                                                        }}
-                                                    </TableHead>
-                                                    <TableHead class="break-words"
-                                                        v-for="(_, colIndex) in valuationData.valuation_results.sensitivity_analysis_result.column_values"
-                                                        :key="`col-header-${colIndex}`"
-                                                        :style="{ width: `${85 / valuationData.valuation_results.sensitivity_analysis_result.column_values.length}%` }">
-                                                        {{ getFormattedColAxisValue(colIndex) }}
-                                                    </TableHead>
-                                                </TableRow>
-                                            </TableHeader>
-                                            <TableBody>
-                                                <TableRow v-for="(row, rowIndex) in tableData"
-                                                    :key="`sa-row-${rowIndex}`">
-                                                    <TableCell class="break-words"><strong>{{
-                                                        getFormattedRowAxisValue(rowIndex)
-                                                            }}</strong>
-                                                    </TableCell>
-                                                    <TableCell class="break-words" v-for="(cellValue, cellIndex) in row"
-                                                        :key="`sa-cell-${rowIndex}-${cellIndex}`"
-                                                        :class="{ 'bg-primary/10 font-semibold': centerRowIndex(String(metricKey)).value === rowIndex && centerColIndex(String(metricKey)).value === cellIndex }">
-                                                        {{ formatSensitivityCellValue(cellValue, String(metricKey)) }}
-                                                    </TableCell>
-                                                </TableRow>
-                                            </TableBody>
-                                        </Table>
-                                    </div>
-                                </div>
+                    <div v-for="(tableData, metricKey) in valuationData.valuation_results.sensitivity_analysis_result.result_tables"
+                        :key="String(metricKey)" class="border p-3 rounded-md bg-muted/20 mb-4">
+                        <h4 class="text-md font-medium mb-2">{{ getMetricDisplayName(String(metricKey)) }} ({{
+                            getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
+                            }} vs {{
+                                getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
+                            }})</h4>
+                        <div class="w-full overflow-hidden">
+                            <div class="w-full max-w-full">
+                                <Table class="w-full table-fixed">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead class="w-[15%] break-words">
+                                                {{
+                                                    getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
+                                                }}
+                                                /
+                                                {{
+                                                    getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
+                                                }}
+                                            </TableHead>
+                                            <TableHead class="break-words"
+                                                v-for="(_, colIndex) in valuationData.valuation_results.sensitivity_analysis_result.column_values"
+                                                :key="`col-header-${colIndex}`"
+                                                :style="{ width: `${85 / valuationData.valuation_results.sensitivity_analysis_result.column_values.length}%` }">
+                                                {{ getFormattedColAxisValue(colIndex) }}
+                                            </TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow v-for="(row, rowIndex) in tableData" :key="`sa-row-${rowIndex}`">
+                                            <TableCell class="break-words"><strong>{{
+                                                getFormattedRowAxisValue(rowIndex)
+                                                    }}</strong>
+                                            </TableCell>
+                                            <TableCell class="break-words" v-for="(cellValue, cellIndex) in row"
+                                                :key="`sa-cell-${rowIndex}-${cellIndex}`"
+                                                :class="{ 'bg-primary/10 font-semibold': centerRowIndex(String(metricKey)).value === rowIndex && centerColIndex(String(metricKey)).value === cellIndex }">
+                                                {{ formatSensitivityCellValue(cellValue, String(metricKey)) }}
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
                             </div>
-                        </TabsContent>
-                    </Tabs>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <!-- 高级分析 -->
+            <Card class="bg-background">
+                <CardHeader class="cursor-pointer" @click="toggleAdvancedAnalysis">
+                    <div class="flex items-center justify-between">
+                        <CardTitle>高级分析</CardTitle>
+                        <component :is="advancedAnalysisCollapsed ? ChevronRight : ChevronDown" class="h-4 w-4" />
+                    </div>
+                </CardHeader>
+                <CardContent v-show="!advancedAnalysisCollapsed" class="space-y-6">
+                    <!-- 详细财务预测表格 -->
+                    <div
+                        v-if="valuationData.valuation_results?.detailed_forecast_table && valuationData.valuation_results?.detailed_forecast_table.length > 0">
+                        <h3 class="text-lg font-medium mb-3">详细财务预测 (单位：元)</h3>
+                        <div class="w-full overflow-hidden">
+                            <div class="w-full max-w-full">
+                                <Table class="w-full table-fixed">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead class="w-[10%] break-words">年份 (Year)</TableHead>
+                                            <TableHead class="w-[10%] break-words">营业收入 (Revenue)</TableHead>
+                                            <TableHead class="w-[10%] break-words">息税前利润 (EBIT)</TableHead>
+                                            <TableHead class="w-[10%] break-words">税后净营业利润 (NOPAT)</TableHead>
+                                            <TableHead class="w-[10%] break-words">折旧与摊销 (D&A)</TableHead>
+                                            <TableHead class="w-[10%] break-words">资本性支出 (CapEx)</TableHead>
+                                            <TableHead class="w-[10%] break-words">净营运资本变动 (ΔNWC)</TableHead>
+                                            <TableHead class="w-[15%] break-words">无杠杆自由现金流 (FCF)</TableHead>
+                                            <TableHead class="w-[15%] break-words">FCF现值 (PV of FCF)</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow v-for="row in valuationData.valuation_results.detailed_forecast_table"
+                                            :key="row.year">
+                                            <TableCell class="break-words">{{ row.year }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.revenue) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.ebit) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.nopat) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.d_a) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.capex) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.delta_nwc) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.ufcf) }}</TableCell>
+                                            <TableCell class="break-words">{{ formatNumber(row.pv_ufcf) }}</TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 历史财务摘要 -->
+                    <div
+                        v-if="valuationData.valuation_results?.historical_financial_summary && valuationData.valuation_results?.historical_financial_summary.length > 0">
+                        <h3 class="text-lg font-medium mb-3">历史财务摘要</h3>
+                        <div class="w-full overflow-hidden">
+                            <div class="w-full max-w-full">
+                                <Table class="w-full table-fixed">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead class="break-words"
+                                                v-for="(_, colKey) in valuationData.valuation_results.historical_financial_summary[0]"
+                                                :key="`hist-summary-header-${String(colKey)}`"
+                                                :style="{ width: `${100 / Object.keys(valuationData.valuation_results.historical_financial_summary[0]).length}%` }">
+                                                {{ getHistoricalHeaderName(String(colKey)) }}
+                                            </TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow
+                                            v-for="(row, rowIndex) in valuationData.valuation_results.historical_financial_summary"
+                                            :key="`hist-summary-row-${rowIndex}`">
+                                            <TableCell class="break-words" v-for="(cellValue, cellKey) in row"
+                                                :key="`hist-summary-cell-${rowIndex}-${String(cellKey)}`">
+                                                <span v-if="String(cellKey) === '科目' || String(cellKey) === '报表类型'">
+                                                    {{ cellValue }}
+                                                </span>
+                                                <span v-else>
+                                                    {{ formatNumber(cellValue, typeof cellValue === 'number' &&
+                                                        !Number.isInteger(cellValue) ? 2 : 0) }}
+                                                </span>
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 历史财务比率 -->
+                    <div
+                        v-if="valuationData.valuation_results?.historical_ratios_summary && valuationData.valuation_results?.historical_ratios_summary.length > 0">
+                        <h3 class="text-lg font-medium mb-3">历史财务比率</h3>
+                        <div class="w-full overflow-hidden">
+                            <div class="w-full max-w-full">
+                                <Table class="w-full table-fixed">
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead class="w-[70%] break-words">{{
+                                                getHistoricalHeaderName('metric_name')
+                                            }}
+                                            </TableHead>
+                                            <TableHead class="w-[30%] break-words">{{ getHistoricalHeaderName('value')
+                                            }}
+                                            </TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        <TableRow
+                                            v-for="(row, rowIndex) in valuationData.valuation_results.historical_ratios_summary"
+                                            :key="`hist-ratios-row-${rowIndex}`">
+                                            <TableCell class="break-words">
+                                                {{ getHistoricalHeaderName(String(row.metric_name)) }}
+                                            </TableCell>
+                                            <TableCell class="break-words">
+                                                {{ formatNumber(row.value, typeof row.value === 'number' &&
+                                                    !Number.isInteger(row.value) ? 2 : 0) }}
+                                            </TableCell>
+                                        </TableRow>
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
+                    </div>
                 </CardContent>
             </Card>
 
             <!-- LLM 分析摘要 -->
             <Card v-if="valuationData.valuation_results?.llm_analysis_summary">
                 <CardHeader>
-                    <CardTitle>LLM 分析摘要</CardTitle>
+                    <CardTitle>AI 分析</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div class="prose prose-sm max-w-none dark:prose-invert"
@@ -416,10 +371,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertTriangle } from 'lucide-vue-next';
-import SensitivityHeatmap from '@/components/SensitivityHeatmap.vue';
-import SimpleSensitivityDisplay from '@/components/SimpleSensitivityDisplay.vue';
+import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-vue-next';
 
 // defineProps is a compiler macro and no longer needs to be imported.
 // import DOMPurify from 'dompurify'; // For v-html, if LLM output is complex HTML
@@ -427,7 +379,7 @@ import SimpleSensitivityDisplay from '@/components/SimpleSensitivityDisplay.vue'
 // For now, we'll assume LLM summary is safe or simple HTML/markdown.
 
 // Import types from shared-types
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import type {
     ApiDcfValuationResponse,
     // ApiStockInfo, // Not needed if ApiDcfValuationResponse is used directly for prop
@@ -445,6 +397,14 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+
+// 高级分析折叠状态，默认折叠
+const advancedAnalysisCollapsed = ref(true);
+
+// 切换高级分析折叠状态
+const toggleAdvancedAnalysis = () => {
+    advancedAnalysisCollapsed.value = !advancedAnalysisCollapsed.value;
+};
 
 const baseReportYearForDisplay = computed(() => {
     const reportDate = props.valuationData?.stock_info?.base_report_date;

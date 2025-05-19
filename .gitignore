@@ -162,3 +162,4 @@ packages/vue-frontend/coverage/
 # Shared types
 packages/shared-types/node_modules/
 packages/shared-types/dist/
+node_modules/

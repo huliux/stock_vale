@@ -63,7 +63,7 @@ export interface ApiDcfValuationRequest {
 
     // LLM 控制参数
     request_llm_summary?: boolean;
-    llm_provider?: 'deepseek' | 'custom_openai' | null;
+    llm_provider?: 'deepseek' | 'custom_openai' | 'default' | null;
     llm_model_id?: string | null;
     llm_api_base_url?: string | null;
     llm_temperature?: number | null;
