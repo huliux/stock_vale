@@ -150,11 +150,12 @@ def load_stock_basic(force_update=False):
 
     logger.info("正在从 Tushare API 获取股票基本信息 (stock_basic)...")
     try:
-        # 添加act_ent_type字段到请求中
+        # 获取所有上市状态的股票，包括上市(L)、暂停上市(P)、退市(D)等
         stock_basic_df = pro.stock_basic(
-            list_status='L',
             fields='ts_code,symbol,name,area,industry,list_date,market,exchange,act_ent_type'
         )
+        # 记录获取到的股票数量
+        logger.info(f"从 Tushare API 获取到 {len(stock_basic_df)} 条股票基本数据。")
         if not stock_basic_df.empty:
             logger.info(f"成功从 API 获取 {len(stock_basic_df)} 条股票基本数据。")
             stock_basic_df.to_feather(cache_file_path) # ensure_cache_dir_exists called at module load
@@ -200,10 +201,46 @@ def load_daily_basic(trade_date, force_update=False):
     logger.info(f"正在从 Tushare API 获取交易日 {trade_date} 的每日行情指标 (daily_basic)...")
     try:
         daily_basic_fields = 'ts_code,trade_date,close,turnover_rate,turnover_rate_f,volume_ratio,pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,free_share,total_mv,circ_mv'
-        daily_basic_df = pro.daily_basic(
-            trade_date=trade_date,
-            fields=daily_basic_fields
-        )
+
+        # 获取所有股票的基本信息，用于获取所有股票代码
+        all_stocks_df = load_stock_basic(force_update=False)
+        all_ts_codes = all_stocks_df['ts_code'].tolist()
+        logger.info(f"准备获取 {len(all_ts_codes)} 只股票的每日行情数据...")
+
+        # 分批获取每日行情数据，避免一次请求过多数据
+        daily_basic_df_list = []
+        batch_size = 1000  # 每批处理的股票数量
+
+        for i in range(0, len(all_ts_codes), batch_size):
+            batch_ts_codes = all_ts_codes[i:i+batch_size]
+            batch_ts_codes_str = ','.join(batch_ts_codes)
+            logger.info(f"获取第 {i//batch_size + 1} 批股票的每日行情数据 (共 {len(batch_ts_codes)} 只)...")
+
+            try:
+                batch_df = pro.daily_basic(
+                    ts_code=batch_ts_codes_str,
+                    trade_date=trade_date,
+                    fields=daily_basic_fields
+                )
+                if not batch_df.empty:
+                    daily_basic_df_list.append(batch_df)
+                    logger.info(f"成功获取第 {i//batch_size + 1} 批数据，共 {len(batch_df)} 条记录。")
+                else:
+                    logger.warning(f"第 {i//batch_size + 1} 批数据为空。")
+            except Exception as batch_e:
+                logger.error(f"获取第 {i//batch_size + 1} 批数据时出错: {batch_e}")
+
+        # 合并所有批次的数据
+        if daily_basic_df_list:
+            daily_basic_df = pd.concat(daily_basic_df_list, ignore_index=True)
+            logger.info(f"所有批次数据合并完成，共 {len(daily_basic_df)} 条记录。")
+        else:
+            # 如果所有批次都失败，尝试直接按交易日获取
+            logger.warning("分批获取数据失败，尝试直接按交易日获取...")
+            daily_basic_df = pro.daily_basic(
+                trade_date=trade_date,
+                fields=daily_basic_fields
+            )
         if not daily_basic_df.empty:
             logger.info(f"成功从 API 获取交易日 {trade_date} 的 {len(daily_basic_df)} 条每日行情数据。")
             daily_basic_df.to_feather(cache_file_path)
@@ -287,7 +324,12 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
         df_basic['ts_code'] = df_basic['ts_code'].astype(str)
         df_daily['ts_code'] = df_daily['ts_code'].astype(str)
 
-        merged_df = pd.merge(df_basic, df_daily, on='ts_code', how='inner', suffixes=('_basic', '_daily'))
+        # 使用 left join 而不是 inner join，保留所有股票基本信息
+        merged_df = pd.merge(df_basic, df_daily, on='ts_code', how='left', suffixes=('_basic', '_daily'))
+
+        # 记录合并前后的数据量，检查是否有数据丢失
+        logger.info(f"合并前: 基本信息 {len(df_basic)} 条, 每日行情 {len(df_daily)} 条")
+        logger.info(f"合并后: {len(merged_df)} 条 (使用 left join 保留所有股票基本信息)")
         logger.info(f"数据合并完成。合并后共有 {len(merged_df)} 条记录。")
 
         # Log some sample data after merge, before rename and conversion

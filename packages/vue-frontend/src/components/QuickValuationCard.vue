@@ -5,7 +5,7 @@
         <div class="grid grid-cols-2 gap-2">
           <div>
             <Label for="stock-code" class="text-xs font-medium">股票代码</Label>
-            <Input id="stock-code" type="text" v-model="stockCode" required placeholder="600519.SH"
+            <Input id="stock-code" type="text" v-model="stockCode" @input="handleStockCodeInput" required placeholder="600519.SH"
               class="mt-0.5 w-full h-8" />
           </div>
           <div>
@@ -43,6 +43,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'submit', stockCode: string, valuationDate: string): void;
+  (e: 'stock-code-change', stockCode: string): void;
 }>();
 
 const stockCode = ref(props.initialStockCode || '600519.SH');
@@ -106,6 +107,15 @@ watch(valuationDate, (newDate) => {
 });
 
 
+
+// 当股票代码输入框内容变化时触发
+function handleStockCodeInput() {
+  console.log('QuickValuationCard: 股票代码输入变化为:', stockCode.value);
+  if (stockCode.value) {
+    // 立即通知父组件股票代码变化
+    emit('stock-code-change', stockCode.value);
+  }
+}
 
 function submitForm() {
   console.log('QuickValuationCard: submitForm被调用');

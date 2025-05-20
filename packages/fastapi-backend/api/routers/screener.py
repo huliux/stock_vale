@@ -46,29 +46,32 @@ async def get_screened_stocks(
         # 3. 应用筛选条件
         filtered_df = merged_df.copy()
 
-        # 基础财务指标筛选
+        # 基础财务指标筛选 - 增加对 NaN 值的处理
         if request_body.pe_min is not None:
-            filtered_df = filtered_df[filtered_df['pe_ttm'] >= request_body.pe_min]
+            filtered_df = filtered_df[filtered_df['pe_ttm'].notna() & (filtered_df['pe_ttm'] >= request_body.pe_min)]
         if request_body.pe_max is not None:
-            filtered_df = filtered_df[filtered_df['pe_ttm'] <= request_body.pe_max]
+            filtered_df = filtered_df[filtered_df['pe_ttm'].notna() & (filtered_df['pe_ttm'] <= request_body.pe_max)]
         if request_body.pb_min is not None:
-            filtered_df = filtered_df[filtered_df['pb'] >= request_body.pb_min]
+            filtered_df = filtered_df[filtered_df['pb'].notna() & (filtered_df['pb'] >= request_body.pb_min)]
         if request_body.pb_max is not None:
-            filtered_df = filtered_df[filtered_df['pb'] <= request_body.pb_max]
+            filtered_df = filtered_df[filtered_df['pb'].notna() & (filtered_df['pb'] <= request_body.pb_max)]
         if request_body.ps_min is not None:
-            filtered_df = filtered_df[filtered_df['ps'] >= request_body.ps_min]
+            filtered_df = filtered_df[filtered_df['ps'].notna() & (filtered_df['ps'] >= request_body.ps_min)]
         if request_body.ps_max is not None:
-            filtered_df = filtered_df[filtered_df['ps'] <= request_body.ps_max]
+            filtered_df = filtered_df[filtered_df['ps'].notna() & (filtered_df['ps'] <= request_body.ps_max)]
         if request_body.ps_ttm_min is not None:
-            filtered_df = filtered_df[filtered_df['ps_ttm'] >= request_body.ps_ttm_min]
+            filtered_df = filtered_df[filtered_df['ps_ttm'].notna() & (filtered_df['ps_ttm'] >= request_body.ps_ttm_min)]
         if request_body.ps_ttm_max is not None:
-            filtered_df = filtered_df[filtered_df['ps_ttm'] <= request_body.ps_ttm_max]
+            filtered_df = filtered_df[filtered_df['ps_ttm'].notna() & (filtered_df['ps_ttm'] <= request_body.ps_ttm_max)]
 
-        # 市值筛选
+        # 市值筛选 - 增加对 NaN 值的处理
         if request_body.market_cap_min is not None: # 前端发送的是亿元
-            filtered_df = filtered_df[filtered_df['market_cap_billion'] >= request_body.market_cap_min]
+            filtered_df = filtered_df[filtered_df['market_cap_billion'].notna() & (filtered_df['market_cap_billion'] >= request_body.market_cap_min)]
         if request_body.market_cap_max is not None: # 前端发送的是亿元
-            filtered_df = filtered_df[filtered_df['market_cap_billion'] <= request_body.market_cap_max]
+            filtered_df = filtered_df[filtered_df['market_cap_billion'].notna() & (filtered_df['market_cap_billion'] <= request_body.market_cap_max)]
+
+        # 记录筛选后的数据量
+        logger.info(f"应用筛选条件后，剩余 {len(filtered_df)} 条记录。")
 
         # 行业筛选
         if request_body.industry is not None and request_body.industry != 'all' and 'industry' in filtered_df.columns:
@@ -80,8 +83,8 @@ async def get_screened_stocks(
             logger.info(f"应用企业性质筛选: {request_body.act_ent_type}")
             filtered_df = filtered_df[filtered_df['act_ent_type'] == request_body.act_ent_type]
 
-        # 移除PE/PB为负或极大的异常值 (可选，但推荐)
-        filtered_df = filtered_df[filtered_df['pe_ttm'] > 0]
+        # 注释掉默认的PE筛选，让用户完全控制筛选条件
+        # filtered_df = filtered_df[filtered_df['pe_ttm'] > 0]
         # filtered_df = filtered_df[filtered_df['pb'] > 0] # PB可以为负，视情况而定
 
         total_results = len(filtered_df)
@@ -181,14 +184,22 @@ async def update_screener_data(
         logger.info(f"收到数据更新请求: {request_body.data_type}")
 
         if request_body.data_type == 'basic' or request_body.data_type == 'all':
-            stock_screener_service.load_stock_basic(force_update=True)
-            logger.info("股票基本信息已触发更新。")
+            # 强制更新股票基本信息
+            stock_basic_df = stock_screener_service.load_stock_basic(force_update=True)
+            logger.info(f"股票基本信息已触发更新，获取到 {len(stock_basic_df)} 条记录。")
 
         if request_body.data_type == 'daily' or request_body.data_type == 'all':
             # 更新每日数据通常需要一个最新的交易日
             trade_date = stock_screener_service.get_latest_valid_trade_date()
-            stock_screener_service.load_daily_basic(trade_date=trade_date, force_update=True)
-            logger.info(f"交易日 {trade_date} 的每日行情指标已触发更新。")
+            daily_basic_df = stock_screener_service.load_daily_basic(trade_date=trade_date, force_update=True)
+            logger.info(f"交易日 {trade_date} 的每日行情指标已触发更新，获取到 {len(daily_basic_df)} 条记录。")
+
+        # 如果是全部更新，也更新合并后的数据
+        if request_body.data_type == 'all':
+            # 强制更新合并数据
+            trade_date = stock_screener_service.get_latest_valid_trade_date()
+            merged_df = stock_screener_service.get_merged_stock_data(trade_date=trade_date, force_update_basic=True, force_update_daily=True)
+            logger.info(f"合并数据已触发更新，合并后共有 {len(merged_df)} 条记录。")
 
         # TODO: 获取更精确的更新时间戳
         # Get actual timestamps AFTER updates are triggered

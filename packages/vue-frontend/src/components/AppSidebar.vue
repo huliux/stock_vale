@@ -147,6 +147,13 @@ function handleUpdateData(dataType: 'basic' | 'daily' | 'all' = 'all') {
   emit('update-data', dataType);
 }
 
+// 处理股票代码变化事件
+function handleStockCodeChange(newStockCode: string) {
+  console.log('AppSidebar: handleStockCodeChange被调用，newStockCode:', newStockCode);
+  // 立即更新当前股票代码
+  currentStockCode.value = newStockCode;
+}
+
 </script>
 
 <template>
@@ -219,7 +226,8 @@ function handleUpdateData(dataType: 'basic' | 'daily' | 'all' = 'all') {
             </div>
             <div class="mt-auto">
               <QuickValuationCard :is-loading="props.isLoading" :initial-stock-code="props.initialStockCode"
-                @submit="(stockCode, valuationDate) => handleQuickSubmit(stockCode, valuationDate)" />
+                @submit="(stockCode, valuationDate) => handleQuickSubmit(stockCode, valuationDate)"
+                @stock-code-change="handleStockCodeChange" />
             </div>
           </div>
         </div>

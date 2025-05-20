@@ -575,6 +575,9 @@ const financialAssumptionSections: FormSection[] = [
 
 // 暴露给父组件调用
 const submitValuationRequest = () => {
+    // 确保使用最新的股票代码
+    console.log('DcfParametersForm: submitValuationRequest被调用，当前股票代码:', params.stock_code);
+
     if (!params.stock_code) {
         emit('validation-error', '股票代码为必填项！');
         return;

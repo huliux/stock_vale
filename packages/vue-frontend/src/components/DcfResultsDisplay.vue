@@ -90,7 +90,7 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">¥{{
                                 formatNumber(valuationData.valuation_results?.dcf_forecast_details?.value_per_share, 2)
-                                }}</span>
+                            }}</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span
@@ -105,7 +105,7 @@
                 <!-- DCF隐含PE卡片 -->
                 <Card class="p-4">
                     <div class="flex flex-col">
-                        <span class="text-sm text-muted-foreground">DCF隐含PE</span>
+                        <span class="text-sm text-muted-foreground">隐含PE</span>
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatNumber(valuationData.valuation_results?.dcf_forecast_details?.dcf_implied_diluted_pe,
@@ -114,7 +114,7 @@
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">EV/EBITDA: {{
                                 formatNumber(valuationData.valuation_results?.dcf_forecast_details?.base_ev_ebitda, 2)
-                                }}×</span>
+                            }}×</span>
                         </div>
                     </div>
                 </Card>
@@ -126,12 +126,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.wacc_used)
-                                }}</span>
+                            }}</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">股权成本: {{
                                 formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.cost_of_equity_used)
-                                }}</span>
+                            }}</span>
                         </div>
                     </div>
                 </Card>
@@ -143,12 +143,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.enterprise_value)
-                                }}亿</span>
+                            }}亿</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">股权价值: {{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.equity_value)
-                                }}亿</span>
+                            }}亿</span>
                         </div>
                     </div>
                 </Card>
@@ -160,12 +160,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.terminal_value)
-                                }}亿</span>
+                            }}亿</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">终值现值: {{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.pv_terminal_value)
-                                }}亿</span>
+                            }}亿</span>
                         </div>
                     </div>
                 </Card>
@@ -177,12 +177,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.pv_forecast_ufcf)
-                                }}亿</span>
+                            }}亿</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">净债务: {{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.net_debt)
-                                }}亿</span>
+                            }}亿</span>
                         </div>
                     </div>
                 </Card>
@@ -203,7 +203,7 @@
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">隐含永续增长率: {{
                                 formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.implied_perpetual_growth_rate)
-                                }}</span>
+                            }}</span>
                         </div>
                     </div>
                 </Card>
@@ -230,11 +230,11 @@
                     <CardTitle>敏感性分析</CardTitle>
                 </CardHeader>
                 <CardContent class="space-y-4">
-                    <div v-for="(tableData, metricKey) in valuationData.valuation_results.sensitivity_analysis_result.result_tables"
-                        :key="String(metricKey)" class="border p-3 rounded-md bg-muted/20 mb-4">
+                    <div v-for="(tableData, metricKey) in filteredSensitivityTables" :key="String(metricKey)"
+                        class="border p-3 rounded-md bg-muted/20 mb-4">
                         <h4 class="text-md font-medium mb-2">{{ getMetricDisplayName(String(metricKey)) }} ({{
                             getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
-                            }} vs {{
+                        }} vs {{
                                 getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
                             }})</h4>
                         <div class="w-full overflow-x-auto">
@@ -326,7 +326,7 @@
                                             <TableCell class="whitespace-nowrap">{{ formatNumber(row.delta_nwc) }}
                                             </TableCell>
                                             <TableCell class="whitespace-nowrap font-semibold">{{ formatNumber(row.ufcf)
-                                            }}
+                                                }}
                                             </TableCell>
                                             <TableCell class="whitespace-nowrap font-semibold">{{
                                                 formatNumber(row.pv_ufcf) }}
@@ -513,6 +513,25 @@ const calculatedUpsidePotential = computed(() => {
         return (valuePerShare / latestPrice) - 1;
     }
     return 'N/A'; // Return 'N/A' as string if calculation is not possible, formatPercentage will handle it
+});
+
+// 过滤敏感性分析表格，排除DCF隐含PE相关表格
+const filteredSensitivityTables = computed(() => {
+    if (!props.valuationData?.valuation_results?.sensitivity_analysis_result?.result_tables) {
+        return {};
+    }
+
+    const tables = props.valuationData.valuation_results.sensitivity_analysis_result.result_tables;
+    const filteredTables: Record<string, (string | number | null)[][]> = {};
+
+    // 遍历所有表格，排除dcf_implied_pe和dcf_implied_diluted_pe
+    for (const [key, value] of Object.entries(tables)) {
+        if (key !== 'dcf_implied_pe' && key !== 'dcf_implied_diluted_pe') {
+            filteredTables[key] = value;
+        }
+    }
+
+    return filteredTables;
 });
 
 

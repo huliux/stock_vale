@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import StockScreenerResultsTable from '@/components/StockScreenerResultsTable.vue';
 import { type ScreenerFilters } from '@/components/StockScreenerFilters.vue';
@@ -92,6 +92,61 @@ const formatDateTime = (dateTimeStr: string | null): string => {
     } catch (e) {
         console.error('日期格式化错误:', e);
         return dateTimeStr;
+    }
+};
+
+// 保存筛选结果和条件到 localStorage
+const saveScreenerState = () => {
+    try {
+        // 保存筛选条件
+        localStorage.setItem('screenerFilters', JSON.stringify(currentFilters.value));
+
+        // 保存筛选结果
+        localStorage.setItem('screenerResults', JSON.stringify(screenedStocks));
+
+        // 保存其他状态
+        localStorage.setItem('screenerState', JSON.stringify({
+            hasSearched: hasSearched.value,
+            currentPage: currentPage.value,
+            totalStocks: totalStocks.value,
+            lastDataUpdateTime: lastDataUpdateTime.value
+        }));
+
+        console.log('筛选状态已保存到 localStorage');
+    } catch (error) {
+        console.error('保存筛选状态时出错:', error);
+    }
+};
+
+// 从 localStorage 恢复筛选结果和条件
+const restoreScreenerState = () => {
+    try {
+        // 恢复筛选条件
+        const savedFilters = localStorage.getItem('screenerFilters');
+        if (savedFilters) {
+            currentFilters.value = JSON.parse(savedFilters);
+        }
+
+        // 恢复筛选结果
+        const savedResults = localStorage.getItem('screenerResults');
+        if (savedResults) {
+            const parsedResults = JSON.parse(savedResults);
+            screenedStocks.splice(0, screenedStocks.length, ...parsedResults);
+        }
+
+        // 恢复其他状态
+        const savedState = localStorage.getItem('screenerState');
+        if (savedState) {
+            const state = JSON.parse(savedState);
+            hasSearched.value = state.hasSearched;
+            currentPage.value = state.currentPage;
+            totalStocks.value = state.totalStocks;
+            lastDataUpdateTime.value = state.lastDataUpdateTime;
+        }
+
+        console.log('筛选状态已从 localStorage 恢复');
+    } catch (error) {
+        console.error('恢复筛选状态时出错:', error);
     }
 };
 
@@ -160,6 +215,9 @@ const handleApplyFilters = async (filters: Partial<ScreenerFilters>) => {
         } else {
             console.log(`API returned ${response.results.length} stocks matching criteria.`);
         }
+
+        // 保存筛选状态到 localStorage
+        saveScreenerState();
     } catch (e) {
         console.error('Error fetching screened stocks:', e);
         if (e instanceof ApiClientError) {
@@ -305,6 +363,9 @@ const handlePageChange = async (page: number) => {
         }
 
         console.log(`Page ${page} loaded with ${response.results.length} results. Total: ${totalStocks.value}`);
+
+        // 保存筛选状态到 localStorage
+        saveScreenerState();
     } catch (e) {
         console.error('Error fetching page data:', e);
         if (e instanceof ApiClientError) {
@@ -362,6 +423,11 @@ const handleBatchValuation = (stockCodes: string[]) => {
         }
     });
 };
+
+// 组件挂载时恢复筛选状态
+onMounted(() => {
+    restoreScreenerState();
+});
 
 const handleAddToWatchlist = (stockCodes: string[]) => {
     console.log('Adding to watchlist:', stockCodes);
