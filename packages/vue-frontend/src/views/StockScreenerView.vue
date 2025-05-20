@@ -17,14 +17,10 @@
             </header>
             <main class="flex-1 overflow-auto p-4">
                 <div class="space-y-4">
-                    <div class="bg-card p-4 rounded-md border border-border shadow-sm">
-                        <h3 class="text-lg font-semibold mb-4">筛选结果</h3>
-                        <StockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
-                            :has-searched="hasSearched" :total="totalStocks" :page="currentPage" :page-size="pageSize"
-                            @go-to-valuation="handleGoToValuation" @batch-valuation="handleBatchValuation"
-                            @add-to-watchlist="handleAddToWatchlist" @page-change="handlePageChange"
-                            @retry="handleRetry" />
-                    </div>
+                    <StockScreenerResultsTable :results="screenedStocks" :is-loading="isLoading" :error="error"
+                        :has-searched="hasSearched" :total="totalStocks" :page="currentPage" :page-size="pageSize"
+                        @go-to-valuation="handleGoToValuation" @batch-valuation="handleBatchValuation"
+                        @add-to-watchlist="handleAddToWatchlist" @page-change="handlePageChange" @retry="handleRetry" />
                 </div>
             </main>
         </SidebarInset>

@@ -5,8 +5,15 @@
         <AppSidebar :is-loading="computedIsLoading" :initial-stock-code="initialStockCode"
             @submit-valuation="handleValuationRequest" @validation-error="handleFormValidationError" />
         <SidebarInset>
-            <header class="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background p-4">
-                <SidebarTrigger class="-ml-1" />
+            <header
+                class="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between border-b bg-background p-4">
+                <div class="flex items-center gap-2">
+                    <SidebarTrigger class="-ml-1" />
+                </div>
+                <Button variant="outline" size="sm" @click="toggleHistoryDrawer">
+                    <History class="h-4 w-4 mr-2" />
+                    历史记录
+                </Button>
             </header>
             <main class="flex-1 overflow-auto p-4">
                 <DcfResultsDisplay :valuation-data="computedValuationResult" :is-loading="computedIsLoading"
@@ -14,6 +21,10 @@
             </main>
         </SidebarInset>
     </SidebarProvider>
+
+    <!-- 历史记录抽屉 -->
+    <ValuationHistoryDrawer :is-open="historyDrawerOpen" @update:is-open="historyDrawerOpen = $event"
+        @load-record="loadHistoryRecord" />
 </template>
 
 <script setup lang="ts">
@@ -21,8 +32,12 @@ import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import DcfResultsDisplay from '@/components/DcfResultsDisplay.vue';
 import { valuationApi, ApiClientError } from '@/services/apiClient';
-import type { ApiDcfValuationRequest } from '@shared-types/index';
+import type { ApiDcfValuationRequest, ApiDcfValuationResponse } from '@shared-types/index';
 import { useValuationStore } from '@/stores/valuationStore';
+import { useHistoryStore } from '@/stores/historyStore';
+import { Button } from '@/components/ui/button';
+import { History } from 'lucide-vue-next';
+import ValuationHistoryDrawer from '@/components/ValuationHistoryDrawer.vue';
 
 // Imports for Sidebar09 structure
 import AppSidebar from '@/components/AppSidebar.vue';
@@ -34,6 +49,7 @@ import {
 
 const route = useRoute();
 const valuationStore = useValuationStore();
+const historyStore = useHistoryStore();
 
 const computedValuationResult = computed(() => valuationStore.getValuationResult);
 const computedIsLoading = computed(() => valuationStore.getIsLoading);
@@ -41,6 +57,7 @@ const computedError = computed(() => valuationStore.getError);
 
 const hasCalculated = ref(false);
 const initialStockCode = ref<string | null>(null);
+const historyDrawerOpen = ref(false);
 
 // 监听路由查询参数的变化
 const updateStockCodeFromRoute = () => {
@@ -71,6 +88,9 @@ const handleValuationRequest = async (apiParams: ApiDcfValuationRequest) => {
         const result = await valuationApi.performDcfValuation(apiParams);
         console.log('DcfValuationView: API调用成功，结果:', result);
         valuationStore.setValuationResult(result);
+
+        // 将估值结果保存到历史记录
+        historyStore.addRecord(result);
     } catch (e: unknown) {
         console.error('Error during valuation request:', e);
         let errorMessage: string;
@@ -94,6 +114,27 @@ const handleFormValidationError = (errorMessage: string) => {
     }
     valuationStore.clearResult();
     hasCalculated.value = true;
+};
+
+// 切换历史记录抽屉的显示状态
+const toggleHistoryDrawer = () => {
+    historyDrawerOpen.value = !historyDrawerOpen.value;
+
+    // 如果是打开抽屉，确保历史记录已从localStorage加载
+    if (historyDrawerOpen.value) {
+        historyStore.loadFromLocalStorage();
+    }
+};
+
+// 加载历史记录中的估值结果
+const loadHistoryRecord = (record: ApiDcfValuationResponse) => {
+    valuationStore.setValuationResult(record);
+    hasCalculated.value = true;
+
+    // 如果记录中有股票代码，更新initialStockCode以便在侧边栏显示
+    if (record.stock_info?.ts_code) {
+        initialStockCode.value = record.stock_info.ts_code;
+    }
 };
 </script>
 
