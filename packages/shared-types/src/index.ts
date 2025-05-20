@@ -236,15 +236,39 @@ export interface ApiDcfValuationResponse {
  * API请求体：股票筛选器参数
  */
 export interface ApiStockScreenerRequest {
+    // 基础指标
     pe_min?: number | null;
     pe_max?: number | null;
     pb_min?: number | null;
     pb_max?: number | null;
     market_cap_min?: number | null; // 单位：亿元
     market_cap_max?: number | null; // 单位：亿元
-    // 可以添加其他筛选条件，如行业、交易所等
-    // page?: number; // 用于分页
-    // page_size?: number; // 用于分页
+    dividend_yield_min?: number | null; // 股息率最小值
+    dividend_yield_max?: number | null; // 股息率最大值
+    industry?: string | null; // 行业
+
+    // 财务指标
+    roe_min?: number | null; // ROE最小值
+    roe_max?: number | null; // ROE最大值
+    gross_margin_min?: number | null; // 毛利率最小值
+    gross_margin_max?: number | null; // 毛利率最大值
+    net_margin_min?: number | null; // 净利率最小值
+    net_margin_max?: number | null; // 净利率最大值
+    debt_to_equity_min?: number | null; // 资产负债率最小值
+    debt_to_equity_max?: number | null; // 资产负债率最大值
+
+    // 成长指标
+    revenue_growth_min?: number | null; // 营收增长率最小值
+    revenue_growth_max?: number | null; // 营收增长率最大值
+    profit_growth_min?: number | null; // 净利润增长率最小值
+    profit_growth_max?: number | null; // 净利润增长率最大值
+    eps_growth_min?: number | null; // EPS增长率最小值
+    eps_growth_max?: number | null; // EPS增长率最大值
+    growth_period?: string | null; // 增长期间: 'yoy', '3yr', '5yr'
+
+    // 分页参数
+    page?: number; // 用于分页
+    page_size?: number; // 用于分页
 }
 
 /**

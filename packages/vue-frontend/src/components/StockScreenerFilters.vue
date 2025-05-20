@@ -1,6 +1,5 @@
 <template>
-    <div class="p-4 bg-card border border-border rounded-lg shadow-sm space-y-6">
-        <h4 class="text-lg font-semibold text-foreground">筛选条件</h4>
+    <div class="space-y-6">
 
         <Tabs defaultValue="basic" class="w-full">
             <TabsList class="grid w-full grid-cols-3">
@@ -57,7 +56,7 @@
                             <SelectValue placeholder="选择行业" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">全部行业</SelectItem>
+                            <SelectItem value="all">全部行业</SelectItem>
                             <SelectItem v-for="industry in industries" :key="industry" :value="industry">
                                 {{ industry }}
                             </SelectItem>
@@ -161,13 +160,55 @@
             </TabsContent>
         </Tabs>
 
-        <div class="flex flex-col sm:flex-row gap-2">
-            <Button @click="applyFilters" variant="default" class="w-full">应用筛选</Button>
-            <Button @click="resetFilters" variant="outline" class="w-full">重置</Button>
-            <Button @click="saveFilters" variant="outline" class="w-full">保存条件</Button>
-            <Button @click="updateData" :disabled="isUpdatingData" variant="secondary" class="w-full">
-                {{ isUpdatingData ? '正在更新...' : '更新基础数据' }}
-            </Button>
+        <div class="flex flex-col gap-2">
+            <div class="flex flex-col sm:flex-row gap-2">
+                <Button @click="applyFilters" variant="default" class="w-full">
+                    <span class="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="mr-1">
+                            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                        </svg>
+                        应用筛选
+                    </span>
+                </Button>
+                <Button @click="resetFilters" variant="outline" class="w-full">
+                    <span class="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="mr-1">
+                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                            <path d="M3 3v5h5" />
+                        </svg>
+                        重置
+                    </span>
+                </Button>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2">
+                <Button @click="saveFilters" variant="outline" class="w-full">
+                    <span class="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="mr-1">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                        </svg>
+                        保存条件
+                    </span>
+                </Button>
+                <Button @click="updateData" :disabled="isUpdatingData" variant="secondary" class="w-full">
+                    <span class="flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="mr-1" :class="{ 'animate-spin': isUpdatingData }">
+                            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                            <path d="M21 3v5h-5" />
+                        </svg>
+                        {{ isUpdatingData ? '正在更新...' : '更新基础数据' }}
+                    </span>
+                </Button>
+            </div>
         </div>
 
         <div v-if="savedFilters.length > 0" class="pt-2">
@@ -198,34 +239,34 @@ import { XIcon } from 'lucide-vue-next';
 
 export interface ScreenerFilters {
     // 基础指标
-    peMin: number | string | null;
-    peMax: number | string | null;
-    pbMin: number | string | null;
-    pbMax: number | string | null;
-    marketCapMin: number | string | null;
-    marketCapMax: number | string | null;
-    dividendYieldMin: number | string | null;
-    dividendYieldMax: number | string | null;
-    industry: string | null;
+    peMin: number | string | undefined;
+    peMax: number | string | undefined;
+    pbMin: number | string | undefined;
+    pbMax: number | string | undefined;
+    marketCapMin: number | string | undefined;
+    marketCapMax: number | string | undefined;
+    dividendYieldMin: number | string | undefined;
+    dividendYieldMax: number | string | undefined;
+    industry: string;
 
     // 财务指标
-    roeMin: number | string | null;
-    roeMax: number | string | null;
-    grossMarginMin: number | string | null;
-    grossMarginMax: number | string | null;
-    netMarginMin: number | string | null;
-    netMarginMax: number | string | null;
-    debtToEquityMin: number | string | null;
-    debtToEquityMax: number | string | null;
+    roeMin: number | string | undefined;
+    roeMax: number | string | undefined;
+    grossMarginMin: number | string | undefined;
+    grossMarginMax: number | string | undefined;
+    netMarginMin: number | string | undefined;
+    netMarginMax: number | string | undefined;
+    debtToEquityMin: number | string | undefined;
+    debtToEquityMax: number | string | undefined;
 
     // 成长指标
-    revenueGrowthMin: number | string | null;
-    revenueGrowthMax: number | string | null;
-    profitGrowthMin: number | string | null;
-    profitGrowthMax: number | string | null;
-    epsGrowthMin: number | string | null;
-    epsGrowthMax: number | string | null;
-    growthPeriod: string | null;
+    revenueGrowthMin: number | string | undefined;
+    revenueGrowthMax: number | string | undefined;
+    profitGrowthMin: number | string | undefined;
+    profitGrowthMax: number | string | undefined;
+    epsGrowthMin: number | string | undefined;
+    epsGrowthMax: number | string | undefined;
+    growthPeriod: string;
 }
 
 // 初始化筛选条件
@@ -239,7 +280,7 @@ const filters = reactive<ScreenerFilters>({
     marketCapMax: '',
     dividendYieldMin: '',
     dividendYieldMax: '',
-    industry: null,
+    industry: 'all',
 
     // 财务指标
     roeMin: '',
@@ -301,7 +342,9 @@ const emit = defineEmits(['apply-filters', 'update-data']);
 const applyFilters = () => {
     const activeFilters = Object.entries(filters).reduce((acc, [key, value]) => {
         if (value !== null && value !== undefined) {
-            acc[key as keyof ScreenerFilters] = value;
+            // Ensure type compatibility
+            const typedKey = key as keyof ScreenerFilters;
+            acc[typedKey] = value as any; // Using 'any' to bypass the type check since we know the values are compatible
         }
         return acc;
     }, {} as Partial<ScreenerFilters>);
@@ -311,12 +354,11 @@ const applyFilters = () => {
 // 重置筛选条件
 const resetFilters = () => {
     Object.keys(filters).forEach(key => {
+        const typedKey = key as keyof ScreenerFilters;
         if (key === 'growthPeriod') {
-            filters[key as keyof ScreenerFilters] = 'yoy';
-        } else if (key === 'industry') {
-            filters[key as keyof ScreenerFilters] = null;
+            filters[typedKey] = 'yoy';
         } else {
-            filters[key as keyof ScreenerFilters] = '';
+            filters[typedKey] = '';
         }
     });
 };
@@ -361,11 +403,11 @@ const loadSavedFilter = (index: number) => {
     Object.keys(savedFilter.filters).forEach(key => {
         const typedKey = key as keyof ScreenerFilters;
         // 确保类型兼容性
-        if (typedKey === 'growthPeriod' || typedKey === 'industry') {
-            filters[typedKey] = savedFilter.filters[typedKey] as string | null;
+        if (typedKey === 'growthPeriod') {
+            filters[typedKey] = savedFilter.filters[typedKey] as string;
         } else {
-            // 对于数字字段，确保它们是字符串或数字
-            filters[typedKey] = savedFilter.filters[typedKey] as string | number;
+            // 对于数字字段和其他字段，确保它们是字符串或数字
+            filters[typedKey] = savedFilter.filters[typedKey] as any; // 使用any类型绕过类型检查
         }
     });
 

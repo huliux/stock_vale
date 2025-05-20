@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import NavUser from '@/components/NavUser.vue'
 import DcfParametersForm from '@/components/DcfParametersForm.vue'
+import StockScreenerFilters, { type ScreenerFilters } from '@/components/StockScreenerFilters.vue'
 import QuickValuationCard from '@/components/QuickValuationCard.vue'
 import {
   Sidebar,
@@ -19,7 +20,8 @@ import {
 // import { Label } from '@/components/ui/label' // Removed example-specific import
 // import { Switch } from '@/components/ui/switch' // Removed example-specific import
 import { Command, Calculator, ListFilter, FileText } from 'lucide-vue-next' // Updated icons
-import { h, ref, type Component } from 'vue' // ref will be needed for activeNavItem, added Component
+import { h, ref, type Component, watch } from 'vue' // ref will be needed for activeNavItem, added Component
+import { useRouter, useRoute } from 'vue-router' // 导入路由器和路由
 import type { ApiDcfValuationRequest } from '@shared-types/index' // Import the type
 
 const props = withDefaults(defineProps<SidebarProps & {
@@ -32,6 +34,8 @@ const props = withDefaults(defineProps<SidebarProps & {
 const emit = defineEmits<{
   (e: 'submit-valuation', payload: ApiDcfValuationRequest): void // Use specific type
   (e: 'validation-error', message: string): void
+  (e: 'apply-filters', filters: Partial<ScreenerFilters>): void
+  (e: 'update-data'): void
 }>()
 
 // Dummy user data for NavUser, replace with actual data or props if needed
@@ -42,6 +46,7 @@ const dummyUser = {
 }
 
 // const { setOpen } = useSidebar() // Removed if not essential for sidebar functionality itself
+const router = useRouter() // 获取路由器实例
 
 interface NavItem {
   id: string
@@ -51,12 +56,32 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: 'valuation', title: '股票估值', icon: Calculator, path: '/valuation' },
+  { id: 'valuation', title: '股票估值', icon: Calculator, path: '/' }, // 主页是估值页面
   { id: 'screener', title: '股票筛选', icon: ListFilter, path: '/screener' },
-  { id: 'research', title: '深度研究', icon: FileText, path: '/research' },
+  { id: 'research', title: '深度研究', icon: FileText, path: '/deep-research' },
 ]
 
-const activeNavItemId = ref<string>(navItems[0].id) // Default to first item
+// 根据当前路由设置活动导航项
+const route = useRoute()
+const activeNavItemId = ref<string>('valuation') // 默认为估值
+
+// 监听路由变化，更新活动导航项
+const updateActiveNavItem = () => {
+  const path = route.path
+  const matchedItem = navItems.find(item => item.path === path)
+  if (matchedItem) {
+    activeNavItemId.value = matchedItem.id
+  }
+}
+
+// 初始化时设置活动导航项
+updateActiveNavItem()
+
+// 监听路由变化
+watch(() => route.path, () => {
+  updateActiveNavItem()
+})
+
 const dcfFormRef = ref<InstanceType<typeof DcfParametersForm> | null>(null)
 const currentStockCode = ref<string>(props.initialStockCode || '600519.SH')
 const currentValuationDate = ref<string>(getTodayDateString())
@@ -101,6 +126,17 @@ function handleQuickSubmit(stockCode: string, valuationDate: string) {
   }
 }
 
+// 处理筛选器事件
+function handleApplyFilters(filters: Partial<ScreenerFilters>) {
+  console.log('AppSidebar: handleApplyFilters被调用，filters:', filters);
+  emit('apply-filters', filters);
+}
+
+function handleUpdateData() {
+  console.log('AppSidebar: handleUpdateData被调用');
+  emit('update-data');
+}
+
 </script>
 
 <template>
@@ -127,8 +163,17 @@ function handleQuickSubmit(stockCode: string, valuationDate: string) {
             <SidebarMenu>
               <SidebarMenuItem v-for="item in navItems" :key="item.id">
                 <SidebarMenuButton :tooltip="h('div', { hidden: false }, item.title)"
-                  :is-active="activeNavItemId === item.id" class="px-2.5 md:px-2"
-                  @click="() => activeNavItemId = item.id">
+                  :is-active="activeNavItemId === item.id" class="px-2.5 md:px-2" @click="() => {
+                    activeNavItemId = item.id;
+                    if (item.path) {
+                      try {
+                        // 使用replace而不是push，避免历史堆栈问题
+                        router.replace(item.path);
+                      } catch (error) {
+                        console.error('Navigation error:', error);
+                      }
+                    }
+                  }">
                   <component :is="item.icon" class="size-4" />
                   <span v-show="open">{{ item.title }}</span>
                 </SidebarMenuButton>
@@ -168,8 +213,13 @@ function handleQuickSubmit(stockCode: string, valuationDate: string) {
             </div>
           </div>
         </div>
-        <div v-else-if="activeNavItemId === 'screener'" class="p-4">
-          <p>股票筛选参数区 (待实现)</p>
+        <div v-else-if="activeNavItemId === 'screener'" class="h-full">
+          <div class="flex flex-col h-full">
+            <div class="flex-1 overflow-y-auto p-4">
+              <h3 class="text-lg font-semibold mb-4">股票筛选</h3>
+              <StockScreenerFilters @apply-filters="handleApplyFilters" @update-data="handleUpdateData" />
+            </div>
+          </div>
         </div>
         <div v-else-if="activeNavItemId === 'research'" class="p-4">
           <p>深度研究参数区 (待实现)</p>

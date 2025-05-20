@@ -163,3 +163,4 @@ packages/vue-frontend/coverage/
 packages/shared-types/node_modules/
 packages/shared-types/dist/
 node_modules/
+packages/fastapi-backend/data_cache_backend/

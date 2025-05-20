@@ -172,6 +172,33 @@
                     </div>
                 </div>
             </div>
+
+            <!-- 分页控件 -->
+            <div v-if="props.results.length > 0"
+                class="p-4 border-t border-border bg-muted/10 flex justify-between items-center">
+                <div class="text-sm text-muted-foreground">
+                    共 {{ props.total || props.results.length }} 条记录
+                </div>
+                <div class="flex items-center gap-2">
+                    <Button @click="prevPage" variant="outline" size="sm" :disabled="currentPage <= 1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="mr-1">
+                            <polyline points="15 18 9 12 15 6"></polyline>
+                        </svg>
+                        上一页
+                    </Button>
+                    <span class="text-sm">第 {{ currentPage }} 页</span>
+                    <Button @click="nextPage" variant="outline" size="sm" :disabled="!hasMorePages">
+                        下一页
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="ml-1">
+                            <polyline points="9 18 15 12 9 6"></polyline>
+                        </svg>
+                    </Button>
+                </div>
+            </div>
         </div>
 
         <!-- 卡片视图 -->
@@ -218,17 +245,6 @@
             <div class="border border-border rounded-lg p-4 bg-card">
                 <h3 class="text-md font-medium mb-4">{{ chartTitle }}</h3>
                 <div class="h-80" ref="chartContainer"></div>
-            </div>
-
-            <div class="flex flex-wrap gap-4">
-                <div class="flex-1 min-w-[300px] border border-border rounded-lg p-4 bg-card">
-                    <h3 class="text-md font-medium mb-4">市盈率分布</h3>
-                    <div class="h-60" ref="peChartContainer"></div>
-                </div>
-                <div class="flex-1 min-w-[300px] border border-border rounded-lg p-4 bg-card">
-                    <h3 class="text-md font-medium mb-4">市净率分布</h3>
-                    <div class="h-60" ref="pbChartContainer"></div>
-                </div>
             </div>
         </div>
 
@@ -305,15 +321,29 @@ interface Props {
     isLoading: boolean;
     error: string | null;
     hasSearched: boolean;
+    total?: number; // 总记录数，用于分页
+    page?: number; // 当前页码
+    pageSize?: number; // 每页记录数
 }
 
 const props = defineProps<Props>();
-const emit = defineEmits(['go-to-valuation']);
+const emit = defineEmits(['go-to-valuation', 'batch-valuation', 'add-to-watchlist', 'page-change']);
 
 // 排序和视图状态
 const sortField = ref<string>('name');
 const sortOrder = ref<'asc' | 'desc'>('asc');
 const viewMode = ref<'table' | 'cards' | 'chart'>('table');
+
+// 分页状态
+const currentPage = ref(props.page || 1);
+const pageSize = ref(props.pageSize || 20);
+const hasMorePages = computed(() => {
+    if (props.total) {
+        return currentPage.value * pageSize.value < props.total;
+    }
+    // 如果没有提供总数，则假设还有更多页面
+    return props.results.length >= pageSize.value;
+});
 
 // 选择状态
 const selectedStocks = ref<Record<string, boolean>>({});
@@ -322,11 +352,7 @@ const selectedStock = ref<ApiScreenedStock | null>(null);
 
 // 图表容器引用
 const chartContainer = ref<HTMLElement | null>(null);
-const peChartContainer = ref<HTMLElement | null>(null);
-const pbChartContainer = ref<HTMLElement | null>(null);
 let mainChart: echarts.ECharts | null = null;
-let peChart: echarts.ECharts | null = null;
-let pbChart: echarts.ECharts | null = null;
 
 // 计算属性
 const sortedStocks = computed(() => {
@@ -413,23 +439,30 @@ const goToValuation = (stockCode: string) => {
 
 const batchValuation = () => {
     const selectedCodes = Object.entries(selectedStocks.value)
-        .filter(([_, selected]) => selected)
+        .filter(([, selected]) => selected) // Using comma to skip the unused variable
         .map(([code]) => code);
 
     if (selectedCodes.length > 0) {
-        // 这里可以实现批量估值逻辑，例如打开一个新页面或对话框
-        alert(`将对 ${selectedCodes.length} 只股票进行批量估值: ${selectedCodes.join(', ')}`);
+        if (selectedCodes.length > 5) {
+            // 限制批量估值的数量，避免一次处理太多
+            if (!confirm(`您选择了 ${selectedCodes.length} 只股票进行批量估值，数量较多可能会影响性能。是否继续？`)) {
+                return;
+            }
+        }
+
+        // 发出批量估值事件，由父组件处理
+        emit('batch-valuation', selectedCodes);
     }
 };
 
 const addToWatchlist = () => {
     const selectedCodes = Object.entries(selectedStocks.value)
-        .filter(([_, selected]) => selected)
+        .filter(([, selected]) => selected) // Using comma to skip the unused variable
         .map(([code]) => code);
 
     if (selectedCodes.length > 0) {
-        // 这里可以实现添加到观察列表的逻辑
-        alert(`已将 ${selectedCodes.length} 只股票添加到观察列表`);
+        // 发出添加到观察列表事件，由父组件处理
+        emit('add-to-watchlist', selectedCodes);
     }
 };
 
@@ -463,6 +496,21 @@ const exportResults = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+};
+
+// 分页函数
+const prevPage = () => {
+    if (currentPage.value > 1) {
+        currentPage.value--;
+        emit('page-change', currentPage.value);
+    }
+};
+
+const nextPage = () => {
+    if (hasMorePages.value) {
+        currentPage.value++;
+        emit('page-change', currentPage.value);
+    }
 };
 
 // 格式化数字
@@ -521,132 +569,6 @@ const renderCharts = () => {
 
         mainChart.setOption(option);
     }
-
-    // PE分布图
-    if (peChartContainer.value) {
-        if (!peChart) {
-            peChart = echarts.init(peChartContainer.value);
-        }
-
-        const peData = sortedStocks.value
-            .filter(stock => stock.pe_ttm !== null && stock.pe_ttm !== undefined)
-            .map(stock => stock.pe_ttm as number);
-
-        if (peData.length > 0) {
-            // 创建PE分布直方图
-            const bins = 10;
-            const max = Math.max(...peData);
-            const min = Math.min(...peData);
-            const binSize = (max - min) / bins;
-
-            const histogramData = Array(bins).fill(0);
-            const binLabels = [];
-
-            for (let i = 0; i < bins; i++) {
-                const binStart = min + i * binSize;
-                const binEnd = binStart + binSize;
-                binLabels.push(`${binStart.toFixed(1)}-${binEnd.toFixed(1)}`);
-
-                peData.forEach(value => {
-                    if (value >= binStart && value < binEnd) {
-                        histogramData[i]++;
-                    }
-                });
-            }
-
-            const option = {
-                tooltip: {
-                    trigger: 'item',
-                    formatter: '{b}: {c} 只股票'
-                },
-                xAxis: {
-                    type: 'category',
-                    data: binLabels,
-                    axisLabel: {
-                        interval: 0,
-                        rotate: 45
-                    }
-                },
-                yAxis: {
-                    type: 'value',
-                    name: '股票数量'
-                },
-                series: [{
-                    name: '市盈率分布',
-                    type: 'bar',
-                    data: histogramData,
-                    itemStyle: {
-                        color: '#10b981'
-                    }
-                }]
-            };
-
-            peChart.setOption(option);
-        }
-    }
-
-    // PB分布图
-    if (pbChartContainer.value) {
-        if (!pbChart) {
-            pbChart = echarts.init(pbChartContainer.value);
-        }
-
-        const pbData = sortedStocks.value
-            .filter(stock => stock.pb !== null && stock.pb !== undefined)
-            .map(stock => stock.pb as number);
-
-        if (pbData.length > 0) {
-            // 创建PB分布直方图
-            const bins = 10;
-            const max = Math.max(...pbData);
-            const min = Math.min(...pbData);
-            const binSize = (max - min) / bins;
-
-            const histogramData = Array(bins).fill(0);
-            const binLabels = [];
-
-            for (let i = 0; i < bins; i++) {
-                const binStart = min + i * binSize;
-                const binEnd = binStart + binSize;
-                binLabels.push(`${binStart.toFixed(1)}-${binEnd.toFixed(1)}`);
-
-                pbData.forEach(value => {
-                    if (value >= binStart && value < binEnd) {
-                        histogramData[i]++;
-                    }
-                });
-            }
-
-            const option = {
-                tooltip: {
-                    trigger: 'item',
-                    formatter: '{b}: {c} 只股票'
-                },
-                xAxis: {
-                    type: 'category',
-                    data: binLabels,
-                    axisLabel: {
-                        interval: 0,
-                        rotate: 45
-                    }
-                },
-                yAxis: {
-                    type: 'value',
-                    name: '股票数量'
-                },
-                series: [{
-                    name: '市净率分布',
-                    type: 'bar',
-                    data: histogramData,
-                    itemStyle: {
-                        color: '#f59e0b'
-                    }
-                }]
-            };
-
-            pbChart.setOption(option);
-        }
-    }
 };
 
 // 监听视图模式变化，渲染图表
@@ -692,33 +614,21 @@ watchEffect(() => {
 // 处理窗口大小变化
 const handleResize = () => {
     if (mainChart) mainChart.resize();
-    if (peChart) peChart.resize();
-    if (pbChart) pbChart.resize();
 };
 
-// 生命周期钩子
+// 添加窗口大小变化监听
 onMounted(() => {
     window.addEventListener('resize', handleResize);
 });
 
-// 组件卸载时清理
+// 移除窗口大小变化监听
 onUnmounted(() => {
     window.removeEventListener('resize', handleResize);
-    if (mainChart) {
-        mainChart.dispose();
-        mainChart = null;
-    }
-    if (peChart) {
-        peChart.dispose();
-        peChart = null;
-    }
-    if (pbChart) {
-        pbChart.dispose();
-        pbChart = null;
-    }
+    if (mainChart) mainChart.dispose();
 });
 </script>
 
 <style scoped>
-/* 所有样式通过 Tailwind CSS 实现 */
+/* All scoped styles should have been removed. */
+/* This block is intentionally empty. */
 </style>
