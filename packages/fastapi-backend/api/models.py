@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import Dict, Any, Optional, List, Union
 from decimal import Decimal # Ensure Decimal is imported
+import math
 from .sensitivity_models import SensitivityAnalysisRequest, SensitivityAnalysisResult # Import new models
 
 # --- Request Model ---
@@ -167,30 +168,76 @@ class StockValuationResponse(BaseModel):
 # --- Stock Screener API Models ---
 
 class ApiStockScreenerRequestModel(BaseModel):
-    pe_min: Optional[float] = Field(None, description="最小市盈率 (PE TTM)")
-    pe_max: Optional[float] = Field(None, description="最大市盈率 (PE TTM)")
+    # 基础财务指标
+    pe_min: Optional[float] = Field(None, description="最小市盈率 (PE)")
+    pe_max: Optional[float] = Field(None, description="最大市盈率 (PE)")
+    pe_ttm_min: Optional[float] = Field(None, description="最小市盈率TTM (PE_TTM)")
+    pe_ttm_max: Optional[float] = Field(None, description="最大市盈率TTM (PE_TTM)")
     pb_min: Optional[float] = Field(None, description="最小市净率 (PB)")
     pb_max: Optional[float] = Field(None, description="最大市净率 (PB)")
+    ps_min: Optional[float] = Field(None, description="最小市销率 (PS)")
+    ps_max: Optional[float] = Field(None, description="最大市销率 (PS)")
+    ps_ttm_min: Optional[float] = Field(None, description="最小市销率TTM (PS_TTM)")
+    ps_ttm_max: Optional[float] = Field(None, description="最大市销率TTM (PS_TTM)")
+
+    # 市值参数
     market_cap_min: Optional[float] = Field(None, description="最小市值 (亿元)")
     market_cap_max: Optional[float] = Field(None, description="最大市值 (亿元)")
-    # page: Optional[int] = Field(1, ge=1)
-    # page_size: Optional[int] = Field(20, ge=1, le=100)
+
+    # 其他筛选条件
+    industry: Optional[str] = Field(None, description="行业筛选")
+    act_ent_type: Optional[str] = Field(None, description="实际控制人企业性质")
+
+    # 分页参数
+    page: Optional[int] = Field(1, ge=1, description="当前页码")
+    page_size: Optional[int] = Field(20, ge=1, le=100, description="每页记录数")
 
 class ApiScreenedStockModel(BaseModel):
     ts_code: str
     name: Optional[str] = None
     latest_price: Optional[float] = Field(None, alias='close') # Mapped from 'close' column
+    pe: Optional[float] = None
     pe_ttm: Optional[float] = None
     pb: Optional[float] = None
+    ps: Optional[float] = None
+    ps_ttm: Optional[float] = None
     total_market_cap: Optional[float] = Field(None, alias='market_cap_billion') # Mapped from 'market_cap_billion'
     industry: Optional[str] = None
-    model_config = ConfigDict(extra="ignore", populate_by_name=True) # Allow extra fields and use alias
+    area: Optional[str] = None
+    market: Optional[str] = None
+    act_ent_type: Optional[str] = None
+    turnover_rate: Optional[float] = None
+    turnover_rate_f: Optional[float] = None
+    volume_ratio: Optional[float] = None
+    dv_ratio: Optional[float] = None
+    dv_ttm: Optional[float] = None
+    total_share: Optional[float] = None
+    float_share: Optional[float] = None
+    free_share: Optional[float] = None
+    circ_mv: Optional[float] = None
+
+    # 配置模型
+    model_config = ConfigDict(
+        extra="ignore",
+        populate_by_name=True, # Allow extra fields and use alias
+        json_encoders={
+            float: lambda v: None if v is None or (isinstance(v, float) and (math.isnan(v) or math.isinf(v))) else v
+        }
+    )
+
+    # 验证方法，处理特殊浮点数值
+    @field_validator('*')
+    @classmethod
+    def validate_float_fields(cls, v):
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return None
+        return v
 
 class ApiStockScreenerResponseModel(BaseModel):
     results: List[ApiScreenedStockModel]
     total: int
-    # page: Optional[int] = None
-    # page_size: Optional[int] = None
+    page: Optional[int] = None
+    page_size: Optional[int] = None
     last_data_update_time: Optional[str] = None
 
 class ApiUpdateScreenerDataRequestModel(BaseModel):

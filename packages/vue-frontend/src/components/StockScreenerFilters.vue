@@ -1,169 +1,114 @@
 <template>
-    <div class="space-y-6">
+    <div class="space-y-4 w-full max-w-full">
 
-        <Tabs defaultValue="basic" class="w-full">
-            <TabsList class="grid w-full grid-cols-3">
-                <TabsTrigger value="basic">基础指标</TabsTrigger>
-                <TabsTrigger value="financial">财务指标</TabsTrigger>
-                <TabsTrigger value="growth">成长指标</TabsTrigger>
-            </TabsList>
-
-            <!-- 基础指标 -->
-            <TabsContent value="basic" class="space-y-4 pt-2">
-                <div class="filter-group space-y-2">
-                    <label for="pe-min" class="text-sm font-medium text-muted-foreground">市盈率 (PE) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="pe-min" v-model="filters.peMin" placeholder="最小PE" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="pe-max" v-model="filters.peMax" placeholder="最大PE" />
-                    </div>
+        <div class="space-y-3 pt-1">
+            <div class="filter-group space-y-1">
+                <label for="pe-min" class="text-sm font-medium text-muted-foreground">市盈率 (PE) 范围:</label>
+                <div class="flex items-center gap-1">
+                    <Input type="number" id="pe-min" v-model="filters.peMin" placeholder="最小PE"
+                        class="min-w-0 flex-1" />
+                    <span class="text-muted-foreground px-1">-</span>
+                    <Input type="number" id="pe-max" v-model="filters.peMax" placeholder="最大PE"
+                        class="min-w-0 flex-1" />
                 </div>
+            </div>
 
-                <div class="filter-group space-y-2">
-                    <label for="pb-min" class="text-sm font-medium text-muted-foreground">市净率 (PB) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="pb-min" v-model="filters.pbMin" placeholder="最小PB" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="pb-max" v-model="filters.pbMax" placeholder="最大PB" />
-                    </div>
+            <div class="filter-group space-y-1">
+                <label for="pe-ttm-min" class="text-sm font-medium text-muted-foreground">市盈率TTM (PE_TTM) 范围:</label>
+                <div class="flex items-center gap-1">
+                    <Input type="number" id="pe-ttm-min" v-model="filters.peTtmMin" placeholder="最小PE_TTM"
+                        class="min-w-0 flex-1" />
+                    <span class="text-muted-foreground px-1">-</span>
+                    <Input type="number" id="pe-ttm-max" v-model="filters.peTtmMax" placeholder="最大PE_TTM"
+                        class="min-w-0 flex-1" />
                 </div>
+            </div>
 
-                <div class="filter-group space-y-2">
-                    <label for="market-cap-min" class="text-sm font-medium text-muted-foreground">市值 (亿元) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="market-cap-min" v-model="filters.marketCapMin" placeholder="最小市值" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="market-cap-max" v-model="filters.marketCapMax" placeholder="最大市值" />
-                    </div>
+            <div class="filter-group space-y-1">
+                <label for="pb-min" class="text-sm font-medium text-muted-foreground">市净率 (PB) 范围:</label>
+                <div class="flex items-center gap-1">
+                    <Input type="number" id="pb-min" v-model="filters.pbMin" placeholder="最小PB"
+                        class="min-w-0 flex-1" />
+                    <span class="text-muted-foreground px-1">-</span>
+                    <Input type="number" id="pb-max" v-model="filters.pbMax" placeholder="最大PB"
+                        class="min-w-0 flex-1" />
                 </div>
+            </div>
 
-                <div class="filter-group space-y-2">
-                    <label for="dividend-yield-min" class="text-sm font-medium text-muted-foreground">股息率 (%)
-                        范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="dividend-yield-min" v-model="filters.dividendYieldMin"
-                            placeholder="最小股息率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="dividend-yield-max" v-model="filters.dividendYieldMax"
-                            placeholder="最大股息率" />
-                    </div>
+            <div class="filter-group space-y-1">
+                <label for="ps-min" class="text-sm font-medium text-muted-foreground">市销率 (PS) 范围:</label>
+                <div class="flex items-center gap-1">
+                    <Input type="number" id="ps-min" v-model="filters.psMin" placeholder="最小PS"
+                        class="min-w-0 flex-1" />
+                    <span class="text-muted-foreground px-1">-</span>
+                    <Input type="number" id="ps-max" v-model="filters.psMax" placeholder="最大PS"
+                        class="min-w-0 flex-1" />
                 </div>
+            </div>
 
-                <div class="filter-group space-y-2">
-                    <label class="text-sm font-medium text-muted-foreground">行业选择:</label>
-                    <Select v-model="filters.industry">
-                        <SelectTrigger>
-                            <SelectValue placeholder="选择行业" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">全部行业</SelectItem>
-                            <SelectItem v-for="industry in industries" :key="industry" :value="industry">
-                                {{ industry }}
-                            </SelectItem>
-                        </SelectContent>
-                    </Select>
+            <div class="filter-group space-y-1">
+                <label for="ps-ttm-min" class="text-sm font-medium text-muted-foreground">市销率TTM (PS_TTM) 范围:</label>
+                <div class="flex items-center gap-1">
+                    <Input type="number" id="ps-ttm-min" v-model="filters.psTtmMin" placeholder="最小PS_TTM"
+                        class="min-w-0 flex-1" />
+                    <span class="text-muted-foreground px-1">-</span>
+                    <Input type="number" id="ps-ttm-max" v-model="filters.psTtmMax" placeholder="最大PS_TTM"
+                        class="min-w-0 flex-1" />
                 </div>
-            </TabsContent>
+            </div>
 
-            <!-- 财务指标 -->
-            <TabsContent value="financial" class="space-y-4 pt-2">
-                <div class="filter-group space-y-2">
-                    <label for="roe-min" class="text-sm font-medium text-muted-foreground">ROE (%) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="roe-min" v-model="filters.roeMin" placeholder="最小ROE" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="roe-max" v-model="filters.roeMax" placeholder="最大ROE" />
-                    </div>
+            <div class="filter-group space-y-1">
+                <label for="total-mv-min" class="text-sm font-medium text-muted-foreground">总市值 (亿元) 范围:</label>
+                <div class="flex items-center gap-1">
+                    <Input type="number" id="total-mv-min" v-model="filters.totalMvMin" placeholder="最小总市值"
+                        class="min-w-0 flex-1" />
+                    <span class="text-muted-foreground px-1">-</span>
+                    <Input type="number" id="total-mv-max" v-model="filters.totalMvMax" placeholder="最大总市值"
+                        class="min-w-0 flex-1" />
                 </div>
+                <p class="text-xs text-muted-foreground">输入单位为亿元</p>
+            </div>
 
-                <div class="filter-group space-y-2">
-                    <label for="gross-margin-min" class="text-sm font-medium text-muted-foreground">毛利率 (%) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="gross-margin-min" v-model="filters.grossMarginMin"
-                            placeholder="最小毛利率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="gross-margin-max" v-model="filters.grossMarginMax"
-                            placeholder="最大毛利率" />
-                    </div>
-                </div>
+            <div class="filter-group space-y-1">
+                <label class="text-sm font-medium text-muted-foreground">行业选择:</label>
+                <Select v-model="filters.industry">
+                    <SelectTrigger>
+                        <SelectValue placeholder="选择行业" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">全部行业</SelectItem>
+                        <SelectItem v-for="industry in industries" :key="industry" :value="industry">
+                            {{ industry }}
+                        </SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
 
-                <div class="filter-group space-y-2">
-                    <label for="net-margin-min" class="text-sm font-medium text-muted-foreground">净利率 (%) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="net-margin-min" v-model="filters.netMarginMin" placeholder="最小净利率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="net-margin-max" v-model="filters.netMarginMax" placeholder="最大净利率" />
-                    </div>
-                </div>
-
-                <div class="filter-group space-y-2">
-                    <label for="debt-to-equity-min" class="text-sm font-medium text-muted-foreground">资产负债率 (%)
-                        范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="debt-to-equity-min" v-model="filters.debtToEquityMin"
-                            placeholder="最小资产负债率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="debt-to-equity-max" v-model="filters.debtToEquityMax"
-                            placeholder="最大资产负债率" />
-                    </div>
-                </div>
-            </TabsContent>
-
-            <!-- 成长指标 -->
-            <TabsContent value="growth" class="space-y-4 pt-2">
-                <div class="filter-group space-y-2">
-                    <label for="revenue-growth-min" class="text-sm font-medium text-muted-foreground">营收增长率 (%)
-                        范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="revenue-growth-min" v-model="filters.revenueGrowthMin"
-                            placeholder="最小增长率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="revenue-growth-max" v-model="filters.revenueGrowthMax"
-                            placeholder="最大增长率" />
-                    </div>
-                </div>
-
-                <div class="filter-group space-y-2">
-                    <label for="profit-growth-min" class="text-sm font-medium text-muted-foreground">净利润增长率 (%)
-                        范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="profit-growth-min" v-model="filters.profitGrowthMin"
-                            placeholder="最小增长率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="profit-growth-max" v-model="filters.profitGrowthMax"
-                            placeholder="最大增长率" />
-                    </div>
-                </div>
-
-                <div class="filter-group space-y-2">
-                    <label for="eps-growth-min" class="text-sm font-medium text-muted-foreground">EPS增长率 (%) 范围:</label>
-                    <div class="flex items-center space-x-2">
-                        <Input type="number" id="eps-growth-min" v-model="filters.epsGrowthMin" placeholder="最小增长率" />
-                        <span class="text-muted-foreground">-</span>
-                        <Input type="number" id="eps-growth-max" v-model="filters.epsGrowthMax" placeholder="最大增长率" />
-                    </div>
-                </div>
-
-                <div class="filter-group space-y-2">
-                    <label class="text-sm font-medium text-muted-foreground">增长期间:</label>
-                    <Select v-model="filters.growthPeriod">
-                        <SelectTrigger>
-                            <SelectValue placeholder="选择期间" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="yoy">同比 (YoY)</SelectItem>
-                            <SelectItem value="3yr">3年复合 (CAGR)</SelectItem>
-                            <SelectItem value="5yr">5年复合 (CAGR)</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            </TabsContent>
-        </Tabs>
+            <div class="filter-group space-y-1">
+                <label class="text-sm font-medium text-muted-foreground">实控人企业性质:</label>
+                <Select v-model="filters.actEntType">
+                    <SelectTrigger>
+                        <SelectValue placeholder="选择企业性质" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">全部</SelectItem>
+                        <SelectItem value="中央国企">中央国企</SelectItem>
+                        <SelectItem value="地方国企">地方国企</SelectItem>
+                        <SelectItem value="民营企业">民营企业</SelectItem>
+                        <SelectItem value="外资企业">外资企业</SelectItem>
+                        <SelectItem value="集体企业">集体企业</SelectItem>
+                        <SelectItem value="无">无</SelectItem>
+                        <SelectItem value="未知">未知</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+        </div>
 
         <div class="flex flex-col gap-2">
-            <div class="flex flex-col sm:flex-row gap-2">
+            <!-- 主要操作按钮 -->
+            <div class="grid grid-cols-2 gap-2">
                 <Button @click="applyFilters" variant="default" class="w-full">
-                    <span class="flex items-center">
+                    <span class="flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                             class="mr-1">
@@ -173,7 +118,7 @@
                     </span>
                 </Button>
                 <Button @click="resetFilters" variant="outline" class="w-full">
-                    <span class="flex items-center">
+                    <span class="flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                             class="mr-1">
@@ -184,9 +129,11 @@
                     </span>
                 </Button>
             </div>
-            <div class="flex flex-col sm:flex-row gap-2">
+
+            <!-- 保存和更新按钮 -->
+            <div class="grid grid-cols-2 gap-2">
                 <Button @click="saveFilters" variant="outline" class="w-full">
-                    <span class="flex items-center">
+                    <span class="flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                             class="mr-1">
@@ -197,43 +144,86 @@
                         保存条件
                     </span>
                 </Button>
-                <Button @click="updateData" :disabled="isUpdatingData" variant="secondary" class="w-full">
-                    <span class="flex items-center">
+                <Button @click="updateData('all')" :disabled="isUpdatingData" variant="secondary" class="w-full">
+                    <span class="flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
                             class="mr-1" :class="{ 'animate-spin': isUpdatingData }">
                             <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
                             <path d="M21 3v5h-5" />
                         </svg>
-                        {{ isUpdatingData ? '正在更新...' : '更新基础数据' }}
+                        {{ isUpdatingData ? '更新中...' : '更新数据' }}
                     </span>
+                </Button>
+            </div>
+
+            <!-- 更新特定类型数据按钮 -->
+            <div class="grid grid-cols-2 gap-2">
+                <Button @click="updateData('basic')" :disabled="isUpdatingData" variant="outline" size="sm">
+                    更新基础数据
+                </Button>
+                <Button @click="updateData('daily')" :disabled="isUpdatingData" variant="outline" size="sm">
+                    更新行情数据
                 </Button>
             </div>
         </div>
 
         <div v-if="savedFilters.length > 0" class="pt-2">
             <h5 class="text-sm font-medium text-muted-foreground mb-2">已保存的筛选条件:</h5>
-            <div class="flex flex-wrap gap-2">
-                <Badge v-for="(filter, index) in savedFilters" :key="index" variant="outline" class="cursor-pointer"
-                    @click="loadSavedFilter(index)">
-                    {{ filter.name }}
-                    <Button variant="ghost" size="icon" class="h-4 w-4 ml-1 p-0" @click.stop="deleteSavedFilter(index)">
+            <div class="flex flex-wrap gap-1">
+                <Badge v-for="(filter, index) in savedFilters" :key="index" variant="outline"
+                    class="cursor-pointer text-xs flex-shrink-0 max-w-full" @click="loadSavedFilter(index)">
+                    <span class="truncate">{{ filter.name }}</span>
+                    <Button variant="ghost" size="icon" class="h-4 w-4 ml-1 p-0 flex-shrink-0"
+                        @click.stop="deleteSavedFilter(index)">
                         <XIcon class="h-3 w-3" />
                     </Button>
                 </Badge>
             </div>
         </div>
 
-        <p v-if="dataStatus" class="text-sm text-muted-foreground mt-2">{{ dataStatus }}</p>
+        <!-- 数据状态指示器 -->
+        <div v-if="dataStatus" class="text-sm p-2 rounded-md mt-2" :class="{
+            'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400': dataStatus.includes('成功') || dataStatus.includes('完成'),
+            'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400': dataStatus.includes('正在') || dataStatus.includes('请稍候'),
+            'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400': dataStatus.includes('失败') || dataStatus.includes('错误')
+        }">
+            <div class="flex items-center">
+                <!-- 成功图标 -->
+                <svg v-if="dataStatus.includes('成功') || dataStatus.includes('完成')" xmlns="http://www.w3.org/2000/svg"
+                    class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+
+                <!-- 加载图标 -->
+                <svg v-else-if="dataStatus.includes('正在') || dataStatus.includes('请稍候')"
+                    class="animate-spin h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none"
+                    viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+
+                <!-- 错误图标 -->
+                <svg v-else-if="dataStatus.includes('失败') || dataStatus.includes('错误')"
+                    xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+
+                <span>{{ dataStatus }}</span>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, onMounted, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { XIcon } from 'lucide-vue-next';
 
@@ -241,65 +231,48 @@ export interface ScreenerFilters {
     // 基础指标
     peMin: number | string | undefined;
     peMax: number | string | undefined;
+    peTtmMin: number | string | undefined;
+    peTtmMax: number | string | undefined;
     pbMin: number | string | undefined;
     pbMax: number | string | undefined;
-    marketCapMin: number | string | undefined;
-    marketCapMax: number | string | undefined;
-    dividendYieldMin: number | string | undefined;
-    dividendYieldMax: number | string | undefined;
+    psMin: number | string | undefined;
+    psMax: number | string | undefined;
+    psTtmMin: number | string | undefined;
+    psTtmMax: number | string | undefined;
+    totalMvMin: number | string | undefined;
+    totalMvMax: number | string | undefined;
     industry: string;
-
-    // 财务指标
-    roeMin: number | string | undefined;
-    roeMax: number | string | undefined;
-    grossMarginMin: number | string | undefined;
-    grossMarginMax: number | string | undefined;
-    netMarginMin: number | string | undefined;
-    netMarginMax: number | string | undefined;
-    debtToEquityMin: number | string | undefined;
-    debtToEquityMax: number | string | undefined;
-
-    // 成长指标
-    revenueGrowthMin: number | string | undefined;
-    revenueGrowthMax: number | string | undefined;
-    profitGrowthMin: number | string | undefined;
-    profitGrowthMax: number | string | undefined;
-    epsGrowthMin: number | string | undefined;
-    epsGrowthMax: number | string | undefined;
-    growthPeriod: string;
+    actEntType: string;
 }
+
+// 定义组件属性
+interface Props {
+    isLoading?: boolean;
+    dataUpdateStatus?: string;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+    isLoading: false,
+    dataUpdateStatus: ''
+});
 
 // 初始化筛选条件
 const filters = reactive<ScreenerFilters>({
     // 基础指标
     peMin: '',
     peMax: '',
+    peTtmMin: '',
+    peTtmMax: '',
     pbMin: '',
     pbMax: '',
-    marketCapMin: '',
-    marketCapMax: '',
-    dividendYieldMin: '',
-    dividendYieldMax: '',
+    psMin: '',
+    psMax: '',
+    psTtmMin: '',
+    psTtmMax: '',
+    totalMvMin: '',
+    totalMvMax: '',
     industry: 'all',
-
-    // 财务指标
-    roeMin: '',
-    roeMax: '',
-    grossMarginMin: '',
-    grossMarginMax: '',
-    netMarginMin: '',
-    netMarginMax: '',
-    debtToEquityMin: '',
-    debtToEquityMax: '',
-
-    // 成长指标
-    revenueGrowthMin: '',
-    revenueGrowthMax: '',
-    profitGrowthMin: '',
-    profitGrowthMax: '',
-    epsGrowthMin: '',
-    epsGrowthMax: '',
-    growthPeriod: 'yoy',
+    actEntType: 'all'
 });
 
 // 行业列表
@@ -314,6 +287,18 @@ const industries = ref<string[]>([
 // 状态变量
 const isUpdatingData = ref(false);
 const dataStatus = ref('');
+
+// 监听props变化
+watch(() => props.isLoading, (newValue) => {
+    isUpdatingData.value = newValue;
+});
+
+watch(() => props.dataUpdateStatus, (newValue) => {
+    if (newValue) {
+        dataStatus.value = newValue;
+        // 状态消息会由父组件清除，不需要在这里设置定时器
+    }
+});
 
 // 保存的筛选条件
 interface SavedFilter {
@@ -355,8 +340,8 @@ const applyFilters = () => {
 const resetFilters = () => {
     Object.keys(filters).forEach(key => {
         const typedKey = key as keyof ScreenerFilters;
-        if (key === 'growthPeriod') {
-            filters[typedKey] = 'yoy';
+        if (key === 'industry' || key === 'actEntType') {
+            filters[typedKey] = 'all';
         } else {
             filters[typedKey] = '';
         }
@@ -402,11 +387,8 @@ const loadSavedFilter = (index: number) => {
     // 应用保存的筛选条件
     Object.keys(savedFilter.filters).forEach(key => {
         const typedKey = key as keyof ScreenerFilters;
-        // 确保类型兼容性
-        if (typedKey === 'growthPeriod') {
-            filters[typedKey] = savedFilter.filters[typedKey] as string;
-        } else {
-            // 对于数字字段和其他字段，确保它们是字符串或数字
+        // 对于所有字段，确保它们是字符串或数字
+        if (typedKey in filters) {
             filters[typedKey] = savedFilter.filters[typedKey] as any; // 使用any类型绕过类型检查
         }
     });
@@ -429,17 +411,23 @@ const deleteSavedFilter = (index: number) => {
 };
 
 // 更新数据
-const updateData = async () => {
+const updateData = async (dataType: 'basic' | 'daily' | 'all' = 'all') => {
     isUpdatingData.value = true;
-    dataStatus.value = '正在更新数据，请稍候...';
+
+    const dataTypeText = {
+        'basic': '基础',
+        'daily': '行情',
+        'all': '全部'
+    }[dataType];
+
+    dataStatus.value = `正在更新${dataTypeText}数据，请稍候...`;
     try {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate async
-        dataStatus.value = '数据更新成功！';
-        emit('update-data');
+        emit('update-data', dataType);
+        // 不再使用模拟延迟，而是依赖父组件的实际API调用
+        // 状态更新将由父组件通过事件通知
     } catch (error) {
         console.error('Error updating data:', error);
-        dataStatus.value = '数据更新失败，请检查网络或联系管理员。';
-    } finally {
+        dataStatus.value = `${dataTypeText}数据更新失败，请检查网络或联系管理员。`;
         isUpdatingData.value = false;
     }
 };

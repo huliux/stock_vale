@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import DcfResultsDisplay from '@/components/DcfResultsDisplay.vue';
 import { valuationApi, ApiClientError } from '@/services/apiClient';
@@ -42,9 +42,22 @@ const computedError = computed(() => valuationStore.getError);
 const hasCalculated = ref(false);
 const initialStockCode = ref<string | null>(null);
 
-onMounted(() => {
+// 监听路由查询参数的变化
+const updateStockCodeFromRoute = () => {
     if (route.query.stockCode && typeof route.query.stockCode === 'string') {
+        console.log('DcfValuationView: 从URL查询参数中获取股票代码:', route.query.stockCode);
         initialStockCode.value = route.query.stockCode;
+    }
+};
+
+// 组件挂载时设置初始股票代码
+onMounted(updateStockCodeFromRoute);
+
+// 监听整个route对象，当它变化时检查stockCode
+watch(route, (newRoute) => {
+    if (newRoute.query.stockCode && typeof newRoute.query.stockCode === 'string') {
+        console.log('DcfValuationView: 路由查询参数stockCode变化为:', newRoute.query.stockCode);
+        initialStockCode.value = newRoute.query.stockCode;
     }
 });
 

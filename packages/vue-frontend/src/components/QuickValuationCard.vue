@@ -60,6 +60,14 @@ onMounted(() => {
   console.log('QuickValuationCard: 初始化完成，日期:', valuationDate.value);
 });
 
+// 监听initialStockCode的变化
+watch(() => props.initialStockCode, (newVal) => {
+  if (newVal) {
+    console.log('QuickValuationCard: initialStockCode变化为:', newVal);
+    stockCode.value = newVal;
+  }
+});
+
 function getTodayDateString() {
   const today = new Date();
   const year = today.getFullYear();

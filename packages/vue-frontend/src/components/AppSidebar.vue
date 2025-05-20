@@ -27,15 +27,17 @@ import type { ApiDcfValuationRequest } from '@shared-types/index' // Import the 
 const props = withDefaults(defineProps<SidebarProps & {
   isLoading: boolean
   initialStockCode?: string | null
+  dataUpdateStatus?: string
 }>(), {
   collapsible: 'icon',
+  dataUpdateStatus: ''
 })
 
 const emit = defineEmits<{
   (e: 'submit-valuation', payload: ApiDcfValuationRequest): void // Use specific type
   (e: 'validation-error', message: string): void
   (e: 'apply-filters', filters: Partial<ScreenerFilters>): void
-  (e: 'update-data'): void
+  (e: 'update-data', dataType?: 'basic' | 'daily' | 'all'): void
 }>()
 
 // Dummy user data for NavUser, replace with actual data or props if needed
@@ -86,6 +88,14 @@ const dcfFormRef = ref<InstanceType<typeof DcfParametersForm> | null>(null)
 const currentStockCode = ref<string>(props.initialStockCode || '600519.SH')
 const currentValuationDate = ref<string>(getTodayDateString())
 
+// 监听initialStockCode的变化，更新currentStockCode
+watch(() => props.initialStockCode, (newVal) => {
+  if (newVal) {
+    console.log('AppSidebar: initialStockCode变化为:', newVal);
+    currentStockCode.value = newVal;
+  }
+}, { immediate: true })
+
 const { open } = useSidebar() // Get the open state from the provider, changed isOpen to open
 
 function getTodayDateString() {
@@ -132,9 +142,9 @@ function handleApplyFilters(filters: Partial<ScreenerFilters>) {
   emit('apply-filters', filters);
 }
 
-function handleUpdateData() {
-  console.log('AppSidebar: handleUpdateData被调用');
-  emit('update-data');
+function handleUpdateData(dataType: 'basic' | 'daily' | 'all' = 'all') {
+  console.log('AppSidebar: handleUpdateData被调用，dataType:', dataType);
+  emit('update-data', dataType);
 }
 
 </script>
@@ -215,9 +225,12 @@ function handleUpdateData() {
         </div>
         <div v-else-if="activeNavItemId === 'screener'" class="h-full">
           <div class="flex flex-col h-full">
-            <div class="flex-1 overflow-y-auto p-4">
-              <h3 class="text-lg font-semibold mb-4">股票筛选</h3>
-              <StockScreenerFilters @apply-filters="handleApplyFilters" @update-data="handleUpdateData" />
+            <div class="flex-1 overflow-y-auto p-3">
+              <h3 class="text-lg font-semibold mb-3">股票筛选</h3>
+              <div class="max-w-full">
+                <StockScreenerFilters :is-loading="props.isLoading" :data-update-status="props.dataUpdateStatus"
+                  @apply-filters="handleApplyFilters" @update-data="handleUpdateData" />
+              </div>
             </div>
           </div>
         </div>

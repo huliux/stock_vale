@@ -718,12 +718,14 @@ const submitValuationRequest = () => {
 };
 
 watch(() => props.stockCode, (newVal) => {
+    console.log('DcfParametersForm: stockCode变化为:', newVal);
     params.stock_code = newVal;
-});
+}, { immediate: true });
 
 watch(() => props.valuationDate, (newVal) => {
+    console.log('DcfParametersForm: valuationDate变化为:', newVal);
     params.valuation_date = newVal;
-});
+}, { immediate: true });
 
 watch(() => formStringValues.prediction_years, (newValStr) => {
     const numVal = parseInt(newValStr || '', 10);

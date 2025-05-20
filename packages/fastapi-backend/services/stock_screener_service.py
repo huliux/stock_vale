@@ -76,7 +76,7 @@ def get_tushare_pro_api():
     if not tushare_token:
         logger.error("错误：TUSHARE_TOKEN 未在 .env 文件中设置。")
         raise StockScreenerServiceError("TUSHARE_TOKEN 未配置。")
-    
+
     try:
         pro = ts.pro_api(tushare_token)
         # Perform a simple test call to verify token and connectivity
@@ -99,14 +99,14 @@ def get_latest_valid_trade_date():
         StockScreenerServiceError: If API is not initialized or no valid date is found.
     """
     pro = get_tushare_pro_api() # Ensures API is initialized
-    
+
     for i in range(8): # Check today and previous 7 days
         date_obj = datetime.now() - timedelta(days=i)
         potential_trade_date = date_obj.strftime('%Y%m%d')
         try:
             df_cal = pro.trade_cal(exchange='SSE', start_date=potential_trade_date, end_date=potential_trade_date)
             if not df_cal.empty and df_cal['is_open'].iloc[0] == 1:
-                test_ts_code = '000001.SZ' 
+                test_ts_code = '000001.SZ'
                 df_check = pro.daily_basic(ts_code=test_ts_code, trade_date=potential_trade_date, fields='ts_code')
                 if not df_check.empty:
                     logger.info(f"找到最新的有效交易日: {potential_trade_date}")
@@ -118,7 +118,7 @@ def get_latest_valid_trade_date():
         except Exception as e:
             logger.warning(f"检查交易日 {potential_trade_date} 时出错: {e}")
             continue
-    
+
     logger.error("过去7天内未能找到有效的交易日数据。")
     raise StockScreenerServiceError("过去7天内未能找到有效的交易日数据。")
 
@@ -137,7 +137,7 @@ def load_stock_basic(force_update=False):
     """
     pro = get_tushare_pro_api()
     cache_file_path = os.path.join(CACHE_DIR, "stock_basic.feather")
-    
+
     if not force_update and os.path.exists(cache_file_path):
         try:
             df = pd.read_feather(cache_file_path)
@@ -150,9 +150,10 @@ def load_stock_basic(force_update=False):
 
     logger.info("正在从 Tushare API 获取股票基本信息 (stock_basic)...")
     try:
+        # 添加act_ent_type字段到请求中
         stock_basic_df = pro.stock_basic(
             list_status='L',
-            fields='ts_code,symbol,name,area,industry,list_date,market,exchange'
+            fields='ts_code,symbol,name,area,industry,list_date,market,exchange,act_ent_type'
         )
         if not stock_basic_df.empty:
             logger.info(f"成功从 API 获取 {len(stock_basic_df)} 条股票基本数据。")
@@ -191,7 +192,7 @@ def load_daily_basic(trade_date, force_update=False):
         try:
             df = pd.read_feather(cache_file_path)
             logger.info(f"从缓存文件 '{cache_file_path}' 加载交易日 {trade_date} 的每日行情指标。")
-            # df['data_trade_date'] = trade_date 
+            # df['data_trade_date'] = trade_date
             return df
         except Exception as e:
             logger.warning(f"从缓存文件 '{cache_file_path}' 加载每日行情指标失败: {e}。将尝试从API获取。")
@@ -251,13 +252,13 @@ def get_cache_file_timestamps() -> dict:
                         latest_daily_mtime = mtime
                 except Exception as e_file:
                     logger.warning(f"无法获取文件 {filename} 的修改时间: {e_file}")
-        
+
         if latest_daily_mtime is not None:
             timestamps["daily_basic"] = datetime.fromtimestamp(latest_daily_mtime).isoformat()
-            
+
     except Exception as e_dir:
         logger.error(f"遍历缓存目录 {CACHE_DIR} 以查找每日数据文件时出错: {e_dir}")
-        
+
     return timestamps
 
 def get_merged_stock_data(trade_date, force_update_basic=False, force_update_daily=False):
@@ -285,10 +286,10 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
     try:
         df_basic['ts_code'] = df_basic['ts_code'].astype(str)
         df_daily['ts_code'] = df_daily['ts_code'].astype(str)
-        
+
         merged_df = pd.merge(df_basic, df_daily, on='ts_code', how='inner', suffixes=('_basic', '_daily'))
         logger.info(f"数据合并完成。合并后共有 {len(merged_df)} 条记录。")
-        
+
         # Log some sample data after merge, before rename and conversion
         if not merged_df.empty:
             logger.info(f"合并后数据样本 (前5行，关注 close, total_mv, ts_code):\n{merged_df[['ts_code', 'name', 'close', 'total_mv']].head()}")
@@ -299,7 +300,7 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
              merged_df.rename(columns={'trade_date_x': 'trade_date'}, inplace=True)
 
         metrics_to_convert = [
-            'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio', 
+            'close', 'turnover_rate', 'turnover_rate_f', 'volume_ratio',
             'pe', 'pe_ttm', 'pb', 'ps', 'ps_ttm', 'dv_ratio', 'dv_ttm',
             'total_share', 'float_share', 'free_share', 'total_mv', 'circ_mv'
         ]
@@ -317,21 +318,28 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
                         logger.warning(f"列 '{metric}' 在 to_numeric 转换后包含 NaN 值。")
             else:
                 logger.warning(f"警告: 列 '{metric}' 在合并后的DataFrame中不存在，跳过转换。")
-        
+
         if 'total_mv' in merged_df.columns:
-            merged_df['market_cap_billion'] = merged_df['total_mv'] / 10000 
+            merged_df['market_cap_billion'] = merged_df['total_mv'] / 10000
             if not merged_df.empty:
                  logger.info(f"列 'market_cap_billion' 计算后数据样本 (前5行):\n{merged_df[['ts_code', 'name', 'total_mv', 'market_cap_billion']].head()}")
-        
+
         if 'circ_mv' in merged_df.columns:
             merged_df['circ_market_cap_billion'] = merged_df['circ_mv'] / 10000
 
+        # 处理act_ent_type字段，如果为空则设置默认值
+        if 'act_ent_type' in merged_df.columns:
+            merged_df['act_ent_type'] = merged_df['act_ent_type'].fillna('未知')
+            # 将空字符串也替换为"未知"
+            merged_df.loc[merged_df['act_ent_type'] == '', 'act_ent_type'] = '未知'
+            logger.info(f"处理 'act_ent_type' 字段，将空值替换为'未知'")
+
         logger.info("数据预处理完成 (指标转换为数值型，市值单位转换)。")
-        
+
         # Log final sample data for the relevant columns before returning
         if not merged_df.empty:
             logger.info(f"返回前最终数据样本 (前5行，关注 close, market_cap_billion, ts_code):\n{merged_df[['ts_code', 'name', 'close', 'market_cap_billion']].head()}")
-            
+
             # Specifically check if 'close' or 'market_cap_billion' are all NaN for some reason
             if merged_df['close'].isnull().all():
                 logger.error("错误：处理后 'close' 列全部为 NaN。")
@@ -350,13 +358,13 @@ def get_merged_stock_data(trade_date, force_update_basic=False, force_update_dai
 # Example test logic (can be run if this file is executed directly)
 if __name__ == '__main__':
     logger.info("正在测试 stock_screener_service.py 模块功能...")
-    
+
     # Ensure .env is loaded for testing (assuming it's in project root or fastapi-backend)
     # The module-level load_dotenv should handle this.
-    
+
     try:
         pro = get_tushare_pro_api() # Test API initialization
-        
+
         logger.info("\n测试获取最新有效交易日...")
         latest_date = get_latest_valid_trade_date()
         logger.info(f"获取到的最新有效交易日是: {latest_date}")
@@ -376,14 +384,14 @@ if __name__ == '__main__':
         logger.info(f"\n测试加载交易日 {latest_date} 的每日行情指标 (从缓存加载)...")
         df_daily_cached = load_daily_basic(latest_date, force_update=False)
         logger.info(f"从缓存加载每日行情成功，共 {len(df_daily_cached)} 条数据。")
-        
+
         logger.info(f"\n测试获取合并后的股票数据 (交易日: {latest_date})...")
         merged_data = get_merged_stock_data(latest_date, force_update_basic=True, force_update_daily=True)
         if not merged_data.empty:
             logger.info(f"成功获取并合并数据，共 {len(merged_data)} 条记录。")
             logger.info("合并后数据的前3行:")
             logger.info(merged_data.head(3))
-            
+
             if 'pe_ttm' in merged_data.columns and 'market_cap_billion' in merged_data.columns:
                 filtered_sample = merged_data[(merged_data['pe_ttm'].notna()) & (merged_data['pe_ttm'] > 0) & (merged_data['pe_ttm'] < 10) & (merged_data['market_cap_billion'].notna()) & (merged_data['market_cap_billion'] > 100)]
                 logger.info(f"\n应用筛选条件 (0 < PE_TTM < 10 and 市值 > 100亿) 后，示例剩余 {len(filtered_sample)} 条记录。")
@@ -398,5 +406,5 @@ if __name__ == '__main__':
         logger.error(f"服务层错误: {se}")
     except Exception as ex:
         logger.error(f"测试过程中发生意外错误: {ex}")
-    
+
     logger.info("\nstock_screener_service.py 模块功能测试完毕。")
