@@ -20,6 +20,14 @@
         </div>
 
         <div v-if="valuationData" class="space-y-6">
+            <!-- 导出按钮 -->
+            <div class="flex justify-end mb-4">
+                <Button @click="exportValuationResults" variant="outline" size="sm" class="flex items-center">
+                    <DownloadIcon class="h-4 w-4 mr-2" />
+                    导出估值结果
+                </Button>
+            </div>
+
             <!-- 基本信息 -->
             <h3 class="text-lg font-semibold mb-4">基本信息</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -90,7 +98,7 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">¥{{
                                 formatNumber(valuationData.valuation_results?.dcf_forecast_details?.value_per_share, 2)
-                            }}</span>
+                                }}</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span
@@ -114,7 +122,7 @@
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">EV/EBITDA: {{
                                 formatNumber(valuationData.valuation_results?.dcf_forecast_details?.base_ev_ebitda, 2)
-                            }}×</span>
+                                }}×</span>
                         </div>
                     </div>
                 </Card>
@@ -126,12 +134,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.wacc_used)
-                            }}</span>
+                                }}</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">股权成本: {{
                                 formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.cost_of_equity_used)
-                            }}</span>
+                                }}</span>
                         </div>
                     </div>
                 </Card>
@@ -143,12 +151,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.enterprise_value)
-                            }}亿</span>
+                                }}亿</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">股权价值: {{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.equity_value)
-                            }}亿</span>
+                                }}亿</span>
                         </div>
                     </div>
                 </Card>
@@ -160,12 +168,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.terminal_value)
-                            }}亿</span>
+                                }}亿</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">终值现值: {{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.pv_terminal_value)
-                            }}亿</span>
+                                }}亿</span>
                         </div>
                     </div>
                 </Card>
@@ -177,12 +185,12 @@
                         <div class="flex items-baseline mt-1">
                             <span class="text-2xl font-bold">{{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.pv_forecast_ufcf)
-                            }}亿</span>
+                                }}亿</span>
                         </div>
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">净债务: {{
                                 formatLargeNumberInBillions(valuationData.valuation_results?.dcf_forecast_details?.net_debt)
-                            }}亿</span>
+                                }}亿</span>
                         </div>
                     </div>
                 </Card>
@@ -203,7 +211,7 @@
                         <div class="flex items-center mt-2">
                             <span class="text-sm text-muted-foreground">隐含永续增长率: {{
                                 formatPercentage(valuationData.valuation_results?.dcf_forecast_details?.implied_perpetual_growth_rate)
-                            }}</span>
+                                }}</span>
                         </div>
                     </div>
                 </Card>
@@ -234,7 +242,7 @@
                         class="border p-3 rounded-md bg-muted/20 mb-4">
                         <h4 class="text-md font-medium mb-2">{{ getMetricDisplayName(String(metricKey)) }} ({{
                             getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
-                        }} vs {{
+                            }} vs {{
                                 getAxisParamDisplayName(valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
                             }})</h4>
                         <div class="w-full overflow-x-auto">
@@ -326,7 +334,7 @@
                                             <TableCell class="whitespace-nowrap">{{ formatNumber(row.delta_nwc) }}
                                             </TableCell>
                                             <TableCell class="whitespace-nowrap font-semibold">{{ formatNumber(row.ufcf)
-                                                }}
+                                            }}
                                             </TableCell>
                                             <TableCell class="whitespace-nowrap font-semibold">{{
                                                 formatNumber(row.pv_ufcf) }}
@@ -458,7 +466,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertTriangle, ChevronDown, ChevronRight } from 'lucide-vue-next';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, ChevronDown, ChevronRight, DownloadIcon } from 'lucide-vue-next';
+import { saveAs } from 'file-saver';
 
 // defineProps is a compiler macro and no longer needs to be imported.
 // import DOMPurify from 'dompurify'; // For v-html, if LLM output is complex HTML
@@ -754,6 +764,155 @@ const renderMarkdown = (markdownText: string | null | undefined): string => {
     // This is a very naive implementation. For real use, use a library like 'marked' or 'markdown-it'.
     // And sanitize with DOMPurify if rendering HTML from untrusted sources.
     return markdownText.replace(/\n/g, '<br>');
+};
+
+// 导出估值结果
+const exportValuationResults = () => {
+    console.log('导出估值结果函数被调用');
+    if (!props.valuationData) {
+        console.log('没有估值数据可导出');
+        return;
+    }
+
+    try {
+        // 创建CSV内容，添加UTF-8 BOM标记以确保Excel正确识别中文
+        let csvContent = "\uFEFF股票估值结果报告\r\n";
+        csvContent += `生成时间,${new Date().toLocaleString()}\r\n\r\n`;
+
+        // 基本信息
+        csvContent += "基本信息\r\n";
+        csvContent += `股票代码,${props.valuationData.stock_info?.ts_code || 'N/A'}\r\n`;
+        csvContent += `股票名称,${props.valuationData.stock_info?.name || 'N/A'}\r\n`;
+        csvContent += `行业,${props.valuationData.stock_info?.industry || 'N/A'}\r\n`;
+        csvContent += `最新价格,${props.valuationData.valuation_results?.latest_price || props.valuationData.stock_info?.latest_price || 0}\r\n`;
+        csvContent += `估值日期,${props.valuationData.stock_info?.base_report_date || 'N/A'}\r\n\r\n`;
+
+        // 核心估值指标
+        csvContent += "核心估值指标\r\n";
+        csvContent += `每股内在价值,${props.valuationData.valuation_results?.dcf_forecast_details?.value_per_share || 0}\r\n`;
+        csvContent += `上升空间,${calculatedUpsidePotential.value || 0}\r\n`;
+        csvContent += `隐含PE,${props.valuationData.valuation_results?.dcf_forecast_details?.dcf_implied_diluted_pe || 0}\r\n`;
+        csvContent += `EV/EBITDA,${props.valuationData.valuation_results?.dcf_forecast_details?.base_ev_ebitda || 0}\r\n`;
+
+        // 处理大数值，使用原始值
+        const enterpriseValue = props.valuationData.valuation_results?.dcf_forecast_details?.enterprise_value;
+        const equityValue = props.valuationData.valuation_results?.dcf_forecast_details?.equity_value;
+        const terminalValue = props.valuationData.valuation_results?.dcf_forecast_details?.terminal_value;
+        const pvTerminalValue = props.valuationData.valuation_results?.dcf_forecast_details?.pv_terminal_value;
+
+        csvContent += `企业价值,${enterpriseValue || 0}\r\n`;
+        csvContent += `股权价值,${equityValue || 0}\r\n`;
+        csvContent += `终值,${terminalValue || 0}\r\n`;
+        csvContent += `终值现值,${pvTerminalValue || 0}\r\n`;
+
+        csvContent += `WACC,${props.valuationData.valuation_results?.dcf_forecast_details?.wacc_used || 0}\r\n`;
+        csvContent += `预测期(年),${props.valuationData.valuation_results?.dcf_forecast_details?.forecast_period_years || 'N/A'}\r\n\r\n`;
+
+        // 敏感性分析结果
+        if (props.valuationData.valuation_results?.sensitivity_analysis_result &&
+            props.valuationData.valuation_results?.sensitivity_analysis_result.result_tables &&
+            Object.keys(props.valuationData.valuation_results?.sensitivity_analysis_result.result_tables).length > 0) {
+
+            csvContent += "敏感性分析结果\r\n";
+
+            // 遍历所有敏感性分析表格（排除DCF隐含PE相关表格）
+            for (const [metricKey, tableData] of Object.entries(filteredSensitivityTables.value)) {
+                csvContent += `${getMetricDisplayName(String(metricKey))} (${getAxisParamDisplayName(props.valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
+                    } vs ${getAxisParamDisplayName(props.valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
+                    })\r\n`;
+
+                // 添加表头
+                csvContent += `${getAxisParamDisplayName(props.valuationData.valuation_results.sensitivity_analysis_result.row_parameter)
+                    }/${getAxisParamDisplayName(props.valuationData.valuation_results.sensitivity_analysis_result.column_parameter)
+                    }`;
+
+                // 添加列标题
+                for (let colIndex = 0; colIndex < props.valuationData.valuation_results.sensitivity_analysis_result.column_values.length; colIndex++) {
+                    csvContent += `,${getFormattedColAxisValue(colIndex)}`;
+                }
+                csvContent += "\r\n";
+
+                // 添加表格数据
+                for (let rowIndex = 0; rowIndex < tableData.length; rowIndex++) {
+                    csvContent += `${getFormattedRowAxisValue(rowIndex)}`;
+                    for (let cellIndex = 0; cellIndex < tableData[rowIndex].length; cellIndex++) {
+                        const cellValue = tableData[rowIndex][cellIndex];
+                        csvContent += `,${cellValue !== null ? cellValue : 'N/A'}`;
+                    }
+                    csvContent += "\r\n";
+                }
+                csvContent += "\r\n";
+            }
+        }
+
+        // 详细财务预测表格
+        if (props.valuationData.valuation_results?.detailed_forecast_table && props.valuationData.valuation_results.detailed_forecast_table.length > 0) {
+            csvContent += "详细财务预测表格\r\n";
+            csvContent += "年份,营业收入,息税前利润,税后净营业利润,折旧与摊销,资本性支出,净营运资本变动,无杠杆自由现金流,FCF现值\r\n";
+
+            props.valuationData.valuation_results.detailed_forecast_table.forEach((row: Record<string, any>) => {
+                // 使用与界面显示相同的格式
+                csvContent += `${row.year},${row.revenue || 0},${row.ebit || 0},${row.nopat || 0},${row.d_a || 0},${row.capex || 0},${row.delta_nwc || 0},${row.ufcf || 0},${row.pv_ufcf || 0}\r\n`;
+            });
+            csvContent += "\r\n";
+        }
+
+        // 历史财务摘要
+        if (props.valuationData.valuation_results?.historical_financial_summary &&
+            props.valuationData.valuation_results.historical_financial_summary.length > 0) {
+
+            csvContent += "历史财务摘要\r\n";
+
+            // 添加表头
+            if (hasColumn('科目')) {
+                csvContent += `${getHistoricalHeaderName('科目')}`;
+            }
+            if (hasColumn('报表类型')) {
+                csvContent += `,${getHistoricalHeaderName('报表类型')}`;
+            }
+            for (const colKey of otherColumnKeys.value) {
+                csvContent += `,${getHistoricalHeaderName(colKey)}`;
+            }
+            csvContent += "\r\n";
+
+            // 添加表格数据
+            for (const row of props.valuationData.valuation_results.historical_financial_summary) {
+                if (hasColumn('科目')) {
+                    csvContent += `${row['科目']}`;
+                }
+                if (hasColumn('报表类型')) {
+                    csvContent += `,${row['报表类型']}`;
+                }
+                for (const colKey of otherColumnKeys.value) {
+                    csvContent += `,${row[colKey] !== null && row[colKey] !== undefined ? row[colKey] : 'N/A'}`;
+                }
+                csvContent += "\r\n";
+            }
+            csvContent += "\r\n";
+        }
+
+        // 历史财务比率
+        if (props.valuationData.valuation_results?.historical_ratios_summary &&
+            props.valuationData.valuation_results.historical_ratios_summary.length > 0) {
+
+            csvContent += "历史财务比率\r\n";
+            csvContent += `${getHistoricalHeaderName('metric_name')},${getHistoricalHeaderName('value')}\r\n`;
+
+            for (const row of props.valuationData.valuation_results.historical_ratios_summary) {
+                csvContent += `${getHistoricalHeaderName(String(row.metric_name))},${row.value !== null && row.value !== undefined ? row.value : 'N/A'}\r\n`;
+            }
+            csvContent += "\r\n";
+        }
+
+        // 使用file-saver库保存文件
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        const fileName = `${props.valuationData.stock_info?.ts_code || '股票'}_估值结果_${new Date().toISOString().split('T')[0]}.csv`;
+        saveAs(blob, fileName);
+        console.log('导出完成 - 文件已下载');
+    } catch (error) {
+        console.error('导出过程中发生错误:', error);
+        alert('导出过程中发生错误，请查看控制台获取详细信息');
+    }
 };
 
 const findClosestIndex = (arr: (string | number)[] | undefined, target: number | null | undefined): number | null => {
