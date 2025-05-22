@@ -444,6 +444,28 @@
                 </CardContent>
             </Card>
 
+            <!-- AI 深度研究 -->
+            <Card v-if="valuationData?.stock_info?.ts_code">
+                <CardHeader>
+                    <CardTitle>AI 深度研究</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div class="space-y-4">
+                        <p class="text-sm text-muted-foreground">
+                            使用AI深度研究功能，对{{ valuationData.stock_info.name || valuationData.stock_info.ts_code }}进行全面的财务分析和投资价值研究。
+                        </p>
+                        <div class="flex justify-between items-center">
+                            <Button variant="outline" size="sm" @click="goToDeepResearch">
+                                开始深度研究
+                            </Button>
+                            <span class="text-xs text-muted-foreground">
+                                由Deep Research提供支持
+                            </span>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
             <!-- 数据警告 -->
             <Card
                 v-if="valuationData.valuation_results?.data_warnings && valuationData.valuation_results?.data_warnings.length > 0">
@@ -477,6 +499,7 @@ import { saveAs } from 'file-saver';
 
 // Import types from shared-types
 import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import type {
     ApiDcfValuationResponse,
     // ApiStockInfo, // Not needed if ApiDcfValuationResponse is used directly for prop
@@ -494,6 +517,7 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const router = useRouter();
 
 // 高级分析折叠状态，默认折叠
 const advancedAnalysisCollapsed = ref(true);
@@ -501,6 +525,19 @@ const advancedAnalysisCollapsed = ref(true);
 // 切换高级分析折叠状态
 const toggleAdvancedAnalysis = () => {
     advancedAnalysisCollapsed.value = !advancedAnalysisCollapsed.value;
+};
+
+// 导航到深度研究页面
+const goToDeepResearch = () => {
+    if (props.valuationData?.stock_info?.ts_code) {
+        router.push({
+            path: '/deep-research',
+            query: {
+                code: props.valuationData.stock_info.ts_code,
+                name: props.valuationData.stock_info.name || ''
+            }
+        });
+    }
 };
 
 const baseReportYearForDisplay = computed(() => {

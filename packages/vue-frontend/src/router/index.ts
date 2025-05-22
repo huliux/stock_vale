@@ -35,7 +35,7 @@ const router = createRouter({
     {
       path: '/deep-research',
       name: 'deep-research',
-      component: DcfValuationView // Placeholder
+      component: () => import('../views/DeepResearchView.vue')
     },
     {
       path: '/strategy-research',

@@ -1,5 +1,9 @@
 {
   "dependencies": {
-    "@internationalized/date": "^3.8.0"
+    "@internationalized/date": "^3.8.0",
+    "@microsoft/fetch-event-source": "^2.0.1",
+    "dompurify": "^3.2.6",
+    "marked": "^15.0.12",
+    "vue-sonner": "^1.3.2"
   }
 }

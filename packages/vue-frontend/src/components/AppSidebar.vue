@@ -23,6 +23,8 @@ import { Command, Calculator, ListFilter, FileText } from 'lucide-vue-next' // U
 import { h, ref, type Component, watch } from 'vue' // ref will be needed for activeNavItem, added Component
 import { useRouter, useRoute } from 'vue-router' // 导入路由器和路由
 import type { ApiDcfValuationRequest } from '@shared-types/index' // Import the type
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 
 const props = withDefaults(defineProps<SidebarProps & {
   isLoading: boolean
@@ -84,15 +86,37 @@ watch(() => route.path, () => {
   updateActiveNavItem()
 })
 
+// 深度研究相关
+const researchStockCode = ref<string>(props.initialStockCode || '');
+const researchStockName = ref<string>('');
+
 const dcfFormRef = ref<InstanceType<typeof DcfParametersForm> | null>(null)
 const currentStockCode = ref<string>(props.initialStockCode || '600519.SH')
 const currentValuationDate = ref<string>(getTodayDateString())
 
-// 监听initialStockCode的变化，更新currentStockCode
+// 监听路由查询参数变化，更新研究股票代码和名称
+watch(() => route.query, (newQuery) => {
+  if (activeNavItemId.value === 'research') {
+    if (newQuery.code && typeof newQuery.code === 'string') {
+      researchStockCode.value = newQuery.code;
+    }
+
+    if (newQuery.name && typeof newQuery.name === 'string') {
+      researchStockName.value = newQuery.name;
+    }
+  }
+}, { immediate: true })
+
+// 监听initialStockCode的变化，更新currentStockCode和researchStockCode
 watch(() => props.initialStockCode, (newVal) => {
   if (newVal) {
     console.log('AppSidebar: initialStockCode变化为:', newVal);
     currentStockCode.value = newVal;
+
+    // 如果当前是研究页面，也更新研究股票代码
+    if (activeNavItemId.value === 'research') {
+      researchStockCode.value = newVal;
+    }
   }
 }, { immediate: true })
 
@@ -152,6 +176,32 @@ function handleStockCodeChange(newStockCode: string) {
   console.log('AppSidebar: handleStockCodeChange被调用，newStockCode:', newStockCode);
   // 立即更新当前股票代码
   currentStockCode.value = newStockCode;
+}
+
+// 清空深度研究输入
+function clearResearchInputs() {
+  researchStockCode.value = '';
+  researchStockName.value = '';
+}
+
+// 导航到深度研究页面
+function navigateToResearch() {
+  if (!researchStockCode.value) {
+    return;
+  }
+
+  const query: Record<string, string> = {
+    code: researchStockCode.value
+  };
+
+  if (researchStockName.value) {
+    query.name = researchStockName.value;
+  }
+
+  router.push({
+    path: '/deep-research',
+    query
+  });
 }
 
 </script>
@@ -243,7 +293,29 @@ function handleStockCodeChange(newStockCode: string) {
           </div>
         </div>
         <div v-else-if="activeNavItemId === 'research'" class="p-4">
-          <p>深度研究参数区 (待实现)</p>
+          <Card>
+            <CardHeader>
+              <CardTitle>股票信息</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div class="space-y-4">
+                <div>
+                  <label for="researchStockCode" class="block text-sm font-medium mb-1">股票代码</label>
+                  <Input id="researchStockCode" v-model="researchStockCode" placeholder="例如: 000001.SZ" />
+                </div>
+
+                <div>
+                  <label for="researchStockName" class="block text-sm font-medium mb-1">股票名称</label>
+                  <Input id="researchStockName" v-model="researchStockName" placeholder="例如: 平安银行" />
+                </div>
+
+                <div class="flex justify-between space-x-2 mt-4">
+                  <Button variant="outline" @click="clearResearchInputs">清空</Button>
+                  <Button @click="navigateToResearch">开始研究</Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
         <div v-else class="p-4">
           <p>请选择一个导航项</p>
