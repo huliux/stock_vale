@@ -151,6 +151,8 @@ reports/
 wiki/
 data_cache/
 clinerules-bank/
+memory-bank/
+.clinerules/
 
 # Frontend (Vue) - in packages
 packages/vue-frontend/node_modules/
@@ -167,4 +169,5 @@ packages/fastapi-backend/data_cache_backend/
 .roo/
 clinerules-bank/
 .clineignore
-.clinerules
+.clinerules/
+memory-bank/
