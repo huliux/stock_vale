@@ -73,10 +73,10 @@ cp .env.example .env
 pip install uv
 
 # 或者使用curl安装（Linux/macOS）
-curl -sSf https://install.python-poetry.org | python3 -
+curl -sSf https://astral.sh/uv/install.sh | sh
 
 # 或者使用PowerShell安装（Windows）
-(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+irm https://astral.sh/uv/install.ps1 | iex
 ```
 
 4. 创建并激活Python虚拟环境：
@@ -112,7 +112,7 @@ cd ../fastapi-backend
 uv pip install -r requirements.txt
 ```
 
-4. 启动服务：
+6. 启动服务：
 
 **使用Docker**
 ```bash
@@ -127,12 +127,12 @@ npm run dev
 
 # 启动后端API服务
 cd ../fastapi-backend
-uvicorn api.main:app --host 0.0.0.0 --port 8125 --reload
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-5. 访问应用：
+7. 访问应用：
    - 前端: http://localhost:5173
-   - 后端API: http://localhost:8125/docs
+   - 后端API: http://localhost:8000/docs
 
 ## 使用指南
 
@@ -170,8 +170,13 @@ npm run lint       # 运行代码检查
 ### 后端开发
 ```bash
 cd packages/fastapi-backend
-uvicorn api.main:app --reload  # 启动开发服务器
-pytest                         # 运行测试
+# 确保虚拟环境已激活
+source .venv/bin/activate  # Linux/macOS
+# 或
+.venv\Scripts\activate     # Windows
+
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload  # 启动开发服务器
+pytest                                                     # 运行测试
 ```
 
 ### 项目结构
@@ -189,4 +194,3 @@ pytest                         # 运行测试
 3. 提交更改 (`git commit -m 'Add some amazing feature'`)
 4. 推送到分支 (`git push origin feature/amazing-feature`)
 5. 创建Pull Request
-
