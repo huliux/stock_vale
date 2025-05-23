@@ -1,156 +1,192 @@
-# 稳稳的估吧 - 股票估值分析工具 (Vue.js + FastAPI + LLM)
+# StockVale - 专业股票估值分析系统
 
 ## 项目概述
-
-本项目是一个使用 Vue.js 作为用户界面、FastAPI 作为后端 API 的股票估值分析工具。它以 DCF（自由现金流折现）模型为核心，结合大语言模型 (LLM) 提供深入的股票价值分析和投资建议摘要。
-
-- **后端 (FastAPI):** 提供数据获取、模块化的 DCF 估值计算和 LLM 分析调用服务。
-- **前端 (Vue.js):** 提供现代化的用户界面，支持股票估值、敏感性分析、股票筛选等功能，并清晰展示详细估值结果、预测数据和 LLM 生成的分析摘要。
+StockVale是一个专业的股票估值分析系统，基于Vue.js + FastAPI + LLM技术栈构建，提供全面的股票筛选、DCF估值计算、敏感性分析和深度研究工具。系统采用现代化的前端界面和模块化的后端架构，支持多市场数据源和可扩展的估值模型。
 
 ## 主要功能
+- **股票筛选器**：基于PE、PB、市值等指标筛选股票，支持多种视图模式
+- **DCF估值模型**：专业的现金流折现估值计算，包含详细的财务预测和敏感性分析
+- **敏感性分析**：基于WACC和退出乘数的双维度敏感性分析，直观展示估值范围
+- **深度研究**：利用LLM技术提供投资建议和深度分析报告
+- **多种视图模式**：表格、卡片和图表多种方式展示数据和结果
+- **数据导出**：支持CSV格式导出筛选和估值结果
 
-### 1. DCF 估值模型
-- **模块化设计:** 将 DCF 估值流程拆分为多个独立模块，包括数据获取、财务预测、FCF 计算、WACC 计算、终值计算、现值计算和股权价值计算。
-- **灵活的假设设置:** 支持调整预测年限、WACC 参数、终值方法及参数、增长率衰减等关键假设。
-- **敏感性分析:** 提供 WACC 和长期增长率的敏感性分析，帮助理解估值结果对关键参数变化的敏感程度。
-
-### 2. 数据处理与预测
-- **历史数据处理:** 自动获取和处理历史财务数据，计算关键财务指标和比率。
-- **财务预测:** 基于历史数据和用户设置的假设，预测未来财务表现。
-- **异常检测:** 识别并处理数据异常，提供警告信息。
-
-### 3. LLM 分析
-- **自动分析:** 使用大语言模型分析估值结果和财务数据，生成投资建议摘要。
-- **多模型支持:** 支持多种 LLM 模型，包括 DeepSeek 和自定义 LLM API。
-
-### 4. 股票筛选
-- **多维度指标筛选:** 支持按 PE、PB、市值等指标筛选股票。
-- **行业和企业类型筛选:** 支持按行业和企业类型筛选股票。
-- **结果展示:** 以表格形式展示筛选结果，支持排序和详情查看。
-
-### 前端用户界面 (Vue.js)
-- **股票估值功能:**
-    - 输入股票代码、估值日期，设置 DCF 估值假设（如预测年限、WACC 参数、终值方法及参数、增长率衰减等）。
-    - 展示估值结果，包括股票基本信息、DCF 核心结果、敏感性分析、详细财务预测表和 LLM 分析摘要。
-    - 支持历史估值记录保存和查看。
-
-- **股票筛选功能:**
-    - 多维度指标筛选（PE、PB、市值等）。
-    - 行业和企业类型筛选。
-    - 筛选结果表格展示，支持排序和多视图模式（表格、卡片、图表）。
-    - 支持批量估值和添加到观察列表。
-
-- **用户体验优化:**
-    - 响应式布局，适配不同屏幕尺寸。
-    - 使用 shadcn/ui 组件库，提供现代化的 UI 设计。
-    - 数据可视化展示，使用 ECharts 图表库。
-
-## 技术栈
-
-- **后端:** Python, FastAPI, Uvicorn, Pydantic, SQLAlchemy, psycopg2-binary, Pandas, NumPy, python-dotenv, requests, openai
-- **前端:**
-  - Vue.js 3 + TypeScript
-  - Pinia (状态管理)
-  - Vue Router (路由管理)
-  - shadcn/ui + TailwindCSS (UI组件库)
-  - ECharts (数据可视化)
-- **数据库:** PostgreSQL (需要自行准备和配置)
-- **测试:**
-  - 后端: pytest
-  - 前端: Vitest
-- **开发工具:** Git, VS Code, npm/pnpm, venv, pip, ESLint, Prettier
-
-## 使用方法
-
-### 1. 环境准备
-- 克隆仓库。
-- 准备 PostgreSQL 数据库，并根据 `wiki/数据库表文档.md` 和 `data_fetcher.py` 中的表结构导入所需数据。
-
-### 2. 后端设置与运行
-- **进入后端目录:**
-  ```bash
-  cd packages/fastapi-backend
-  ```
-- **创建 Python 虚拟环境并激活:**
-  ```bash
-  python -m venv .venv
-  source .venv/bin/activate  # Linux/macOS
-  # 或
-  .venv\Scripts\activate  # Windows
-  ```
-- **安装依赖:**
-  ```bash
-  pip install -e .
-  ```
-- **配置环境变量:**
-  - 复制 `.env.example` 为 `.env`。
-  - 在 `.env` 文件中填入正确的数据库连接信息 (`DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`)。
-  - 配置所需的大语言模型 API Key 和相关参数。
-- **运行后端服务:**
-  ```bash
-  uvicorn api.main:app --reload --host 0.0.0.0 --port 8125
-  ```
-
-### 3. 前端设置与运行
-- **进入前端目录:**
-  ```bash
-  cd packages/vue-frontend
-  ```
-- **安装依赖:**
-  ```bash
-  npm install
-  # 或
-  pnpm install
-  ```
-- **运行开发服务器:**
-  ```bash
-  npm run dev
-  # 或
-  pnpm dev
-  ```
-
-### 4. 使用
-- 后端服务启动后，会在 `http://localhost:8125` 运行，可以通过 `http://localhost:8125/docs` 访问 Swagger UI 查看 API 文档。
-- 前端服务启动后，会在 `http://localhost:5173`（或其他可用端口）运行。
-- 在浏览器中打开前端地址，可以使用以下功能：
-  - **股票估值:** 输入股票代码（例如 `600519.SH`）、选择估值日期，调整估值假设，点击"估值"按钮查看结果。
-  - **股票筛选:** 点击左侧导航栏的筛选图标，设置筛选条件，点击"应用筛选"按钮查看结果。
-  - **历史记录:** 在估值页面右上角点击"历史记录"按钮，查看之前的估值结果。
-
-## 项目结构
+## 系统架构
+项目采用Monorepo结构组织代码，包含三个主要包：
 
 ```
-.
+stock_vale/
 ├── packages/
-│   ├── fastapi-backend/     # 后端 FastAPI 应用
-│   │   ├── api/             # API 入口和路由
-│   │   ├── config/          # 配置文件
-│   │   ├── tests/           # 后端单元测试
-│   │   └── ...              # 其他后端模块
-│   ├── vue-frontend/        # Vue.js 前端应用
-│   │   ├── src/             # 源代码
-│   │   │   ├── components/  # 组件
-│   │   │   ├── views/       # 页面
-│   │   │   ├── stores/      # Pinia 状态管理
-│   │   │   └── ...          # 其他前端模块
-│   │   └── ...              # 前端配置文件
-│   └── shared-types/        # 共享类型定义
-├── .env.example             # 环境变量模板
-├── .gitignore
-└── README.md                # 本文件
+│   ├── vue-frontend/      # Vue.js 3 + TypeScript + Tailwind CSS 前端
+│   ├── fastapi-backend/   # FastAPI + Python 后端
+│   └── shared-types/      # 共享TypeScript类型定义
+└── ...
 ```
 
-## 模型适用性与局限性
+### 技术栈
+- **前端**：Vue 3 + TypeScript + Vite + Pinia + Vue Router + Tailwind CSS + shadcn-vue
+- **后端**：FastAPI + Python + Tushare API
+- **LLM集成**：支持DeepSeek和自定义OpenAI兼容模型
 
-本DCF估值模型主要基于非金融类企业的财务结构和经营特性设计。
+### 核心组件
+- **前端**：
+  - `DcfValuationView.vue`：DCF估值主视图
+  - `StockScreenerView.vue`：股票筛选器视图
+  - `DcfParametersForm.vue`：估值参数表单
+  - `DcfResultsDisplay.vue`：估值结果展示
+  - `StockScreenerResultsTable.vue`：筛选结果表格
+  - `SensitivityHeatmap.vue`：敏感性分析热图
 
-对于银行、保险、证券等金融行业公司，由于其财务报表科目、核心业务模式与非金融企业存在显著差异（例如，营运资本、资本支出等概念的适用性不同），当前模型的估值结果可能存在较大偏差，仅供参考。
+- **后端**：
+  - `data_processor.py`：数据处理核心
+  - `financial_forecaster.py`：财务预测模块
+  - `fcf_calculator.py`：自由现金流计算
+  - `terminal_value_calculator.py`：终值计算
+  - `present_value_calculator.py`：现值计算
+  - `wacc_calculator.py`：加权平均资本成本计算
+  - `stock_screener_service.py`：股票筛选服务
 
-系统在处理金融行业数据时，若发现关键财务数据缺失或与模型假设不符，会尝试使用默认值进行计算并给出警告。用户应特别关注这些警告，并谨慎解读估值结果。UI界面也会针对金融行业股票在数据质量不佳时给出特别提示。
+## 快速开始
 
-未来版本计划引入针对金融等特定行业的专用估值模型以提升准确性。
+### 环境要求
+- Node.js 18+
+- Python 3.10+
+- Docker & Docker Compose (可选)
 
-## 联系方式
+### 安装步骤
 
-- **作者**: Forest
-- **邮箱**: forest@example.com
+1. 克隆仓库：
+```bash
+git clone https://github.com/yourusername/stock_vale.git
+cd stock_vale
+```
+
+2. 配置环境变量：
+```bash
+cp .env.example .env
+# 编辑.env文件，填入必要的API密钥和配置
+```
+
+3. 安装uv（Python包管理工具）：
+```bash
+# 使用pip安装uv
+pip install uv
+
+# 或者使用curl安装（Linux/macOS）
+curl -sSf https://install.python-poetry.org | python3 -
+
+# 或者使用PowerShell安装（Windows）
+(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+```
+
+4. 创建并激活Python虚拟环境：
+```bash
+# 进入后端目录
+cd packages/fastapi-backend
+
+# 使用uv创建虚拟环境
+uv venv .venv
+
+# 激活虚拟环境（Linux/macOS）
+source .venv/bin/activate
+
+# 激活虚拟环境（Windows）
+.venv\Scripts\activate
+```
+
+5. 安装依赖：
+
+**使用Docker (推荐)**
+```bash
+docker-compose up
+```
+
+**手动安装**
+```bash
+# 安装前端依赖
+cd packages/vue-frontend
+npm install
+
+# 安装后端依赖
+cd ../fastapi-backend
+uv pip install -r requirements.txt
+```
+
+4. 启动服务：
+
+**使用Docker**
+```bash
+# 已在docker-compose up步骤中启动
+```
+
+**手动启动**
+```bash
+# 启动前端开发服务器
+cd packages/vue-frontend
+npm run dev
+
+# 启动后端API服务
+cd ../fastapi-backend
+uvicorn api.main:app --host 0.0.0.0 --port 8125 --reload
+```
+
+5. 访问应用：
+   - 前端: http://localhost:5173
+   - 后端API: http://localhost:8125/docs
+
+## 使用指南
+
+### 股票筛选
+1. 导航至"股票筛选"页面
+2. 设置筛选条件（PE、PB、市值等）
+3. 点击"筛选"按钮获取结果
+4. 切换不同视图模式（表格/卡片/图表）查看结果
+5. 可选择导出结果或进行批量估值
+
+### DCF估值
+1. 导航至"绝对估值"页面
+2. 输入股票代码并选择市场
+3. 设置估值参数（预测期、增长率、折现率等）
+4. 点击"计算"按钮获取估值结果
+5. 查看详细的财务预测、现金流折现和敏感性分析结果
+
+### 深度研究
+1. 导航至"深度研究"页面
+2. 输入股票代码并选择研究主题
+3. 系统将调用LLM生成深度分析报告
+4. 查看包含投资建议、风险分析和行业对比的研究报告
+
+## 开发指南
+
+### 前端开发
+```bash
+cd packages/vue-frontend
+npm run dev        # 启动开发服务器
+npm run build      # 构建生产版本
+npm run test:unit  # 运行单元测试
+npm run lint       # 运行代码检查
+```
+
+### 后端开发
+```bash
+cd packages/fastapi-backend
+uvicorn api.main:app --reload  # 启动开发服务器
+pytest                         # 运行测试
+```
+
+### 项目结构
+- `packages/vue-frontend/src/components/` - Vue组件
+- `packages/vue-frontend/src/views/` - 页面视图
+- `packages/vue-frontend/src/stores/` - Pinia状态管理
+- `packages/vue-frontend/src/services/` - API服务
+- `packages/fastapi-backend/api/` - FastAPI应用
+- `packages/fastapi-backend/services/` - 业务服务
+- `packages/shared-types/src/` - 共享类型定义
+
+## 贡献指南
+1. Fork仓库
+2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add some amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 创建Pull Request
+
